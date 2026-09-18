@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+dist-ssr/
+
+# Auto-generated (unplugin)
+src/auto-imports.d.ts
+src/components.d.ts
+
+# Local env
+*.local
+.env
+.env.*
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+
+# Logs
+*.log
+npm-debug.log*

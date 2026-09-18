@@ -1,0 +1,78 @@
+:root {
+  --zhizao-accent: #1d5fd6;
+  --zhizao-accent2: #e8871a;
+  --zhizao-ink: #182538;
+  --zhizao-muted: #5b6b82;
+  --zhizao-rule: #e3e8f0;
+  --zhizao-bg: #f4f6fa;
+  --zhizao-sidebar: #0f1f38;
+
+  --el-color-primary: #1d5fd6;
+  --el-color-primary-light-3: #4b7fdf;
+  --el-color-primary-light-5: #7ba0e8;
+  --el-color-primary-light-7: #aec3f1;
+  --el-color-primary-light-8: #c8d6f5;
+  --el-color-primary-light-9: #e3ebfa;
+  --el-color-primary-dark-2: #174cb0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--zhizao-bg);
+  color: var(--zhizao-ink);
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Hiragino Sans GB",
+    "Heiti SC", "Microsoft YaHei", "Noto Sans CJK SC", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.mono {
+  font-family: "SF Mono", "JetBrains Mono", ui-monospace, Menlo, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 页面容器 */
+.page {
+  padding: 20px 24px;
+}
+
+.page-card {
+  background: #fff;
+  border: 1px solid var(--zhizao-rule);
+  border-radius: 10px;
+  padding: 18px 20px;
+}
+
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.toolbar .spacer {
+  flex: 1;
+}
+
+.pager {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+/* 表头里的编号等宽显示 */
+.cell-code {
+  font-family: "SF Mono", "JetBrains Mono", ui-monospace, Menlo, monospace;
+  color: var(--zhizao-accent);
+  font-weight: 600;
+}

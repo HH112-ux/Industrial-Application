@@ -1,0 +1,23 @@
+# HBuilderX 编译产物
+unpackage/
+
+# CLI 编译产物
+dist/
+
+# 依赖
+node_modules/
+
+# OS
+.DS_Store
+
+# IDE
+.hbuilderx/
+.idea/
+.vscode/
+
+# 日志
+*.log
+
+# 敏感配置文件
+.env
+.env.*

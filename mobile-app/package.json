@@ -1,0 +1,23 @@
+{
+  "name": "zhizao-mobile",
+  "version": "1.0.0",
+  "scripts": {
+    "dev:h5": "UNI_INPUT_DIR=. uni",
+    "build:h5": "UNI_INPUT_DIR=. uni build"
+  },
+  "dependencies": {
+    "@dcloudio/uni-app": "3.0.0-4070520250711001",
+    "@dcloudio/uni-components": "3.0.0-4070520250711001",
+    "@dcloudio/uni-h5": "3.0.0-4070520250711001",
+    "vue": "^3.4.21",
+    "vue-router": "4.4.5",
+    "vue-i18n": "^9.1.9"
+  },
+  "devDependencies": {
+    "@dcloudio/uni-cli-shared": "3.0.0-4070520250711001",
+    "@dcloudio/uni-stacktracey": "3.0.0-4070520250711001",
+    "@dcloudio/vite-plugin-uni": "3.0.0-4070520250711001",
+    "@vue/runtime-core": "^3.4.21",
+    "vite": "5.2.8"
+  }
+}

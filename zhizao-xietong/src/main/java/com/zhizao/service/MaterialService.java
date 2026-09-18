@@ -1,0 +1,102 @@
+package com.zhizao.service;
+
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.zhizao.common.BusinessException;
+import com.zhizao.common.PageResult;
+import com.zhizao.entity.Material;
+import com.zhizao.mapper.MaterialMapper;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.stereotype.Service;
+import org.springframework.util.StringUtils;
+
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+@Service
+public class MaterialService {
+
+    private final MaterialMapper materialMapper;
+    private final CodeGenerator codeGenerator;
+
+    public MaterialService(MaterialMapper materialMapper, CodeGenerator codeGenerator) {
+        this.materialMapper = materialMapper;
+        this.codeGenerator = codeGenerator;
+    }
+
+    public PageResult<Material> list(int pageNum, int pageSize, String keyword, String kitStatus) {
+        Page<Material> page = new Page<>(pageNum, pageSize);
+        LambdaQueryWrapper<Material> qw = new LambdaQueryWrapper<>();
+        qw.and(StringUtils.hasText(keyword), w -> w
+                .like(Material::getMatCode, keyword)
+                .or().like(Material::getMatName, keyword)
+                .or().like(Material::getMatType, keyword));
+        qw.eq(StringUtils.hasText(kitStatus), Material::getKitStatus, kitStatus);
+        qw.orderByDesc(Material::getId);
+        materialMapper.selectPage(page, qw);
+        return PageResult.of(page.getTotal(), page.getRecords());
+    }
+
+    @Cacheable(cacheNames = "material", key = "#id")
+    public Material getById(Long id) {
+        Material material = materialMapper.selectById(id);
+        if (material == null) {
+            throw new BusinessException("物料不存在");
+        }
+        return material;
+    }
+
+    /** 按编码查询，未找到返回 null（供齐套校验内部使用）。 */
+    public Material getByCode(String code) {
+        return materialMapper.selectOne(new LambdaQueryWrapper<Material>().eq(Material::getMatCode, code));
+    }
+
+    /** 批量按编码查询（消除齐套校验 N+1）。 */
+    public Map<String, Material> listByCodes(List<String> codes) {
+        if (codes == null || codes.isEmpty()) {
+            return Map.of();
+        }
+        List<Material> materials = materialMapper.selectList(
+                new LambdaQueryWrapper<Material>().in(Material::getMatCode, codes));
+        return materials.stream().collect(Collectors.toMap(Material::getMatCode, m -> m));
+    }
+
+    @CacheEvict(cacheNames = "material", allEntries = true)
+    public Material create(Material material) {
+        material.setId(null);
+        material.setMatCode(codeGenerator.next("MT"));
+        material.setKitStatus(computeKitStatus(material));
+        materialMapper.insert(material);
+        return material;
+    }
+
+    @CacheEvict(cacheNames = "material", allEntries = true)
+    public Material update(Material material) {
+        getById(material.getId());
+        material.setMatCode(null);
+        material.setKitStatus(computeKitStatus(material));
+        materialMapper.updateById(material);
+        return getById(material.getId());
+    }
+
+    @CacheEvict(cacheNames = "material", allEntries = true)
+    public void delete(Long id) {
+        getById(id);
+        materialMapper.deleteById(id);
+    }
+
+    /** 齐套状态：缺料(0) / 偏低(0<stock<safe) / 充足(stock>=safe)。 */
+    private String computeKitStatus(Material m) {
+        int stock = m.getStockQty() == null ? 0 : m.getStockQty();
+        int safe = m.getSafeStock() == null ? 0 : m.getSafeStock();
+        if (stock == 0) {
+            return "SHORTAGE";
+        }
+        if (stock < safe) {
+            return "LOW";
+        }
+        return "SUFFICIENT";
+    }
+}

@@ -1,0 +1,28 @@
+{
+  "pages": [
+    {
+      "path": "pages/login/login",
+      "style": {
+        "navigationBarTitleText": "登录"
+      }
+    },
+    {
+      "path": "pages/workorder/list",
+      "style": {
+        "navigationBarTitleText": "生产工单"
+      }
+    },
+    {
+      "path": "pages/workorder/detail",
+      "style": {
+        "navigationBarTitleText": "工单详情"
+      }
+    }
+  ],
+  "globalStyle": {
+    "navigationBarTextStyle": "white",
+    "navigationBarTitleText": "智造协同",
+    "navigationBarBackgroundColor": "#0f1f38",
+    "backgroundColor": "#f4f6fa"
+  }
+}

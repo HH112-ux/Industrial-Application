@@ -1,0 +1,25 @@
+# OS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+
+# Logs
+logs/
+
+# Environment
+.env
+
+# Redis dump
+dump.rdb
+
+# Build artifacts
+zhizao-xietong/target/
+zhizao-xietong-web/dist/
+zhizao-xietong-web/node_modules/
+mobile-app/node_modules/
+mobile-app/dist/
+
+# Trae share packages
+.trae-html-share-packages/
