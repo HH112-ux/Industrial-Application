@@ -21,6 +21,7 @@ import com.zhizao.mapper.QualityRecordMapper;
 import com.zhizao.mapper.WorkOrderMapper;
 import com.zhizao.mapper.WorkOrderReportMapper;
 import com.zhizao.mapper.WorkOrderStatusHistoryMapper;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -144,20 +145,28 @@ public class WorkOrderService {
     }
 
     /**
-     * 报工：校验报工数量与累计上限 → 写入报工记录 → 累加工单数量 → 转「待质检」→ 写入状态历史。
+     * 报工：幂等判重 → 校验报工数量与累计上限 → 写入报工记录 → 累加工单数量 → 转「待质检」→ 写入状态历史。
      *
      * <p>数量本身不合法（为空、非正数、合格数与不良数之和不等于报工数）返回 HTTP 400；
      * 累计报工超过工单数量属于业务拒绝，返回业务码 409。任一校验失败都不写报工记录。</p>
      *
+     * <p>带幂等键的请求在同一工单内只生效一次：重复请求直接返回当前工单快照，
+     * 不校验状态、不写报工记录、不累加数量、不写历史。并发同键请求由唯一索引兜底，
+     * 后到者同样按重复请求处理。</p>
+     *
      * @param id  工单主键
-     * @param req 报工请求，包含数量、合格数、不良数、设备与操作人
-     * @return 流转后的工单
-     * @throws BadRequestException 报工数量非法时抛出
+     * @param req 报工请求，包含数量、合格数、不良数、设备、操作人与幂等键
+     * @return 流转后的工单；幂等重试时返回当前工单快照
+     * @throws BadRequestException 报工数量非法或幂等键超长时抛出
      * @throws BusinessException   工单状态不允许、累计超限或并发冲突时抛出
      */
     @Transactional
     public WorkOrder report(Long id, ReportRequest req) {
         WorkOrder order = getById(id);
+        String idempotencyKey = normalizeIdempotencyKey(req.idempotencyKey());
+        if (idempotencyKey != null && reportExists(order.getId(), idempotencyKey)) {
+            return order;
+        }
         if (!WorkOrderStatus.IN_PRODUCTION.name().equals(order.getStatus())) {
             throw new BusinessException("仅「生产中」的工单可报工");
         }
@@ -165,6 +174,7 @@ public class WorkOrderService {
 
         WorkOrderReport report = new WorkOrderReport();
         report.setReportNo(codeGenerator.next("RP"));
+        report.setIdempotencyKey(idempotencyKey);
         report.setOrderId(order.getId());
         report.setReportTime(LocalDateTime.now());
         report.setQty(req.qty());
@@ -172,7 +182,15 @@ public class WorkOrderService {
         report.setOperator(req.operator());
         report.setQualifiedQty(req.qualifiedQty());
         report.setDefectQty(req.defectQty());
-        workOrderReportMapper.insert(report);
+        try {
+            workOrderReportMapper.insert(report);
+        } catch (DuplicateKeyException e) {
+            WorkOrder existing = duplicateReportSnapshot(order.getId(), idempotencyKey);
+            if (existing != null) {
+                return existing;
+            }
+            throw e;
+        }
 
         order.setQtyDone(qtyDone(order) + req.qty());
         order.setQtyQualified(qtyValue(order.getQtyQualified()) + req.qualifiedQty());
@@ -275,6 +293,64 @@ public class WorkOrderService {
             throw new BusinessException(409, "累计报工数量超过工单数量，剩余可报 " +
                     Math.max(0, limit - qtyDone(order)) + " 件");
         }
+    }
+
+    /**
+     * 归一化幂等键：空白视为未提供，超过 64 字符按请求非法拒绝。
+     *
+     * @param raw 客户端传入的幂等键
+     * @return 去除首尾空白后的幂等键，或 null
+     * @throws BadRequestException 幂等键超过 64 字符时抛出
+     */
+    private String normalizeIdempotencyKey(String raw) {
+        if (!StringUtils.hasText(raw)) {
+            return null;
+        }
+        String key = raw.trim();
+        if (key.length() > 64) {
+            throw new BadRequestException("幂等键长度不能超过 64 个字符");
+        }
+        return key;
+    }
+
+    /**
+     * 判断同一工单下该幂等键是否已有报工记录。
+     *
+     * @param orderId        工单主键
+     * @param idempotencyKey 幂等键
+     * @return 已存在返回 true
+     */
+    private boolean reportExists(Long orderId, String idempotencyKey) {
+        Long count = workOrderReportMapper.selectCount(new LambdaQueryWrapper<WorkOrderReport>()
+                .eq(WorkOrderReport::getOrderId, orderId)
+                .eq(WorkOrderReport::getIdempotencyKey, idempotencyKey));
+        return count != null && count > 0;
+    }
+
+    /**
+     * 并发同键兜底：唯一索引冲突后用当前读确认键已存在，并返回最新工单快照。
+     *
+     * <p>MySQL 默认 REPEATABLE READ，普通查询沿用事务开始时的快照，看不到并发事务刚提交的
+     * 报工记录；这里显式加 FOR UPDATE 走当前读，避免把可安全重试的请求误判为失败。</p>
+     *
+     * @param orderId        工单主键
+     * @param idempotencyKey 幂等键
+     * @return 键确已存在时返回最新工单快照，否则返回 null
+     */
+    private WorkOrder duplicateReportSnapshot(Long orderId, String idempotencyKey) {
+        if (idempotencyKey == null) {
+            return null;
+        }
+        List<WorkOrderReport> reports = workOrderReportMapper.selectList(new LambdaQueryWrapper<WorkOrderReport>()
+                .eq(WorkOrderReport::getOrderId, orderId)
+                .eq(WorkOrderReport::getIdempotencyKey, idempotencyKey)
+                .last("FOR UPDATE"));
+        if (reports.isEmpty()) {
+            return null;
+        }
+        return workOrderMapper.selectOne(new LambdaQueryWrapper<WorkOrder>()
+                .eq(WorkOrder::getId, orderId)
+                .last("FOR UPDATE"));
     }
 
     /**

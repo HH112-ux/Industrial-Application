@@ -7,12 +7,18 @@ import com.baomidou.mybatisplus.annotation.TableName;
 
 import java.time.LocalDateTime;
 
+/**
+ * 报工记录：一次数量上报的留档，携带客户端幂等键用于弱网重试去重。
+ *
+ * @author Caspian
+ */
 @TableName("wo_report")
 public class WorkOrderReport {
 
     @TableId(type = IdType.AUTO)
     private Long id;
     private String reportNo;
+    private String idempotencyKey;
     private Long orderId;
     private LocalDateTime reportTime;
     private Integer qty;
@@ -28,6 +34,8 @@ public class WorkOrderReport {
     public void setId(Long id) { this.id = id; }
     public String getReportNo() { return reportNo; }
     public void setReportNo(String reportNo) { this.reportNo = reportNo; }
+    public String getIdempotencyKey() { return idempotencyKey; }
+    public void setIdempotencyKey(String idempotencyKey) { this.idempotencyKey = idempotencyKey; }
     public Long getOrderId() { return orderId; }
     public void setOrderId(Long orderId) { this.orderId = orderId; }
     public LocalDateTime getReportTime() { return reportTime; }

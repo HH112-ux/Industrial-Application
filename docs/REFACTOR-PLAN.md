@@ -141,7 +141,7 @@
 - `service/BomItemService.java`：按工艺版本读取；新版本从指定版本复制；唯一约束校验。
 - `service/KitCheckService.java`：按工单锁定的工艺版本读取 BOM，不再取全局最大版本。
 - `controller/ProcessController.java`：工序 CRUD。
-- 新增迁移 `V8__process_operation.sql`。
+- 新增迁移 `V9__process_operation.sql`。
 
 验收：
 
@@ -190,7 +190,7 @@
 - `common/LoginRateLimiter.java`：改为 Redis 计数，保留本地降级。
 - `service/DeviceService.java`、`PlanService.java`、`WorkOrderService.java`：按 `workshop_scope` 过滤。
 - `controller/AuditLogController.java`：审计查询。
-- 新增迁移 `V9__identity_scope.sql`、`V10__audit_enhance.sql`。
+- 新增迁移 `V10__identity_scope.sql`、`V11__audit_enhance.sql`。
 
 验收：
 
@@ -236,7 +236,7 @@
 - 新增 `ai/` 包：`AiAssistant` 端口、`FakeAiAssistant`、外部模型适配器。
 - 新增 `ai/tool/`：只读工具，复用现有 Service。
 - 新增 `controller/AiController.java`。
-- 新增迁移 `V11__ai_sidecar.sql`。
+- 新增迁移 `V12__ai_sidecar.sql`。
 - 配置：`ai.enabled=false`、模型地址与密钥从环境变量读取。
 
 验收：
