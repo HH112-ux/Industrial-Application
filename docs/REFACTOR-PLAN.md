@@ -16,6 +16,7 @@
 | 测试 | 每个阶段的关键路径必须有单测；涉及 SQL 的阶段补 Testcontainers 集成测试 |
 | 回滚 | 代码回滚到上一版本；数据库保留新增列与表，不做破坏性回滚 |
 | 交付纪律 | 每阶段完成即编译、跑测试、提交、发 PR；不攒提交 |
+| 数据处理 | 不做「为了让数据好看」的兜底；数据缺失时返回空或明确业务码并说明原因 |
 
 ---
 
@@ -194,9 +195,9 @@
 - `security/UserPrincipal.java`、`security/DataScope.java`：当前用户主体与车间数据域判定。
 - `common/LoginRateLimiter.java`：限流端口；`common/LocalLoginRateLimiter.java` 为单实例本地实现。
 - `service/DeviceService.java`、`PlanService.java`、`WorkOrderService.java`：列表追加 `workshop` 条件，详情越权返回 403。
-- `controller/UserController.java`、`service/UserService.java`：用户启停、管理员重置密码、自助改密。
+- `controller/UserController.java`、`service/UserService.java`：用户启停、管理员重置密码、自助改密、管理员分配车间数据域。
 - `controller/AuditLogController.java`、`service/AuditLogService.java`：审计查询。
-- 新增迁移 `V11__identity_scope.sql`、`V12__audit_enhance.sql`。
+- 新增迁移 `V11__identity_scope.sql`、`V12__audit_enhance.sql`、`V13__user_scope_reset.sql`。
 
 验收：
 
@@ -204,9 +205,10 @@
 - 修改密码或管理员重置密码后，旧令牌在下一次请求返回 401。
 - 登录限流保持在 `LoginRateLimiter` 端口之后；当前为单实例本地实现，多实例部署必须替换为共享存储实现，不引入 Redis。`[工程判断]`
 - USER 只能读写自己车间范围的设备、计划与工单；列表自动过滤，详情跨车间返回 403；管理端看板通过列表接口取数，同样受过滤。
-- 单测覆盖：禁用用户、令牌版本、HTTP 401、限流阈值、用户启停与改密、设备/计划/工单车间过滤。
+- 车间数据域采用 deny-by-default：非管理员未分配车间（`workshop_scope = NULL`）时看不到任何车间数据；管理员在用户管理页显式分配，分配后下一次请求生效。V11 曾无依据地把非管理员回填为「一车间」，V13 已纠正为 `NULL`，不修改已执行的 V11。
+- 单测覆盖：禁用用户、令牌版本、HTTP 401、限流阈值、用户启停与改密、车间分配、设备/计划/工单车间过滤。
 
-依赖与风险：依赖 S3 的历史与 S4 的车间字段。风险是现有数据没有车间归属，迁移时按「一车间」回填并记录。
+依赖与风险：依赖 S3 的历史与 S4 的车间字段。风险是现有用户没有车间归属，处理方式是保留 `NULL` 并由管理员逐个显式分配，不做「挑一个车间填上」的兜底；升级后未分配的用户看不到数据属于预期行为。
 
 ---
 
@@ -242,7 +244,7 @@
 - 新增 `ai/` 包：`AiAssistant` 端口、`FakeAiAssistant`、外部模型适配器。
 - 新增 `ai/tool/`：只读工具，复用现有 Service。
 - 新增 `controller/AiController.java`。
-- 新增迁移 `V13__ai_sidecar.sql`。
+- 新增迁移 `V14__ai_sidecar.sql`。
 - 配置：`ai.enabled=false`、模型地址与密钥从环境变量读取。
 
 验收：
@@ -278,7 +280,7 @@
 | 时序表增长过快 | 查询变慢、磁盘增长 | 90 天保留 + 月分区预案 |
 | 乐观锁重试造成体验差 | 用户重复点击失败 | 前端提示刷新，服务端不自动重试 |
 | 工艺历史数据无工序 | S4 无法直接上线 | 迁移生成默认工序并标记 |
-| 车间数据域回填错误 | 用户看不到历史数据 | 迁移按「一车间」回填非管理员，迁移前导出核对，先灰度一个车间 |
+| 车间数据域未分配 | 用户看不到历史数据 | deny-by-default：保留 `NULL`，由管理员在用户管理里显式分配；不做批量回填或兜底授权 |
 | 多实例部署仍用本地限流 | 尝试次数随实例数放大 | 限流已抽端口；多实例上线前必须替换为共享存储实现，代码注释与文档均已标注 |
 | AI 模型不稳定或超时 | 旁路不可用 | 默认关闭、超时降级、不重试主链路 |
 | 范围蔓延 | 重构周期失控 | 每阶段独立验收，未列入阶段的需求进入待办 |

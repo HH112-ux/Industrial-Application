@@ -211,6 +211,26 @@ export const deviceDataApi = {
   telemetry: (id: number) => request.get<any, DeviceTelemetry>(`/devices/${id}/telemetry`)
 };
 
+export interface UserAccount {
+  id: number;
+  username: string;
+  nickname?: string;
+  role: string;
+  enabled: boolean;
+  workshopScope?: string | null;
+  createdAt?: string;
+}
+
+export const userApi = {
+  list: (params: Record<string, any>) => request.get<any, PageResult<UserAccount>>('/users', { params }),
+  changeStatus: (id: number, enabled: boolean) =>
+    request.post(`/users/${id}/status`, null, { params: { enabled } }),
+  resetPassword: (id: number, newPassword: string) =>
+    request.post(`/users/${id}/password`, { newPassword }),
+  assignWorkshop: (id: number, workshopScope: string) =>
+    request.post(`/users/${id}/workshop`, { workshopScope })
+};
+
 export interface BomItem {
   id?: number;
   processId?: number;

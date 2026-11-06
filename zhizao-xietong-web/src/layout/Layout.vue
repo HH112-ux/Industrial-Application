@@ -34,6 +34,9 @@
         <el-menu-item index="/work-orders">
           <el-icon><Tickets /></el-icon><span>生产执行</span>
         </el-menu-item>
+        <el-menu-item v-if="admin" index="/users">
+          <el-icon><User /></el-icon><span>用户管理</span>
+        </el-menu-item>
       </el-menu>
     </el-aside>
 
@@ -55,9 +58,10 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { DataBoard, Cpu, Box, SetUp, Calendar, Tickets, Tools } from '@element-plus/icons-vue';
-import { getUser, clearToken } from '@/api/request';
+import { DataBoard, Cpu, Box, SetUp, Calendar, Tickets, Tools, User } from '@element-plus/icons-vue';
+import { getUser, clearToken, isAdmin } from '@/api/request';
 
+const admin = isAdmin();
 const route = useRoute();
 const router = useRouter();
 const activeMenu = computed(() => route.path);
