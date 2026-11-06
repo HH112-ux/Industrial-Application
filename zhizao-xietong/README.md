@@ -11,20 +11,23 @@
 ```
 zhizao-xietong/
 ├── pom.xml
-├── sql/
-│   ├── schema.sql          # 建库建表
-│   └── data.sql            # 演示种子数据
 └── src/main/
     ├── java/com/zhizao/
     │   ├── ZhizaoApplication.java
-    │   ├── common/         # Result / PageResult / 异常 / 全局处理 / MyBatis-Plus 配置
+    │   ├── common/         # Result / PageResult / 异常 / 全局处理 / 登录限流
     │   ├── enums/          # 工单/设备/工艺/计划/优先级 枚举
-    │   ├── entity/         # 8 个业务实体
+    │   ├── entity/         # 12 个业务实体
     │   ├── mapper/         # MyBatis-Plus Mapper
-    │   ├── dto/            # ReportRequest / QcRequest
+    │   ├── dto/            # 登录、报工、质检、设备上报等 DTO
+    │   ├── gateway/        # MQTT 设备网关
+    │   ├── security/       # JWT 认证与鉴权
     │   ├── service/        # 业务服务 + 状态机 + 齐套校验 + 排产 + 编号生成
-    │   └── controller/     # REST 接口
-    └── resources/application.yml
+    │   ├── controller/     # REST 接口
+    │   ├── config/         # Redis / OpenAPI / 初始化数据
+    │   └── aspect/         # 写操作审计
+    └── resources/
+        ├── application.yml
+        └── db/migration/   # Flyway 建表与种子数据
 ```
 
 ## 快速开始
