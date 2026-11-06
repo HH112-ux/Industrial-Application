@@ -210,6 +210,16 @@ Content-Type: application/json
 
 响应：首次写入返回 `200`；重复 `X-Idempotency-Key` 返回 `200` 且不重复写入；签名错误返回 `401`；设备停用返回 `403`。`[工程判断]`
 
+### 4.1.1 MQTT 上报签名
+
+鉴权开启时，MQTT 消息体在原有字段外增加 `keyId`、`timestamp`（毫秒）、`nonce`、`signature`，以及可选的 `messageId`。签名对象是规范化字段串：
+
+```text
+deviceNo|status|temperature|rpm|current|timestamp|nonce
+```
+
+数值使用去尾零的十进制表示（如 `45.20` 写作 `45.2`），空值用空字符串占位。`timestamp` 超出 `device.signature-tolerance-seconds`（默认 300 秒）即拒绝；`messageId` 用于设备重发去重。`[已决策]`（S1 已实现）
+
 ### 4.2 报工
 
 目标请求体：

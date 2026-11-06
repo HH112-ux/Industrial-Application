@@ -94,12 +94,14 @@ erDiagram
 | `id` | BIGINT | PK | 代理键 |
 | `device_id` | BIGINT | NOT NULL, UNIQUE | 一设备一凭证 |
 | `key_id` | VARCHAR(32) | NOT NULL, UNIQUE | 凭证标识，随请求头传递 |
-| `secret_hash` | VARCHAR(128) | NOT NULL | 设备密钥哈希，不存明文 |
+| `secret_ciphertext` | VARCHAR(256) | NOT NULL | 设备密钥密文，AES-256-GCM 加密后存储，不落明文 |
 | `enabled` | TINYINT | NOT NULL DEFAULT 1 | 吊销开关 |
 | `created_at` | DATETIME | NOT NULL | 签发时间 |
 | `last_used_at` | DATETIME | NULL | 最近使用时间 |
 
 设备上报不再复用用户 JWT，改用 `key_id + HMAC-SHA256(body, secret)` 校验。这样设备凭证泄露的影响面仅限单台设备，用户令牌也不会下发到设备侧。`[工程判断]`
+
+服务端需要用密钥重算 HMAC，因此密钥必须可逆保存，采用 AES-256-GCM 加密而不是哈希；主密钥来自环境变量 `DEVICE_CREDENTIAL_KEY`，未配置时拒绝签发与校验。`[已决策]`
 
 #### 2.1.3 `pr_operation` 工序
 
