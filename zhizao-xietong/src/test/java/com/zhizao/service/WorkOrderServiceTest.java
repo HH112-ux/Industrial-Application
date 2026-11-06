@@ -27,6 +27,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -160,7 +161,7 @@ class WorkOrderServiceTest {
         when(codeGenerator.next("RP")).thenReturn("RP-202609-0001");
         when(workOrderMapper.updateById(order)).thenReturn(1);
 
-        WorkOrder result = workOrderService.report(1L, new ReportRequest(10, 9, 1, null, "zhangsan"));
+        WorkOrder result = workOrderService.report(1L, new ReportRequest(10, 9, 1, null, "zhangsan", null));
 
         assertEquals("PENDING_QC", result.getStatus());
         assertEquals(10, result.getQtyDone());
@@ -179,7 +180,7 @@ class WorkOrderServiceTest {
         when(workOrderMapper.selectById(1L)).thenReturn(order);
 
         assertThrows(BusinessException.class,
-                () -> workOrderService.report(1L, new ReportRequest(10, 9, 1, null, "zhangsan")));
+                () -> workOrderService.report(1L, new ReportRequest(10, 9, 1, null, "zhangsan", null)));
     }
 
     @Test
@@ -188,7 +189,7 @@ class WorkOrderServiceTest {
         when(workOrderMapper.selectById(1L)).thenReturn(order);
 
         assertThrows(BadRequestException.class,
-                () -> workOrderService.report(1L, new ReportRequest(0, 0, 0, null, "zhangsan")));
+                () -> workOrderService.report(1L, new ReportRequest(0, 0, 0, null, "zhangsan", null)));
         verify(workOrderReportMapper, never()).insert(any(WorkOrderReport.class));
         verify(statusHistoryMapper, never()).insert(any(WorkOrderStatusHistory.class));
     }
@@ -199,7 +200,7 @@ class WorkOrderServiceTest {
         when(workOrderMapper.selectById(1L)).thenReturn(order);
 
         assertThrows(BadRequestException.class,
-                () -> workOrderService.report(1L, new ReportRequest(10, 8, 1, null, "zhangsan")));
+                () -> workOrderService.report(1L, new ReportRequest(10, 8, 1, null, "zhangsan", null)));
         verify(workOrderReportMapper, never()).insert(any(WorkOrderReport.class));
     }
 
@@ -210,11 +211,40 @@ class WorkOrderServiceTest {
         when(workOrderMapper.selectById(1L)).thenReturn(order);
 
         BusinessException error = assertThrows(BusinessException.class,
-                () -> workOrderService.report(1L, new ReportRequest(5, 5, 0, null, "zhangsan")));
+                () -> workOrderService.report(1L, new ReportRequest(5, 5, 0, null, "zhangsan", null)));
 
         assertEquals(409, error.getCode());
         verify(workOrderReportMapper, never()).insert(any(WorkOrderReport.class));
         verify(statusHistoryMapper, never()).insert(any(WorkOrderStatusHistory.class));
+    }
+
+    @Test
+    void reportDuplicateKeyReturnsSameResultWithoutSideEffects() {
+        WorkOrder order = order("IN_PRODUCTION");
+        when(workOrderMapper.selectById(1L)).thenReturn(order);
+        when(codeGenerator.next("RP")).thenReturn("RP-202609-0001");
+        when(workOrderMapper.updateById(order)).thenReturn(1);
+        when(workOrderReportMapper.selectCount(any())).thenReturn(0L, 1L);
+        ReportRequest req = new ReportRequest(10, 9, 1, null, "zhangsan", "7f0c1e9a-idem");
+
+        WorkOrder first = workOrderService.report(1L, req);
+        WorkOrder second = workOrderService.report(1L, req);
+
+        assertEquals("PENDING_QC", second.getStatus());
+        assertEquals(first.getQtyDone(), second.getQtyDone());
+        assertEquals(10, second.getQtyDone());
+        verify(workOrderReportMapper, times(1)).insert(any(WorkOrderReport.class));
+        verify(statusHistoryMapper, times(1)).insert(any(WorkOrderStatusHistory.class));
+    }
+
+    @Test
+    void reportRejectsIdempotencyKeyLongerThan64() {
+        WorkOrder order = order("IN_PRODUCTION");
+        when(workOrderMapper.selectById(1L)).thenReturn(order);
+
+        assertThrows(BadRequestException.class,
+                () -> workOrderService.report(1L, new ReportRequest(10, 9, 1, null, "zhangsan", "k".repeat(65))));
+        verify(workOrderReportMapper, never()).insert(any(WorkOrderReport.class));
     }
 
     @Test
