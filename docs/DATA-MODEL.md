@@ -118,7 +118,7 @@ erDiagram
 
 约束：`uk_process_seq (process_id, seq_no)`、`uk_process_op_code (process_id, op_code)`。工序是工艺路线的最小可排产单元，没有工序就无法把计划拆到设备时间窗。`[工程判断]`
 
-#### 2.1.4 `wo_status_history` 工单状态流转历史
+#### 2.1.4 `wo_status_history` 工单状态流转历史（S3 已落地）
 
 | 字段 | 类型 | 约束 | 设计意图 |
 |---|---|---|---|
@@ -246,7 +246,7 @@ erDiagram
 | `V4__device_online.sql` | `eq_device.last_seen_at`（S1 已落地）；`protocol`、`workshop` 随数据域迁移补充 | 无 |
 | `V5__device_credential.sql` | 新建 `eq_device_credential` | 无 |
 | `V6__device_telemetry.sql` | 新建 `eq_telemetry`（S2 已落地） | `V4` 可并行 |
-| `V7__work_order_consistency.sql` | `version`、累计数量、`wo_status_history`、报工约束 | 与 `V4` 可并行 |
+| `V7__work_order_consistency.sql` | `version`、`qty_done`、`qty_qualified`、`qty_defect`、`wo_status_history`（S3 已落地）；报工数量约束在服务层校验，未加数据库 CHECK，避免历史脏数据阻断迁移 | 与 `V4` 可并行 |
 | `V8__process_operation.sql` | 新建 `pr_operation`，`pr_process` 版本字段 | 无 |
 | `V9__identity_scope.sql` | `sys_user` 启用状态、令牌版本、车间范围 | 无 |
 | `V10__audit_enhance.sql` | 审计字段扩展与索引 | 无 |
