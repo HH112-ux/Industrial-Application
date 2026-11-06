@@ -4,12 +4,20 @@
 # IDE
 .idea/
 .vscode/
+*.iml
+.classpath
+.project
+.settings/
 
 # Logs
 logs/
+*.log
+*.log.*
 
 # Environment
 .env
+.env.*
+!.env.example
 
 # Redis dump
 dump.rdb
