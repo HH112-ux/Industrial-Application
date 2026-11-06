@@ -5,6 +5,32 @@ on:
   pull_request:
 
 jobs:
+  commitlint:
+    name: Commit messages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - name: Install commitlint
+        run: npm ci
+      - name: Validate commit messages
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            FROM="origin/${{ github.base_ref }}"
+            git fetch --no-tags origin "${{ github.base_ref }}"
+          else
+            FROM="${{ github.event.before }}"
+            if [ "$FROM" = "0000000000000000000000000000000000000000" ]; then
+              FROM="HEAD~1"
+            fi
+          fi
+          npx --no -- commitlint --from "$FROM" --to HEAD --verbose
+
   backend:
     name: Backend tests
     runs-on: ubuntu-latest
