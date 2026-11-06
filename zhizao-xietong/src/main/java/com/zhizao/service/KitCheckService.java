@@ -10,11 +10,14 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 
 /**
- * 物料齐套校验：基于 BOM 最新版本，按「单件用量 × 工单数量」核算所需物料，
- * 批量查物料（消除 N+1），库存不足即缺料。
+ * 物料齐套校验：按工单锁定的工艺版本（{@code processId} 指向工艺版本行）读取 BOM，
+ * 以「单件用量 × 工单数量」核算所需物料，批量查物料（消除 N+1）。
+ *
+ * <p>工艺改版会生成新的版本行，在制工单仍指向原版本行，因此齐套结果不受后续发布影响。</p>
+ *
+ * @author Caspian
  */
 @Service
 public class KitCheckService {
@@ -27,17 +30,18 @@ public class KitCheckService {
         this.bomItemMapper = bomItemMapper;
     }
 
+    /**
+     * 校验工单所需物料是否齐套。
+     *
+     * @param order 工单，processId 为空时直接通过
+     * @return 齐套结果与缺料明细
+     */
     public KitCheckResult check(WorkOrder order) {
         if (order.getProcessId() == null) {
             return KitCheckResult.pass();
         }
-        List<BomItem> allBom = bomItemMapper.selectList(
+        List<BomItem> bom = bomItemMapper.selectList(
                 new LambdaQueryWrapper<BomItem>().eq(BomItem::getProcessId, order.getProcessId()));
-        int latestVersion = allBom.stream()
-                .map(BomItem::getVersion).filter(Objects::nonNull)
-                .mapToInt(Integer::intValue).max().orElse(1);
-        List<BomItem> bom = allBom.stream()
-                .filter(i -> i.getVersion() != null && i.getVersion() == latestVersion).toList();
         if (bom.isEmpty()) {
             return KitCheckResult.pass();
         }

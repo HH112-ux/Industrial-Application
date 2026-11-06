@@ -6,68 +6,56 @@ import com.zhizao.entity.BomItem;
 import com.zhizao.mapper.BomItemMapper;
 import org.springframework.stereotype.Service;
 
-import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
 
 /**
- * 工艺物料清单（BOM）服务，支持版本管理。
- * 仅最新版本可编辑，历史版本只读（用于追溯）。
+ * 工艺物料清单（BOM）服务。
+ *
+ * <p>BOM 直接挂在工艺版本行（{@code processId}）下，不再按 version 列区分版本；
+ * 工艺改版时由 {@link ProcessService#createVersion(Long)} 复制到新的工艺版本行。
+ * 历史 version 列仅保留存量数据，新逻辑不读取。</p>
+ *
+ * @author Caspian
  */
 @Service
 public class BomItemService {
 
     private final BomItemMapper bomItemMapper;
     private final MaterialService materialService;
+    private final ProcessService processService;
 
-    public BomItemService(BomItemMapper bomItemMapper, MaterialService materialService) {
+    public BomItemService(BomItemMapper bomItemMapper, MaterialService materialService,
+                          ProcessService processService) {
         this.bomItemMapper = bomItemMapper;
         this.materialService = materialService;
+        this.processService = processService;
     }
 
-    /** 列出指定版本的 BOM 项；version 为空时取最新版本。 */
-    public List<BomItem> listByProcess(Long processId, Integer version) {
-        int v = version != null ? version : latestVersion(processId);
+    /**
+     * 列出工艺版本下的全部 BOM 项。
+     *
+     * @param processId 工艺版本 ID
+     * @return BOM 项列表
+     */
+    public List<BomItem> listByProcess(Long processId) {
         return bomItemMapper.selectList(new LambdaQueryWrapper<BomItem>()
-                .eq(BomItem::getProcessId, processId)
-                .eq(BomItem::getVersion, v));
+                .eq(BomItem::getProcessId, processId));
     }
 
-    /** 列出所有版本号（降序）。 */
-    public List<Integer> listVersions(Long processId) {
-        List<BomItem> all = bomItemMapper.selectList(new LambdaQueryWrapper<BomItem>()
-                .eq(BomItem::getProcessId, processId)
-                .select(BomItem::getVersion));
-        return all.stream().map(BomItem::getVersion).filter(Objects::nonNull)
-                .distinct().sorted(Comparator.reverseOrder()).toList();
-    }
-
-    /** 当前最新版本号，无任何版本时返回 1。 */
-    public int latestVersion(Long processId) {
-        List<Integer> versions = listVersions(processId);
-        return versions.isEmpty() ? 1 : versions.get(0);
-    }
-
-    /** 基于最新版本新建一个版本（复制其 BOM 项），返回新版本号。 */
-    public int newVersion(Long processId) {
-        int latest = latestVersion(processId);
-        int newV = latest + 1;
-        for (BomItem item : listByProcess(processId, latest)) {
-            BomItem copy = new BomItem();
-            copy.setProcessId(processId);
-            copy.setVersion(newV);
-            copy.setMatCode(item.getMatCode());
-            copy.setRequiredQty(item.getRequiredQty());
-            bomItemMapper.insert(copy);
-        }
-        return newV;
-    }
-
+    /**
+     * 新增 BOM 项，仅未发布工艺可改。
+     *
+     * @param processId 工艺版本 ID
+     * @param item      BOM 项
+     * @return 落库后的 BOM 项
+     */
     public BomItem create(Long processId, BomItem item) {
+        processService.requireEditable(processId);
         validateMaterial(item.getMatCode());
+        requireMaterialAvailable(processId, item.getMatCode(), null);
         item.setId(null);
         item.setProcessId(processId);
-        item.setVersion(latestVersion(processId));
         if (item.getRequiredQty() == null || item.getRequiredQty() <= 0) {
             item.setRequiredQty(1);
         }
@@ -75,9 +63,19 @@ public class BomItemService {
         return item;
     }
 
+    /**
+     * 修改 BOM 项，仅未发布工艺可改。
+     *
+     * @param processId 工艺版本 ID
+     * @param id        BOM 项 ID
+     * @param item      新的 BOM 内容
+     * @return 修改后的 BOM 项
+     */
     public BomItem update(Long processId, Long id, BomItem item) {
-        validateMaterial(item.getMatCode());
+        processService.requireEditable(processId);
         BomItem existing = requireOwned(processId, id);
+        validateMaterial(item.getMatCode());
+        requireMaterialAvailable(processId, item.getMatCode(), id);
         existing.setMatCode(item.getMatCode());
         existing.setRequiredQty(item.getRequiredQty() == null || item.getRequiredQty() <= 0
                 ? 1 : item.getRequiredQty());
@@ -85,7 +83,14 @@ public class BomItemService {
         return existing;
     }
 
+    /**
+     * 删除 BOM 项，仅未发布工艺可改。
+     *
+     * @param processId 工艺版本 ID
+     * @param id        BOM 项 ID
+     */
     public void delete(Long processId, Long id) {
+        processService.requireEditable(processId);
         requireOwned(processId, id);
         bomItemMapper.deleteById(id);
     }
@@ -95,10 +100,17 @@ public class BomItemService {
         if (existing == null || !Objects.equals(processId, existing.getProcessId())) {
             throw new BusinessException("BOM 项不存在");
         }
-        if (!Objects.equals(existing.getVersion(), latestVersion(processId))) {
-            throw new BusinessException("历史版本不可修改");
-        }
         return existing;
+    }
+
+    private void requireMaterialAvailable(Long processId, String matCode, Long excludeId) {
+        Long count = bomItemMapper.selectCount(new LambdaQueryWrapper<BomItem>()
+                .eq(BomItem::getProcessId, processId)
+                .eq(BomItem::getMatCode, matCode)
+                .ne(excludeId != null, BomItem::getId, excludeId));
+        if (count != null && count > 0) {
+            throw new BusinessException("该物料已在 BOM 中：" + matCode);
+        }
     }
 
     private void validateMaterial(String matCode) {

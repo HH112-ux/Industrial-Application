@@ -32,6 +32,7 @@ public class WorkOrder {
     private String workshop;
     private Long deviceId;
     private Long processId;
+    private Integer processVersion;
     private String status;
     @Version
     private Integer version;
@@ -66,6 +67,8 @@ public class WorkOrder {
     public void setDeviceId(Long deviceId) { this.deviceId = deviceId; }
     public Long getProcessId() { return processId; }
     public void setProcessId(Long processId) { this.processId = processId; }
+    public Integer getProcessVersion() { return processVersion; }
+    public void setProcessVersion(Integer processVersion) { this.processVersion = processVersion; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
     public Integer getVersion() { return version; }

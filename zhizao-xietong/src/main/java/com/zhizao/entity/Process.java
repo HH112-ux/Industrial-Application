@@ -7,12 +7,18 @@ import com.baomidou.mybatisplus.annotation.TableName;
 
 import java.time.LocalDateTime;
 
+/**
+ * 工艺：同一 {@code processNo} 下的多行表示不同版本，每行携带独立的审批状态、工序与 BOM。
+ *
+ * @author Caspian
+ */
 @TableName("pr_process")
 public class Process {
 
     @TableId(type = IdType.AUTO)
     private Long id;
     private String processNo;
+    private Integer version;
     private String processName;
     private String processType;
     private String owner;
@@ -27,6 +33,8 @@ public class Process {
     public void setId(Long id) { this.id = id; }
     public String getProcessNo() { return processNo; }
     public void setProcessNo(String processNo) { this.processNo = processNo; }
+    public Integer getVersion() { return version; }
+    public void setVersion(Integer version) { this.version = version; }
     public String getProcessName() { return processName; }
     public void setProcessName(String processName) { this.processName = processName; }
     public String getProcessType() { return processType; }
