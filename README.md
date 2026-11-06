@@ -42,8 +42,8 @@
 │   │   └── common/ config/ aspect/
 │   ├── src/main/resources/
 │   │   ├── application.yml          # 配置，全部支持环境变量覆盖
-│   │   └── db/migration/            # Flyway 迁移 V1–V7
-│   └── src/test/java/               # 44 个单元测试
+│   │   └── db/migration/            # Flyway 迁移 V1–V8
+│   └── src/test/java/               # 49 个测试（46 单元 + 3 集成）
 ├── zhizao-xietong-web/              # Vue 3 管理端
 │   ├── src/views/                   # 8 个业务页面
 │   └── vite.config.ts               # 开发服务器 5173，代理 /api
@@ -235,7 +235,7 @@ docker compose up -d --build
 ## 测试与 CI
 
 ```bash
-# 后端单元测试
+# 后端全量测试（46 个单元测试 + 3 个 Testcontainers 集成测试）
 cd zhizao-xietong && mvn test
 
 # 管理端生产构建（同时覆盖 TypeScript 编译与打包）
@@ -244,6 +244,8 @@ cd zhizao-xietong-web && npm ci && npm run build
 # 提交信息校验（仓库根目录）
 npx --no -- commitlint --from HEAD~1 --to HEAD
 ```
+
+集成测试类 `WorkOrderConsistencyIntegrationTest` 使用 Testcontainers 启动 `mysql:8.4`，覆盖工单状态机合法/非法流转与乐观锁并发冲突。Docker 不可用时该类由 `@Testcontainers(disabledWithoutDocker = true)` 自动跳过，其余测试照常执行、构建仍然成功；首次运行需拉取镜像，本机约 60–90 秒，CI 约 1 分钟。
 
 CI 配置见 `.github/workflows/ci.yml`，每次 push 与 pull request 执行四个任务：
 
@@ -312,17 +314,34 @@ REST 签名对象是原始请求体，必须与发送字节完全一致；MQTT �
 
 在线状态按 `last_seen_at` 与 `DEVICE_ONLINE_THRESHOLD_SECONDS` 计算。若设备上报间隔大于阈值，调大阈值；若设备根本没有上报，检查主题是否匹配 `MQTT_TOPIC`。
 
+**集成测试被跳过**
+
+现象：`WorkOrderConsistencyIntegrationTest` 在测试报告中显示 skipped，提示找不到 Docker 环境。
+
+这是预期行为：未安装或未启动 Docker 时，Testcontainers 会整类跳过，其余测试照常运行，`mvn test` 仍然成功。需要实际执行时，在 `zhizao-xietong` 目录下按下面两步操作（CI 使用标准 Docker socket，不需要这些额外参数）：
+
+```bash
+# 1. 确认 Docker 可达；Colima 需要显式指定 socket
+DOCKER_HOST=unix://$HOME/.colima/default/docker.sock docker info
+
+# 2. 运行测试；Ryuk 在 Colima 下无法挂载 socket，必须关闭
+cd zhizao-xietong
+DOCKER_HOST=unix://$HOME/.colima/default/docker.sock \
+TESTCONTAINERS_RYUK_DISABLED=true \
+mvn test
+```
+
 ## 已知限制
 
 - 遥测历史已落库（`eq_telemetry`，S2），单表保留 90 天；尚未接入前端曲线，管理端展示在 S7
 - 上报幂等由进程内缓存与 `eq_telemetry.ingest_key` 唯一索引共同保证；模拟数据不写入时序表
 - 工单开工、报工、质检使用乐观锁与状态历史：并发重复流转会被拒绝，每次流转留痕（S3）
-- 报工数量已做正数、合计与累计上限校验；报工幂等键尚未实现
+- 报工数量已做正数、合计与累计上限校验；报工幂等键已落地（`wo_report.idempotency_key`，同工单唯一，重试返回首次结果）
 - 工艺只有主表，没有工序建模；BOM 版本发布后仍可修改（S4）
 - 排产只是按优先级与日期排序，没有产能约束（S5）
 - 权限仅 ADMIN/USER 两级，无车间数据域；登录限流为单机内存（S6）
 - 只有 `/actuator/health`、`/actuator/info` 与标准输出日志，没有业务指标与告警（S7）
-- 单元测试 44 个；并发冲突只覆盖乐观锁分支，没有数据库集成测试与真实并发用例；移动端构建未纳入 CI
+- 测试 49 个（46 单元 + 3 Testcontainers 集成）；集成用例覆盖状态机流转与真实并发冲突，仅在 Docker 可用时执行；移动端构建未纳入 CI
 - 完整 Docker Compose 五服务栈未在本机实测（本机端口被本地 MySQL/Redis 占用）
 - AI 能力未实现，处于规划阶段（P2）
 
