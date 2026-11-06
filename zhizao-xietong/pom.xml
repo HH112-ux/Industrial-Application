@@ -125,6 +125,17 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
             </plugin>
+            <!-- docker-java 默认按 API 1.32 握手，Docker 29 及 GitHub 托管 runner
+                 会以最低 API 1.40 拒绝；固定为 1.40，本地与 CI 行为一致。 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <systemPropertyVariables>
+                        <api.version>1.40</api.version>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
 </project>
