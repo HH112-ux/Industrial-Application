@@ -1,6 +1,6 @@
 # 接口契约
 
-现状接口以当前代码为准，共 46 个端点。目标接口为待评审设计，本轮不实现。
+现状接口以当前代码为准，共 48 个端点（S0 基线 46 个，S1 新增设备凭证 2 个）。目标接口尚未落地的部分仍为设计稿。
 
 标注说明：`[代码实证]` 表示已在 Controller 中核对；`[工程判断]` 表示设计建议；`[待确认]` 表示需要用户拍板。
 
@@ -158,7 +158,14 @@
 | 45 | PUT | `/api/maintenance/{id}` | ADMIN | 更新记录 | 保留 | 无 |
 | 46 | DELETE | `/api/maintenance/{id}` | ADMIN | 删除记录 | 保留 | 无 |
 
-端点合计：46。`[代码实证]`
+### 2.10 设备凭证
+
+| # | 方法 | 路径 | 现状鉴权 | 用途 | 处置 | 目标变更 |
+|---|---|---|---|---|---|---|
+| 51 | POST | `/api/devices/{id}/credential` | ADMIN | 签发或轮换设备凭证，明文密钥仅返回一次 | 已落地 | S1 已实现 |
+| 52 | POST | `/api/devices/{id}/credential/revoke` | ADMIN | 吊销设备凭证 | 已落地 | S1 已实现 |
+
+端点合计：48（S0 基线 46 + S1 设备凭证 2）。`[代码实证]`
 
 ---
 
@@ -170,15 +177,13 @@
 | 48 | GET | `/api/work-orders/{id}/history` | 登录 | 状态流转历史 | S3 |
 | 49 | GET | `/api/processes/{id}/operations` | 登录 | 工序列表 | S4 |
 | 50 | POST/PUT/DELETE | `/api/processes/{id}/operations[/{opId}]` | ADMIN | 工序维护 | S4 |
-| 51 | POST | `/api/devices/{id}/credential` | ADMIN | 签发设备凭证，返回一次明文密钥 | S1 |
-| 52 | POST | `/api/devices/{id}/credential/revoke` | ADMIN | 吊销设备凭证 | S1 |
 | 53 | GET | `/api/audit-logs` | ADMIN | 审计查询 | S6 |
 | 54 | GET | `/api/metrics/overview` | ADMIN | 设备在线率、工单节拍、齐套率 | S7 |
 | 55 | POST | `/api/ai/device-issue/suggest` | 登录 | AI 异常归因建议，只读 | S8（P2） |
 | 56 | POST | `/api/ai/report/draft` | 登录 | 自然语言转结构化报工草稿，不提交 | S8（P2） |
 | 57 | POST | `/api/ai/query` | ADMIN | 生产数据问答，只读视图 | S8（P2） |
 
-新增端点均遵循同一返回体与错误码约定。
+新增端点均遵循同一返回体与错误码约定。设备凭证的 2 个端点已在 S1 落地，见 §2.10。
 
 ---
 

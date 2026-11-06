@@ -244,11 +244,12 @@ cd zhizao-xietong-web && npm ci && npm run build
 npx --no -- commitlint --from HEAD~1 --to HEAD
 ```
 
-CI 配置见 `.github/workflows/ci.yml`，每次 push 与 pull request 执行三个任务：
+CI 配置见 `.github/workflows/ci.yml`，每次 push 与 pull request 执行四个任务：
 
 | 任务 | 内容 | 门禁 |
 |---|---|---|
 | Commit messages | 对推送范围运行 commitlint | 不通过则失败 |
+| Secret scan | gitleaks 只扫描本次推送或 PR 引入的提交范围，不扫全历史 | 发现密钥则失败 |
 | Backend tests | `mvn -B -ntp test` | 任一测试失败则失败 |
 | Frontend build | `npm ci && npm run build` | 构建失败则失败 |
 

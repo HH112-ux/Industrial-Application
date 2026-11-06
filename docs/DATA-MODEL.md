@@ -87,7 +87,7 @@ erDiagram
 - 唯一索引 `uk_ingest_key (ingest_key)`，允许 NULL 重复；用于设备重发去重。
 - 数据量按「设备数 × 上报频率 × 保留天数」估算。当前规模（数十台设备、秒级上报）下 MySQL 单表可支撑，按月分区或定期归档二选一，推荐先按 90 天定期删除。`[工程判断]`
 
-#### 2.1.2 `eq_device_credential` 设备凭证
+#### 2.1.2 `eq_device_credential` 设备凭证（S1 已落地）
 
 | 字段 | 类型 | 约束 | 设计意图 |
 |---|---|---|---|
@@ -162,9 +162,9 @@ erDiagram
 
 | 变更 | 设计意图 |
 |---|---|
-| 新增 `last_seen_at DATETIME(3)` | 判断设备在线；超过阈值未上报即视为离线 |
-| 新增 `protocol VARCHAR(16)` | 区分 `MQTT/HTTP/OPC_UA`，为多协议接入留位 |
-| 新增 `workshop VARCHAR(32)` | 设备归属车间，与工单车间口径一致 |
+| 新增 `last_seen_at DATETIME(3)` | 判断设备在线；超过阈值未上报即视为离线。S1 已落地 |
+| 新增 `protocol VARCHAR(16)` | 区分 `MQTT/HTTP/OPC_UA`，为多协议接入留位。待数据域阶段落地 |
+| 新增 `workshop VARCHAR(32)` | 设备归属车间，与工单车间口径一致。待数据域阶段落地 |
 
 #### `pr_process`
 
@@ -243,7 +243,7 @@ erDiagram
 
 | 迁移 | 内容 | 依赖 |
 |---|---|---|
-| `V4__device_online.sql` | `eq_device.last_seen_at`、`protocol`、`workshop` | 无 |
+| `V4__device_online.sql` | `eq_device.last_seen_at`（S1 已落地）；`protocol`、`workshop` 随数据域迁移补充 | 无 |
 | `V5__device_credential.sql` | 新建 `eq_device_credential` | 无 |
 | `V6__device_telemetry.sql` | 新建 `eq_telemetry` | `V4` 可并行 |
 | `V7__work_order_consistency.sql` | `version`、累计数量、`wo_status_history`、报工约束 | 与 `V4` 可并行 |
