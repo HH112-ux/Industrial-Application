@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.zhizao.common.BadRequestException;
 import com.zhizao.common.BusinessException;
+import com.zhizao.common.BusinessMetrics;
 import com.zhizao.common.ForbiddenException;
 import com.zhizao.dto.QcRequest;
 import com.zhizao.dto.ReportRequest;
@@ -66,6 +67,8 @@ class WorkOrderServiceTest {
     private ProcessService processService;
     @Mock
     private CodeGenerator codeGenerator;
+    @Mock
+    private BusinessMetrics businessMetrics;
 
     private WorkOrderService workOrderService;
 
@@ -74,7 +77,7 @@ class WorkOrderServiceTest {
         workOrderService = new WorkOrderService(
                 workOrderMapper, workOrderReportMapper, qualityRecordMapper, planMapper,
                 statusHistoryMapper, new WorkOrderStateMachine(), kitCheckService, processService, codeGenerator,
-                new DataScope());
+                new DataScope(), businessMetrics);
     }
 
     @AfterEach

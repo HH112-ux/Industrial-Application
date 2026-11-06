@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.zhizao.common.BadRequestException;
 import com.zhizao.common.BusinessException;
+import com.zhizao.common.BusinessMetrics;
 import com.zhizao.common.PageResult;
 import com.zhizao.dto.QcRequest;
 import com.zhizao.dto.ReportRequest;
@@ -51,6 +52,7 @@ public class WorkOrderService {
     private final ProcessService processService;
     private final CodeGenerator codeGenerator;
     private final DataScope dataScope;
+    private final BusinessMetrics businessMetrics;
 
     /**
      * 构造工单服务。
@@ -65,12 +67,13 @@ public class WorkOrderService {
      * @param processService       工艺服务
      * @param codeGenerator        业务编号生成器
      * @param dataScope            车间数据域
+     * @param businessMetrics      业务指标
      */
     public WorkOrderService(WorkOrderMapper workOrderMapper, WorkOrderReportMapper workOrderReportMapper,
                             QualityRecordMapper qualityRecordMapper, PlanMapper planMapper,
                             WorkOrderStatusHistoryMapper statusHistoryMapper, WorkOrderStateMachine stateMachine,
                             KitCheckService kitCheckService, ProcessService processService,
-                            CodeGenerator codeGenerator, DataScope dataScope) {
+                            CodeGenerator codeGenerator, DataScope dataScope, BusinessMetrics businessMetrics) {
         this.workOrderMapper = workOrderMapper;
         this.workOrderReportMapper = workOrderReportMapper;
         this.qualityRecordMapper = qualityRecordMapper;
@@ -81,6 +84,7 @@ public class WorkOrderService {
         this.processService = processService;
         this.codeGenerator = codeGenerator;
         this.dataScope = dataScope;
+        this.businessMetrics = businessMetrics;
     }
 
     /**
@@ -221,6 +225,7 @@ public class WorkOrderService {
         order.setQtyDefect(qtyValue(order.getQtyDefect()) + req.defectQty());
         transitionWithHistory(order, WorkOrderStatus.PENDING_QC, req.operator(),
                 "报工 " + req.qty() + " 件");
+        businessMetrics.workOrderReported();
         return order;
     }
 

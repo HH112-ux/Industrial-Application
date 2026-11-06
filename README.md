@@ -43,7 +43,7 @@
 │   ├── src/main/resources/
 │   │   ├── application.yml          # 配置，全部支持环境变量覆盖
 │   │   └── db/migration/            # Flyway 迁移 V1–V13
-│   └── src/test/java/               # 111 个测试（108 单元 + 3 集成）
+│   └── src/test/java/               # 120 个测试（117 单元 + 3 集成）
 ├── zhizao-xietong-web/              # Vue 3 管理端
 │   ├── src/views/                   # 9 个业务页面
 │   └── vite.config.ts               # 开发服务器 5173，代理 /api
@@ -100,6 +100,7 @@ cd zhizao-xietong && mvn spring-boot:run
 
 - 端口：8080
 - 健康检查：<http://localhost:8080/actuator/health>
+- 业务指标：<http://localhost:8080/actuator/metrics>（如 `zhizao.devices.online`、`zhizao.telemetry.reports`）
 - Swagger UI：<http://localhost:8080/swagger-ui/index.html>
 
 首次启动时 `DataInitializer` 会创建默认账号：
@@ -193,7 +194,7 @@ java -jar target/zhizao-xietong-1.0.0.jar
 
 - `server.port` 固定为 8080，如需改端口请在反向代理层处理，或修改 `application.yml`
 - JWT 密钥、数据库密码、`DEVICE_CREDENTIAL_KEY` 必须由部署环境注入
-- 日志输出到标准输出，容器部署用 `docker logs` 收集；文件日志与集中采集尚未接入（S7）
+- 日志输出到标准输出，每行带 `traceId`，可用响应头 `X-Request-Id` 串联一次请求；文件日志与集中采集尚未接入
 
 ### 管理端
 
@@ -235,7 +236,7 @@ docker compose up -d --build
 ## 测试与 CI
 
 ```bash
-# 后端全量测试（108 个单元测试 + 3 个 Testcontainers 集成测试）
+# 后端全量测试（117 个单元测试 + 3 个 Testcontainers 集成测试）
 cd zhizao-xietong && mvn test
 
 # 管理端生产构建（同时覆盖 TypeScript 编译与打包）
@@ -333,7 +334,7 @@ mvn test
 
 ## 已知限制
 
-- 遥测历史已落库（`eq_telemetry`，S2），单表保留 90 天；尚未接入前端曲线，管理端展示在 S7
+- 遥测历史已落库（`eq_telemetry`，S2），单表保留 90 天；管理端设备详情可选 1 小时/24 小时/7 天查看，无数据时显示空态而不是补点（S7）
 - 上报幂等由进程内缓存与 `eq_telemetry.ingest_key` 唯一索引共同保证；模拟数据不写入时序表
 - 工单开工、报工、质检使用乐观锁与状态历史：并发重复流转会被拒绝，每次流转留痕（S3）
 - 报工数量已做正数、合计与累计上限校验；报工幂等键已落地（`wo_report.idempotency_key`，同工单唯一，重试返回首次结果）
@@ -341,8 +342,8 @@ mvn test
 - 排产为有限产能贪心（S5）：按交期与优先级排队，使用运行中设备的时间窗；不做 APS 最优解。标准工时缺失时直接拒绝排程并返回 `STANDARD_HOURS_MISSING`，不生成假工时；只有显式开启 `schedule.estimate-fallback-hours` 才按估算工时排程并明确标记
 - 权限为 ADMIN/USER 两级，非管理员按 `workshop_scope` 过滤设备、计划与工单；未分配车间时看不到任何车间数据（deny-by-default），由管理员在用户管理页显式分配；禁用用户与改密通过令牌版本在下一次请求即失效（S6）
 - 登录限流已抽成 `LoginRateLimiter` 端口，当前为单实例本地实现；多实例部署必须替换为共享存储实现（S6）
-- 只有 `/actuator/health`、`/actuator/info` 与标准输出日志，没有业务指标与告警（S7）
-- 测试 111 个（108 单元 + 3 Testcontainers 集成）；集成用例覆盖状态机流转与真实并发冲突，仅在 Docker 可用时执行；移动端构建未纳入 CI
+- 已有 `/actuator/health`、`/actuator/info`、`/actuator/metrics` 与带 `traceId` 的标准输出日志；业务指标已覆盖设备在线、上报、报工、节拍与齐套率，但没有告警阈值与集中采集
+- 测试 120 个（117 单元 + 3 Testcontainers 集成）；集成用例覆盖状态机流转与真实并发冲突，仅在 Docker 可用时执行；移动端构建未纳入 CI
 - 完整 Docker Compose 五服务栈未在本机实测（本机端口被本地 MySQL/Redis 占用）
 - AI 能力未实现，处于规划阶段（P2）
 

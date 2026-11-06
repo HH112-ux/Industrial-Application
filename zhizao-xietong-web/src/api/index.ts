@@ -74,6 +74,17 @@ export interface ReportRequest {
   defectQty?: number;
   deviceId?: number;
   operator?: string;
+  idempotencyKey?: string;
+}
+
+export interface WorkOrderHistory {
+  id: number;
+  orderId: number;
+  fromStatus?: string;
+  toStatus: string;
+  operator?: string;
+  remark?: string;
+  createdAt: string;
 }
 
 export interface QcRequest {
@@ -177,7 +188,8 @@ export const workOrderApi = {
   list: (params: Record<string, any>) => request.get<any, PageResult<WorkOrder>>('/work-orders', { params }),
   start: (id: number, operator?: string) => request.post(`/work-orders/${id}/start`, null, { params: { operator: operator || 'system' } }),
   report: (id: number, data: ReportRequest) => request.post(`/work-orders/${id}/report`, data),
-  qc: (id: number, data: QcRequest) => request.post(`/work-orders/${id}/qc`, data)
+  qc: (id: number, data: QcRequest) => request.post(`/work-orders/${id}/qc`, data),
+  history: (id: number) => request.get<any, WorkOrderHistory[]>(`/work-orders/${id}/history`)
 };
 
 export interface LoginRequest {
@@ -201,14 +213,26 @@ export interface DeviceTelemetry {
   current: number;
   oee: number;
   timestamp: string;
+  source?: string;
 }
 
 export const authApi = {
   login: (data: LoginRequest) => request.post<any, LoginResponse>('/auth/login', data)
 };
 
+export interface DeviceTelemetryPoint {
+  reportedAt: string;
+  temperature?: number;
+  rpm?: number;
+  current?: number;
+  status?: string;
+  source?: string;
+}
+
 export const deviceDataApi = {
-  telemetry: (id: number) => request.get<any, DeviceTelemetry>(`/devices/${id}/telemetry`)
+  telemetry: (id: number) => request.get<any, DeviceTelemetry>(`/devices/${id}/telemetry`),
+  history: (id: number, params: { from: string; to: string; limit?: number }) =>
+    request.get<any, DeviceTelemetryPoint[]>(`/devices/${id}/telemetry/history`, { params })
 };
 
 export interface UserAccount {

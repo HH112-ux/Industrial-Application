@@ -21,11 +21,12 @@
         <el-table-column label="状态" width="90">
           <template #default="{ row }"><StatusTag :value="row.status" :map="workOrderStatusMap" /></template>
         </el-table-column>
-        <el-table-column label="操作" width="150" fixed="right">
+        <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
             <el-button v-if="row.status === 'PENDING'" link type="success" @click="start(row)">开工</el-button>
             <el-button v-if="row.status === 'IN_PRODUCTION'" link type="primary" @click="openReport(row)">报工</el-button>
             <el-button v-if="row.status === 'PENDING_QC'" link type="warning" @click="openQc(row)">质检</el-button>
+            <el-button link type="info" @click="openHistory(row)">流转记录</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -50,6 +51,26 @@
       </template>
     </el-dialog>
 
+    <el-dialog v-model="historyDialog.visible" title="工单流转记录" width="92%" style="max-width: 620px">
+      <div class="history-order">{{ historyDialog.orderNo }}</div>
+      <div v-if="historyDialog.loading" class="history-empty">加载中…</div>
+      <el-timeline v-else-if="historyDialog.rows.length">
+        <el-timeline-item v-for="h in historyDialog.rows" :key="h.id" :timestamp="formatTime(h.createdAt)" placement="top">
+          <div class="history-line">
+            <StatusTag :value="h.toStatus" :map="workOrderStatusMap" />
+            <span class="history-op">{{ h.operator || 'system' }}</span>
+          </div>
+          <div class="history-desc">
+            <span v-if="h.fromStatus">
+              从「{{ workOrderStatusMap[h.fromStatus]?.label || h.fromStatus }}」流转
+            </span>
+            <span v-if="h.remark"> · {{ h.remark }}</span>
+          </div>
+        </el-timeline-item>
+      </el-timeline>
+      <div v-else class="history-empty">暂无流转记录</div>
+    </el-dialog>
+
     <el-dialog v-model="qcDialog.visible" title="质检" width="460px">
       <el-form :model="qcForm" label-width="90px">
         <el-form-item label="质检结论" required>
@@ -71,7 +92,7 @@
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue';
-import { workOrderApi, type WorkOrder } from '@/api';
+import { workOrderApi, type WorkOrder, type WorkOrderHistory } from '@/api';
 import { workOrderStatusMap } from '@/utils/dict';
 import { getUser } from '@/api/request';
 import StatusTag from '@/components/StatusTag.vue';
@@ -82,10 +103,28 @@ const total = ref(0);
 const query = reactive({ pageNum: 1, pageSize: 10, keyword: '', status: '' });
 
 const reportDialog = reactive({ visible: false, orderId: undefined as number | undefined });
-const reportForm = reactive({ qty: 1, qualifiedQty: 0, defectQty: 0, operator: '' });
+const reportForm = reactive({
+  qty: 1, qualifiedQty: 0, defectQty: 0, operator: '',
+  idempotencyKey: ''
+});
 
 const qcDialog = reactive({ visible: false, orderId: undefined as number | undefined });
 const qcForm = reactive({ result: 'PASS', defectDesc: '', inspector: '' });
+
+const historyDialog = reactive({
+  visible: false,
+  orderNo: '',
+  loading: false,
+  rows: [] as WorkOrderHistory[]
+});
+
+function newIdempotencyKey(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
+function formatTime(value?: string): string {
+  return value ? value.replace('T', ' ').slice(0, 19) : '';
+}
 
 async function load() {
   loading.value = true;
@@ -114,19 +153,54 @@ async function start(row: WorkOrder) {
 
 function openReport(row: WorkOrder) {
   reportDialog.orderId = row.id;
-  Object.assign(reportForm, { qty: row.qty, qualifiedQty: row.qty, defectQty: 0, operator: '' });
+  Object.assign(reportForm, {
+    qty: row.qty,
+    qualifiedQty: row.qty,
+    defectQty: 0,
+    operator: '',
+    idempotencyKey: newIdempotencyKey()
+  });
   reportDialog.visible = true;
 }
 
 async function submitReport() {
-  if (!reportForm.qty) {
-    ElMessage.warning('请填写报工数量');
+  const qty = Number(reportForm.qty);
+  const qualified = Number(reportForm.qualifiedQty);
+  const defect = Number(reportForm.defectQty);
+  if (!qty || qty <= 0) {
+    ElMessage.warning('报工数量必须大于 0');
     return;
   }
-  await workOrderApi.report(reportDialog.orderId!, reportForm);
+  if (qualified < 0 || defect < 0) {
+    ElMessage.warning('合格数量与不良数量不能为负');
+    return;
+  }
+  if (qualified + defect !== qty) {
+    ElMessage.warning('合格数量与不良数量之和必须等于报工数量');
+    return;
+  }
+  await workOrderApi.report(reportDialog.orderId!, {
+    qty,
+    qualifiedQty: qualified,
+    defectQty: defect,
+    operator: reportForm.operator,
+    idempotencyKey: reportForm.idempotencyKey
+  });
   ElMessage.success('已报工');
   reportDialog.visible = false;
   load();
+}
+
+async function openHistory(row: WorkOrder) {
+  historyDialog.visible = true;
+  historyDialog.orderNo = row.orderNo || '';
+  historyDialog.loading = true;
+  historyDialog.rows = [];
+  try {
+    historyDialog.rows = await workOrderApi.history(row.id!);
+  } finally {
+    historyDialog.loading = false;
+  }
 }
 
 function openQc(row: WorkOrder) {
@@ -144,3 +218,31 @@ async function submitQc() {
 
 onMounted(load);
 </script>
+
+<style scoped>
+.history-order {
+  color: var(--zhizao-muted);
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+.history-line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.history-op {
+  color: var(--zhizao-ink);
+  font-size: 13px;
+  font-weight: 600;
+}
+.history-desc {
+  color: var(--zhizao-muted);
+  font-size: 13px;
+  margin-top: 4px;
+}
+.history-empty {
+  text-align: center;
+  color: var(--zhizao-muted);
+  padding: 24px 0;
+}
+</style>

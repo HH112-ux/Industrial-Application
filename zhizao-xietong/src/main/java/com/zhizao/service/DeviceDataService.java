@@ -3,6 +3,7 @@ package com.zhizao.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.zhizao.common.BadRequestException;
 import com.zhizao.common.BusinessException;
+import com.zhizao.common.BusinessMetrics;
 import com.zhizao.dto.DeviceGatewayReport;
 import com.zhizao.dto.DeviceTelemetry;
 import com.zhizao.dto.DeviceTelemetryPoint;
@@ -11,6 +12,7 @@ import com.zhizao.entity.DeviceTelemetryRecord;
 import com.zhizao.enums.DeviceStatus;
 import com.zhizao.mapper.DeviceMapper;
 import com.zhizao.mapper.DeviceTelemetryMapper;
+import io.micrometer.core.instrument.Timer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -46,6 +48,7 @@ public class DeviceDataService {
     private final DeviceMapper deviceMapper;
     private final DeviceTelemetryMapper telemetryMapper;
     private final DeviceIdempotencyGuard idempotencyGuard;
+    private final BusinessMetrics businessMetrics;
     private final Random random = new Random();
 
     /** 最近一次设备网关上报，key=设备编号。 */
@@ -60,12 +63,14 @@ public class DeviceDataService {
      * @param deviceMapper     设备数据访问
      * @param telemetryMapper  遥测时序数据访问
      * @param idempotencyGuard 上报幂等守卫
+     * @param businessMetrics  业务指标
      */
     public DeviceDataService(DeviceMapper deviceMapper, DeviceTelemetryMapper telemetryMapper,
-                             DeviceIdempotencyGuard idempotencyGuard) {
+                             DeviceIdempotencyGuard idempotencyGuard, BusinessMetrics businessMetrics) {
         this.deviceMapper = deviceMapper;
         this.telemetryMapper = telemetryMapper;
         this.idempotencyGuard = idempotencyGuard;
+        this.businessMetrics = businessMetrics;
     }
 
     /**
@@ -149,20 +154,26 @@ public class DeviceDataService {
      * @throws BusinessException 设备不存在或状态非法时抛出
      */
     public void handleGatewayReport(DeviceGatewayReport report, String ingestKey, String source) {
-        String dedupeKey = StringUtils.hasText(ingestKey) ? report.deviceNo() + ":" + ingestKey : null;
-        if (!idempotencyGuard.acquire(dedupeKey)) {
-            log.info("设备上报重复，已忽略：deviceNo={}，ingestKey={}", report.deviceNo(), ingestKey);
-            return;
+        Timer.Sample sample = businessMetrics.startIngest();
+        try {
+            String dedupeKey = StringUtils.hasText(ingestKey) ? report.deviceNo() + ":" + ingestKey : null;
+            if (!idempotencyGuard.acquire(dedupeKey)) {
+                log.info("设备上报重复，已忽略：deviceNo={}，ingestKey={}", report.deviceNo(), ingestKey);
+                return;
+            }
+            Device device = requireDevice(report.deviceNo());
+            if (StringUtils.hasText(report.status())) {
+                device.setStatus(normalizeStatus(report.status()));
+            }
+            LocalDateTime receivedAt = LocalDateTime.now();
+            device.setLastSeenAt(receivedAt);
+            deviceMapper.updateById(device);
+            persistTelemetry(device, report, ingestKey, source, receivedAt);
+            latestReports.put(report.deviceNo(), new LatestReport(report, source));
+            businessMetrics.telemetryReported();
+        } finally {
+            businessMetrics.stopIngest(sample);
         }
-        Device device = requireDevice(report.deviceNo());
-        if (StringUtils.hasText(report.status())) {
-            device.setStatus(normalizeStatus(report.status()));
-        }
-        LocalDateTime receivedAt = LocalDateTime.now();
-        device.setLastSeenAt(receivedAt);
-        deviceMapper.updateById(device);
-        persistTelemetry(device, report, ingestKey, source, receivedAt);
-        latestReports.put(report.deviceNo(), new LatestReport(report, source));
     }
 
     /**
