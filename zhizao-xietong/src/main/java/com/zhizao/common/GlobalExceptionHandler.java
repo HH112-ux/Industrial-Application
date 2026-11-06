@@ -31,6 +31,18 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * AI 能力未启用：返回 HTTP 503 与业务码 503，明确区分「未启用」与「系统异常」。
+     *
+     * @param e 未启用异常
+     * @return 带 HTTP 503 状态码的错误响应
+     */
+    @ExceptionHandler(AiDisabledException.class)
+    public ResponseEntity<Result<Void>> handleAiDisabled(AiDisabledException e) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(Result.error(503, e.getMessage()));
+    }
+
+    /**
      * 处理请求参数非法，返回 HTTP 400，避免与业务拒绝（200 + code=500）混用。
      *
      * @param e 参数非法异常

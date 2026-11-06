@@ -42,8 +42,8 @@
 │   │   └── common/ config/ aspect/
 │   ├── src/main/resources/
 │   │   ├── application.yml          # 配置，全部支持环境变量覆盖
-│   │   └── db/migration/            # Flyway 迁移 V1–V13
-│   └── src/test/java/               # 120 个测试（117 单元 + 3 集成）
+│   │   └── db/migration/            # Flyway 迁移 V1–V14
+│   └── src/test/java/               # 140 个测试（137 单元 + 3 集成）
 ├── zhizao-xietong-web/              # Vue 3 管理端
 │   ├── src/views/                   # 9 个业务页面
 │   └── vite.config.ts               # 开发服务器 5173，代理 /api
@@ -177,6 +177,14 @@ docker exec zhizao-mqtt mosquitto_pub -h localhost \
 | `DEVICE_IDEMPOTENCY_TTL_SECONDS` | 幂等键保留时长 | `600` | 否 | `600` |
 | `DEVICE_IDEMPOTENCY_MAX_ENTRIES` | 幂等键最大条数 | `10000` | 否 | `10000` |
 | `DEVICE_TELEMETRY_RETENTION_DAYS` | 遥测时序保留天数，过期数据每日清理 | `90` | 否 | `30` |
+| `AI_ENABLED` | 是否启用 AI 旁路；关闭时三个 AI 端点返回 503 | `false` | 否 | `true` |
+| `AI_PROVIDER` | 模型实现：`fake` 离线假模型 / `external` OpenAI 兼容接口 | `fake` | 否 | `fake` |
+| `AI_TIMEOUT_SECONDS` | 模型调用超时 | `5` | 否 | `5` |
+| `AI_MODEL_URL` | 外部模型完整地址 | 空 | `AI_PROVIDER=external` 时必填 | `https://api.openai.com/v1/chat/completions` |
+| `AI_API_KEY` | 外部模型密钥，只从环境变量读取，不写日志 | 空 | `AI_PROVIDER=external` 时必填 | 由部署环境注入 |
+| `AI_MODEL` | 模型名称 | `gpt-4o-mini` | 否 | `gpt-4o-mini` |
+| `AI_MAX_ROWS` | Text-to-SQL 返回行数上限 | `200` | 否 | `200` |
+| `AI_QUERY_TIMEOUT_SECONDS` | Text-to-SQL 语句超时 | `3` | 否 | `3` |
 
 ## 打包与部署
 
@@ -193,7 +201,7 @@ java -jar target/zhizao-xietong-1.0.0.jar
 生产环境注意：
 
 - `server.port` 固定为 8080，如需改端口请在反向代理层处理，或修改 `application.yml`
-- JWT 密钥、数据库密码、`DEVICE_CREDENTIAL_KEY` 必须由部署环境注入
+- JWT 密钥、数据库密码、`DEVICE_CREDENTIAL_KEY` 必须由部署环境注入；启用外部模型时 `AI_API_KEY` 同样只能由环境变量注入，不得写入配置文件或日志
 - 日志输出到标准输出，每行带 `traceId`，可用响应头 `X-Request-Id` 串联一次请求；文件日志与集中采集尚未接入
 
 ### 管理端
@@ -236,7 +244,7 @@ docker compose up -d --build
 ## 测试与 CI
 
 ```bash
-# 后端全量测试（117 个单元测试 + 3 个 Testcontainers 集成测试）
+# 后端全量测试（137 个单元测试 + 3 个 Testcontainers 集成测试）
 cd zhizao-xietong && mvn test
 
 # 管理端生产构建（同时覆盖 TypeScript 编译与打包）
@@ -343,9 +351,9 @@ mvn test
 - 权限为 ADMIN/USER 两级，非管理员按 `workshop_scope` 过滤设备、计划与工单；未分配车间时看不到任何车间数据（deny-by-default），由管理员在用户管理页显式分配；禁用用户与改密通过令牌版本在下一次请求即失效（S6）
 - 登录限流已抽成 `LoginRateLimiter` 端口，当前为单实例本地实现；多实例部署必须替换为共享存储实现（S6）
 - 已有 `/actuator/health`、`/actuator/info`、`/actuator/metrics` 与带 `traceId` 的标准输出日志；业务指标已覆盖设备在线、上报、报工、节拍与齐套率，但没有告警阈值与集中采集
-- 测试 120 个（117 单元 + 3 Testcontainers 集成）；集成用例覆盖状态机流转与真实并发冲突，仅在 Docker 可用时执行；移动端构建未纳入 CI
+- 测试 140 个（137 单元 + 3 Testcontainers 集成）；集成用例覆盖状态机流转与真实并发冲突，仅在 Docker 可用时执行；移动端构建未纳入 CI
 - 完整 Docker Compose 五服务栈未在本机实测（本机端口被本地 MySQL/Redis 占用）
-- AI 能力未实现，处于规划阶段（P2）
+- AI 能力已落地（S8），默认关闭：`AI_ENABLED=false` 时三个 `/api/ai/**` 端点返回 HTTP 503 + 业务码 503，其余功能不受影响；开启后默认使用离线假模型，CI 不需要网络与密钥。AI 只调用只读工具、只返回建议文本，自然语言报工只产出待确认草稿；Text-to-SQL 仅 ADMIN 可用，只允许查询 5 个只读视图并强制行数上限。模型超时或返回非法内容时降级为「建议暂不可用」，不影响主链路
 
 ## 许可
 
