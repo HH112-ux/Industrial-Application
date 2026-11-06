@@ -1,0 +1,22 @@
+#!/bin/sh
+# Block build artifacts, local secrets and known temp files from being committed.
+# Uses POSIX grep only; no GNU sed extensions, works with the macOS BSD toolchain.
+set -e
+
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+if [ -z "$staged" ]; then
+    exit 0
+fi
+
+if printf '%s\n' "$staged" | grep -Eq '(^|/)(target|node_modules|dist)/|(^|/)\.env$|\.DS_Store$|\.baiduyun\.uploading\.cfg$'; then
+    echo "pre-commit: build artifacts or local secret files are staged:" >&2
+    printf '%s\n' "$staged" | grep -E '(^|/)(target|node_modules|dist)/|(^|/)\.env$|\.DS_Store$|\.baiduyun\.uploading\.cfg$' >&2
+    exit 1
+fi
+
+if command -v gitleaks >/dev/null 2>&1; then
+    if ! gitleaks git --pre-commit --staged --no-banner --redact; then
+        echo "pre-commit: gitleaks detected a potential secret" >&2
+        exit 1
+    fi
+fi

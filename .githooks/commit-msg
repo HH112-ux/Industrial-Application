@@ -1,0 +1,31 @@
+#!/bin/sh
+# Validate the commit message with commitlint when available.
+# Falls back to a POSIX-compatible check so the hook still works on a fresh clone.
+set -e
+
+message_file="$1"
+
+if [ -x node_modules/.bin/commitlint ]; then
+    exec node_modules/.bin/commitlint --edit "$message_file"
+fi
+
+if command -v npx >/dev/null 2>&1 && npx --no -- commitlint --version >/dev/null 2>&1; then
+    exec npx --no -- commitlint --edit "$message_file"
+fi
+
+header=$(head -n 1 "$message_file")
+
+if ! printf '%s' "$header" | grep -Eq '^(feat|fix|docs|style|refactor|perf|test|chore|revert)(\([a-z0-9-]+\))?!?: [a-z]'; then
+    echo "commit-msg: header must look like 'type(scope): subject'" >&2
+    exit 1
+fi
+
+subject=${header#*: }
+if [ ${#subject} -gt 50 ]; then
+    echo "commit-msg: subject must be 50 characters or fewer" >&2
+    exit 1
+fi
+
+case "$subject" in
+    *.) echo "commit-msg: subject must not end with a period" >&2; exit 1 ;;
+esac

@@ -23,6 +23,7 @@ zhizao-xietong-web/dist/
 zhizao-xietong-web/node_modules/
 mobile-app/node_modules/
 mobile-app/dist/
+/node_modules/
 
 # Trae share packages
 .trae-html-share-packages/

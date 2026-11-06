@@ -1,0 +1,10 @@
+{
+  "name": "industrial-application",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Commit message linting for the Industrial Application monorepo",
+  "devDependencies": {
+    "@commitlint/cli": "^19.5.0",
+    "@commitlint/config-conventional": "^19.5.0"
+  }
+}
