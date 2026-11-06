@@ -28,11 +28,20 @@
 │   └── src/main/resources/db/migration/   # Flyway 迁移
 ├── zhizao-xietong-web/      # 管理端前端
 ├── mobile-app/              # 车间移动端
+├── docs/                    # 工程文档与历史资料
 ├── docker-compose.yml
 ├── mosquitto.conf
 ├── start.sh / stop.sh
 └── .env.example
 ```
+
+## 工程文档
+
+- [工程设计与重构方案](docs/ENGINEERING-DESIGN.md)：现状盘点、目标架构、不变量、AI 旁路与已决策事项
+- [数据模型](docs/DATA-MODEL.md)：现状 12 张表与目标表设计
+- [接口契约](docs/API-CONTRACT.md)：46 个现状端点与目标端点
+- [重构分期](docs/REFACTOR-PLAN.md)：S0–S8 阶段、验收与风险
+- [历史资料](docs/legacy/README.md)：早期 PRD 与开发文档，未随重构维护
 
 ## 快速开始
 
@@ -122,11 +131,17 @@ mosquitto_pub -h localhost -t 'factory/devices/EQ-202609-0001/status' \
 
 除 `/api/auth/**`、Swagger 与健康检查外，接口均需 `Authorization: Bearer <token>`。管理类写操作要求 ADMIN 角色。
 
-## 测试
+## 验证
 
 ```bash
+# 后端单元测试
 cd zhizao-xietong && mvn test
+
+# 管理端类型检查与生产构建
+cd zhizao-xietong-web && npm ci && npm run build
 ```
+
+CI 在每次 push 与 pull request 时执行上述两条命令，配置见 `.github/workflows/ci.yml`。
 
 ## 许可
 
