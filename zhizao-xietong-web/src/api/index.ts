@@ -31,6 +31,7 @@ export interface Material {
 export interface Process {
   id?: number;
   processNo?: string;
+  version?: number;
   processName: string;
   processType: string;
   owner: string;
@@ -103,7 +104,25 @@ export const processApi = {
   remove: (id: number) => request.delete(`/processes/${id}`),
   submit: (id: number) => request.post(`/processes/${id}/submit`),
   approve: (id: number) => request.post(`/processes/${id}/approve`),
-  reject: (id: number) => request.post(`/processes/${id}/reject`)
+  reject: (id: number) => request.post(`/processes/${id}/reject`),
+  createVersion: (id: number) => request.post<any, Process>(`/processes/${id}/versions`)
+};
+
+export interface ProcessOperation {
+  id?: number;
+  processId?: number;
+  seq: number;
+  operationName: string;
+  deviceType?: string;
+  estHours?: number;
+}
+
+export const processOperationApi = {
+  list: (processId: number) => request.get<any, ProcessOperation[]>(`/processes/${processId}/operations`),
+  create: (processId: number, data: ProcessOperation) => request.post(`/processes/${processId}/operations`, data),
+  update: (processId: number, id: number, data: ProcessOperation) =>
+    request.put(`/processes/${processId}/operations/${id}`, data),
+  remove: (processId: number, id: number) => request.delete(`/processes/${processId}/operations/${id}`)
 };
 
 export const planApi = {
@@ -155,15 +174,12 @@ export const deviceDataApi = {
 export interface BomItem {
   id?: number;
   processId?: number;
-  version?: number;
   matCode: string;
   requiredQty: number;
 }
 
 export const bomApi = {
-  list: (processId: number, version?: number) => request.get<any, BomItem[]>(`/processes/${processId}/bom`, { params: { version } }),
-  versions: (processId: number) => request.get<any, number[]>(`/processes/${processId}/bom/versions`),
-  newVersion: (processId: number) => request.post(`/processes/${processId}/bom/version`),
+  list: (processId: number) => request.get<any, BomItem[]>(`/processes/${processId}/bom`),
   create: (processId: number, data: { matCode: string; requiredQty: number }) => request.post(`/processes/${processId}/bom`, data),
   update: (processId: number, id: number, data: { matCode: string; requiredQty: number }) => request.put(`/processes/${processId}/bom/${id}`, data),
   remove: (processId: number, id: number) => request.delete(`/processes/${processId}/bom/${id}`)
