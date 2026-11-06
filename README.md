@@ -318,9 +318,14 @@ REST 签名对象是原始请求体，必须与发送字节完全一致；MQTT �
 
 现象：`WorkOrderConsistencyIntegrationTest` 在测试报告中显示 skipped，提示找不到 Docker 环境。
 
-这是预期行为：未安装或未启动 Docker 时，Testcontainers 会整类跳过，其余测试照常运行，`mvn test` 仍然成功。需要实际执行时先确认 `docker info` 可用。本机使用 Colima + Docker 29 时，默认握手会因 API 版本过低被拒，Ryuk 容器也会因 socket 挂载失败而退出；API 版本已由 pom 固定为 1.40，本地只需补两个环境变量（CI 的标准 Docker socket 不需要）：
+这是预期行为：未安装或未启动 Docker 时，Testcontainers 会整类跳过，其余测试照常运行，`mvn test` 仍然成功。需要实际执行时，在 `zhizao-xietong` 目录下按下面两步操作（CI 使用标准 Docker socket，不需要这些额外参数）：
 
 ```bash
+# 1. 确认 Docker 可达；Colima 需要显式指定 socket
+DOCKER_HOST=unix://$HOME/.colima/default/docker.sock docker info
+
+# 2. 运行测试；Ryuk 在 Colima 下无法挂载 socket，必须关闭
+cd zhizao-xietong
 DOCKER_HOST=unix://$HOME/.colima/default/docker.sock \
 TESTCONTAINERS_RYUK_DISABLED=true \
 mvn test
