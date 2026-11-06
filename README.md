@@ -4,7 +4,7 @@
 
 ## 核心能力
 
-- 设备通过 MQTT 上报状态与遥测，支持持久会话、断线重订阅与设备签名校验
+- 设备通过 MQTT 上报状态与遥测，支持持久会话、断线重订阅、设备签名校验与遥测历史查询
 - 生产计划下达为工单，工单按状态机流转：待生产 → 生产中 → 待质检 → 完工
 - 开工前按 BOM 校验物料齐套，报工记录合格数与不良数
 - 工艺发布审批、BOM 版本管理、设备维保记录、写操作审计
@@ -42,8 +42,8 @@
 │   │   └── common/ config/ aspect/
 │   ├── src/main/resources/
 │   │   ├── application.yml          # 配置，全部支持环境变量覆盖
-│   │   └── db/migration/            # Flyway 迁移 V1–V5
-│   └── src/test/java/               # 29 个单元测试
+│   │   └── db/migration/            # Flyway 迁移 V1–V6
+│   └── src/test/java/               # 37 个单元测试
 ├── zhizao-xietong-web/              # Vue 3 管理端
 │   ├── src/views/                   # 8 个业务页面
 │   └── vite.config.ts               # 开发服务器 5173，代理 /api
@@ -175,6 +175,7 @@ docker exec zhizao-mqtt mosquitto_pub -h localhost \
 | `DEVICE_CREDENTIAL_KEY` | 设备密钥加密主密钥（32 字节 Base64） | 空 | 开启设备鉴权时必填 | `openssl rand -base64 32` 生成 |
 | `DEVICE_IDEMPOTENCY_TTL_SECONDS` | 幂等键保留时长 | `600` | 否 | `600` |
 | `DEVICE_IDEMPOTENCY_MAX_ENTRIES` | 幂等键最大条数 | `10000` | 否 | `10000` |
+| `DEVICE_TELEMETRY_RETENTION_DAYS` | 遥测时序保留天数，过期数据每日清理 | `90` | 否 | `30` |
 
 ## 打包与部署
 
@@ -313,14 +314,14 @@ REST 签名对象是原始请求体，必须与发送字节完全一致；MQTT �
 
 ## 已知限制
 
-- 遥测历史尚未落库，`eq_telemetry` 与历史查询接口在 S2 实现；当前实时遥测来自最近一次上报或显式开启的模拟数据
-- 上报幂等当前为进程内有界缓存，重启后失效；持久化去重随 S2 的遥测表落地
+- 遥测历史已落库（`eq_telemetry`，S2），单表保留 90 天；尚未接入前端曲线，管理端展示在 S7
+- 上报幂等由进程内缓存与 `eq_telemetry.ingest_key` 唯一索引共同保证；模拟数据不写入时序表
 - 工单并发控制、状态历史与报工数量约束在 S3 落地，当前仍可能出现并发覆盖
 - 工艺只有主表，没有工序建模；BOM 版本发布后仍可修改（S4）
 - 排产只是按优先级与日期排序，没有产能约束（S5）
 - 权限仅 ADMIN/USER 两级，无车间数据域；登录限流为单机内存（S6）
 - 只有 `/actuator/health`、`/actuator/info` 与标准输出日志，没有业务指标与告警（S7）
-- 单元测试 29 个，没有数据库集成测试与并发用例；移动端构建未纳入 CI
+- 单元测试 37 个，没有数据库集成测试与并发用例；移动端构建未纳入 CI
 - 完整 Docker Compose 五服务栈未在本机实测（本机端口被本地 MySQL/Redis 占用）
 - AI 能力未实现，处于规划阶段（P2）
 

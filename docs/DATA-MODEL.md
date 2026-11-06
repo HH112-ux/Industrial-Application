@@ -64,7 +64,7 @@ erDiagram
 
 ### 2.1 新增表
 
-#### 2.1.1 `eq_telemetry` 设备遥测时序
+#### 2.1.1 `eq_telemetry` 设备遥测时序（S2 已落地）
 
 | 字段 | 类型 | 约束 | 设计意图 |
 |---|---|---|---|
@@ -245,7 +245,7 @@ erDiagram
 |---|---|---|
 | `V4__device_online.sql` | `eq_device.last_seen_at`（S1 已落地）；`protocol`、`workshop` 随数据域迁移补充 | 无 |
 | `V5__device_credential.sql` | 新建 `eq_device_credential` | 无 |
-| `V6__device_telemetry.sql` | 新建 `eq_telemetry` | `V4` 可并行 |
+| `V6__device_telemetry.sql` | 新建 `eq_telemetry`（S2 已落地） | `V4` 可并行 |
 | `V7__work_order_consistency.sql` | `version`、累计数量、`wo_status_history`、报工约束 | 与 `V4` 可并行 |
 | `V8__process_operation.sql` | 新建 `pr_operation`，`pr_process` 版本字段 | 无 |
 | `V9__identity_scope.sql` | `sys_user` 启用状态、令牌版本、车间范围 | 无 |

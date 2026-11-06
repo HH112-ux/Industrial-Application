@@ -1,6 +1,6 @@
 # 接口契约
 
-现状接口以当前代码为准，共 48 个端点（S0 基线 46 个，S1 新增设备凭证 2 个）。目标接口尚未落地的部分仍为设计稿。
+现状接口以当前代码为准，共 49 个端点（S0 基线 46 个，S1 新增设备凭证 2 个，S2 新增遥测历史 1 个）。目标接口尚未落地的部分仍为设计稿。
 
 标注说明：`[代码实证]` 表示已在 Controller 中核对；`[工程判断]` 表示设计建议；`[待确认]` 表示需要用户拍板。
 
@@ -92,6 +92,7 @@
 | 9 | GET | `/api/devices/{id}/telemetry` | 登录 | 实时遥测 | 改行为 | 无真实上报时不再返回随机数；模拟数据由开关控制并标记 `source=SIMULATED` |
 | 10 | POST | `/api/integration/device-status` | 登录 | REST 设备回传 | 改签名 | 改设备 HMAC 鉴权，增加 `ingestKey` 幂等 |
 | 11 | POST | `/api/integration/mqtt/publish` | 登录 | 发布测试消息 | 改行为 | 仅 ADMIN，非生产环境启用 |
+| 47 | GET | `/api/devices/{id}/telemetry/history?from=&to=&limit=` | 登录 | 设备遥测历史，默认最近 24 小时，最多 1000 条 | 已落地 | S2 已实现，见 §4.4 |
 
 ### 2.4 物料
 
@@ -165,7 +166,7 @@
 | 51 | POST | `/api/devices/{id}/credential` | ADMIN | 签发或轮换设备凭证，明文密钥仅返回一次 | 已落地 | S1 已实现 |
 | 52 | POST | `/api/devices/{id}/credential/revoke` | ADMIN | 吊销设备凭证 | 已落地 | S1 已实现 |
 
-端点合计：48（S0 基线 46 + S1 设备凭证 2）。`[代码实证]`
+端点合计：49（S0 基线 46 + S1 设备凭证 2 + S2 遥测历史 1）。`[代码实证]`
 
 ---
 
@@ -173,7 +174,6 @@
 
 | # | 方法 | 路径 | 鉴权 | 用途 | 阶段 |
 |---|---|---|---|---|---|
-| 47 | GET | `/api/devices/{id}/telemetry/history?from=&to=&limit=` | 登录 | 设备时序查询，默认最近 24 小时，最多 1000 条 | S2 |
 | 48 | GET | `/api/work-orders/{id}/history` | 登录 | 状态流转历史 | S3 |
 | 49 | GET | `/api/processes/{id}/operations` | 登录 | 工序列表 | S4 |
 | 50 | POST/PUT/DELETE | `/api/processes/{id}/operations[/{opId}]` | ADMIN | 工序维护 | S4 |
@@ -183,7 +183,7 @@
 | 56 | POST | `/api/ai/report/draft` | 登录 | 自然语言转结构化报工草稿，不提交 | S8（P2） |
 | 57 | POST | `/api/ai/query` | ADMIN | 生产数据问答，只读视图 | S8（P2） |
 
-新增端点均遵循同一返回体与错误码约定。设备凭证的 2 个端点已在 S1 落地，见 §2.10。
+新增端点均遵循同一返回体与错误码约定。设备凭证的 2 个端点已在 S1 落地（§2.10），遥测历史已在 S2 落地（§2.3 与 §4.4）。
 
 ---
 
