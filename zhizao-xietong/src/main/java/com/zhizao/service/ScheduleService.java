@@ -48,15 +48,17 @@ import static java.util.stream.Collectors.toMap;
  *       既作为已占用产能，也作为追溯依据。</li>
  *   <li>同一批工单与同一份产能数据重复运行，排序、设备选择与时间窗完全一致。</li>
  *   <li>产能来自运行中（{@code RUNNING}）的设备，每台设备每日可用工时由
- *       {@code schedule.daily-hours} 与 {@code schedule.day-start-hour} 决定。</li>
+ *       {@code schedule.daily-hours} 与 {@code schedule.day-start-hour} 决定；
+ *       这两项是车间规则，允许有默认值。</li>
+ *   <li>工序标准工时属于单据数据，缺失时不排程并返回 {@code STANDARD_HOURS_MISSING}，
+ *       不读取计划总工时、也不使用内置默认值；只有显式开启
+ *       {@code schedule.estimate-fallback-hours} 才按估算工时排程并标记。</li>
  * </ul>
  *
  * @author Caspian
  */
 @Service
 public class ScheduleService {
-
-    private static final BigDecimal DEFAULT_OPERATION_HOURS = BigDecimal.ONE;
 
     private final WorkOrderMapper workOrderMapper;
     private final PlanMapper planMapper;
@@ -65,6 +67,7 @@ public class ScheduleService {
     private final ScheduleEntryMapper scheduleEntryMapper;
     private final BigDecimal dailyHours;
     private final int dayStartHour;
+    private final BigDecimal estimateFallbackHours;
 
     /**
      * 构造排程服务。
@@ -74,14 +77,16 @@ public class ScheduleService {
      * @param processOperationMapper 工序数据访问
      * @param deviceMapper           设备数据访问
      * @param scheduleEntryMapper    排程结果数据访问
-     * @param dailyHours             单台设备每日可用工时
-     * @param dayStartHour           每日开工整点，24 小时制
+     * @param dailyHours             单台设备每日可用工时（车间规则，可有默认值）
+     * @param dayStartHour           每日开工整点（车间规则，必须有值）
+     * @param estimateFallbackHours  显式开启的估算工时；0 表示关闭，缺标准工时时直接拒绝排程
      */
     public ScheduleService(WorkOrderMapper workOrderMapper, PlanMapper planMapper,
                            ProcessOperationMapper processOperationMapper, DeviceMapper deviceMapper,
                            ScheduleEntryMapper scheduleEntryMapper,
                            @Value("${schedule.daily-hours:8}") BigDecimal dailyHours,
-                           @Value("${schedule.day-start-hour:8}") int dayStartHour) {
+                           @Value("${schedule.day-start-hour:8}") int dayStartHour,
+                           @Value("${schedule.estimate-fallback-hours:0}") BigDecimal estimateFallbackHours) {
         this.workOrderMapper = workOrderMapper;
         this.planMapper = planMapper;
         this.processOperationMapper = processOperationMapper;
@@ -89,6 +94,7 @@ public class ScheduleService {
         this.scheduleEntryMapper = scheduleEntryMapper;
         this.dailyHours = dailyHours;
         this.dayStartHour = dayStartHour;
+        this.estimateFallbackHours = estimateFallbackHours;
     }
 
     /**
@@ -207,7 +213,11 @@ public class ScheduleService {
                 return Outcome.conflict(conflict(order, plan, operation, queueRank, rankBasis,
                         ScheduleConflict.NO_CAPACITY, runAt, deviceType));
             }
-            WorkDuration duration = resolveDuration(operation, plan, operations.size(), order.getQty());
+            WorkDuration duration = resolveDuration(operation, order.getQty());
+            if (duration == null) {
+                return Outcome.conflict(conflict(order, plan, operation, queueRank, rankBasis,
+                        ScheduleConflict.STANDARD_HOURS_MISSING, runAt, operationLabel(operation)));
+            }
             if (duration.hours().signum() <= 0) {
                 return Outcome.conflict(conflict(order, plan, operation, queueRank, rankBasis,
                         ScheduleConflict.DURATION_INVALID, runAt));
@@ -238,7 +248,9 @@ public class ScheduleService {
             entry.setDurationHours(duration.hours());
             entry.setEstimated(duration.estimated() ? 1 : 0);
             entry.setStatus(ScheduleStatus.SCHEDULED.name());
-            entry.setMessage("设备类型「" + deviceType + "」第 " + queueRank + " 位落位");
+            entry.setMessage("设备类型「" + deviceType + "」第 " + queueRank + " 位落位，按"
+                    + (duration.estimated() ? "估算工时 " : "标准工时 ")
+                    + duration.hours().toPlainString() + " 小时");
             entries.add(entry);
         }
         return Outcome.success(entries, trial);
@@ -342,16 +354,34 @@ public class ScheduleService {
         return date.plusDays(1).atStartOfDay().plusHours(dayStartHour);
     }
 
-    private WorkDuration resolveDuration(ProcessOperation operation, Plan plan, int operationCount, int qty) {
+    /**
+     * 计算工序工时：只使用工序标准工时，绝不凭空生成数字。
+     *
+     * <p>标准工时属于单据数据，缺失时返回 {@code null}，由调用方按
+     * {@code STANDARD_HOURS_MISSING} 拒绝整张工单。只有显式配置
+     * {@code schedule.estimate-fallback-hours}（默认 0，即关闭）时才使用估算工时，
+     * 并在结果中标记 {@code estimated=1}。</p>
+     */
+    private WorkDuration resolveDuration(ProcessOperation operation, int qty) {
         BigDecimal unitHours = operation.getEstHours();
         if (unitHours != null && unitHours.signum() > 0) {
             return new WorkDuration(unitHours.multiply(BigDecimal.valueOf(qty))
                     .setScale(2, RoundingMode.HALF_UP), false);
         }
-        if (operationCount == 1 && plan.getEstHours() != null && plan.getEstHours().signum() > 0) {
-            return new WorkDuration(plan.getEstHours(), false);
+        if (estimateFallbackHours != null && estimateFallbackHours.signum() > 0) {
+            return new WorkDuration(estimateFallbackHours, true);
         }
-        return new WorkDuration(DEFAULT_OPERATION_HOURS, true);
+        return null;
+    }
+
+    /**
+     * 工序的可读标识，用于冲突消息定位缺工时的具体工序。
+     */
+    private String operationLabel(ProcessOperation operation) {
+        if (StringUtils.hasText(operation.getOperationName())) {
+            return operation.getOperationName();
+        }
+        return operation.getSeq() == null ? "未命名工序" : "序号 " + operation.getSeq();
     }
 
     private String resolveDeviceType(ProcessOperation operation, Plan plan, Map<Long, Device> deviceById) {

@@ -143,6 +143,7 @@ export interface ScheduleEntry {
   endTime?: string;
   durationHours?: number;
   estimated?: number;
+  hoursSource?: 'STANDARD' | 'ESTIMATED';
   queueRank: number;
   rankBasis: string;
   status: string;

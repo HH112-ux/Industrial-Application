@@ -159,7 +159,7 @@ V9 为存量工艺回填一条「默认工序」（`seq = 1`），保证迁移�
 | `start_time` | DATETIME | NULL | 占用起始时间 |
 | `end_time` | DATETIME | NULL | 占用结束时间 |
 | `duration_hours` | DECIMAL(8,2) | NULL | 工序累计有效工时；跨天不等于首尾时间差 |
-| `estimated` | TINYINT | NOT NULL DEFAULT 0 | 工时为估算值，标准工时缺失时为 1 |
+| `estimated` | TINYINT | NOT NULL DEFAULT 0 | 工时为显式开启的估算值；标准工时缺失时默认拒绝排程，不会写入估算 |
 | `queue_rank` | INT | NOT NULL | 本次排程队列位置，从 1 开始 |
 | `rank_basis` | VARCHAR(255) | NOT NULL | 位置依据：交期与优先级 |
 | `status` | VARCHAR(16) | NOT NULL | `SCHEDULED` / `UNSCHEDULED` |

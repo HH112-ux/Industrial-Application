@@ -14,7 +14,8 @@ public enum ScheduleConflict {
     OPERATION_MISSING("工艺没有可排产工序"),
     DEVICE_TYPE_MISSING("工序未配置设备类型，且计划未指定可用设备"),
     NO_CAPACITY("设备类型「%s」没有运行中的设备"),
-    DURATION_INVALID("工单数量或标准工时无效，无法计算工序工时"),
+    DURATION_INVALID("工单数量无效，无法计算工序工时"),
+    STANDARD_HOURS_MISSING("工序「%s」缺少标准工时，无法排程；请补充工时或显式开启估算配置"),
     DUE_DATE_MISSING("计划缺少开始或完成日期，无法确定排程窗口"),
     DUE_DATE_MISSED("上一工序结束时间 %s 已晚于计划交期 %s"),
     CAPACITY_OVERLOAD("设备类型「%s」在 %s 至 %s 的产能已被占满，工序无法在交期内排入");

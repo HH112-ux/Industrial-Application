@@ -59,6 +59,18 @@ public class ScheduleEntry {
     public void setDurationHours(BigDecimal durationHours) { this.durationHours = durationHours; }
     public Integer getEstimated() { return estimated; }
     public void setEstimated(Integer estimated) { this.estimated = estimated; }
+
+    /**
+     * 工时可读来源，供 API 与前端区分「按标准工时排」和「按估算工时排」。
+     *
+     * @return {@code STANDARD} 或 {@code ESTIMATED}；未产生工时（如无法排入）返回 null
+     */
+    public String getHoursSource() {
+        if (estimated == null) {
+            return null;
+        }
+        return estimated == 1 ? "ESTIMATED" : "STANDARD";
+    }
     public Integer getQueueRank() { return queueRank; }
     public void setQueueRank(Integer queueRank) { this.queueRank = queueRank; }
     public String getRankBasis() { return rankBasis; }
