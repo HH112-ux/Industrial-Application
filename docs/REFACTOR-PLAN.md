@@ -260,7 +260,7 @@
 | 前端构建 | 类型检查与打包 | `npm run build` | 是 |
 | AI 用例 | 抽取、归因、SQL 白名单 | 假模型实现 | 是，不访问外网 |
 
-现有 19 个用例全部是 Mockito 单测，没有 Spring 上下文与真实数据库。S3 开始补集成测试，至少覆盖「并发开工只有一个成功」与「Flyway 从空库迁移成功」。
+当前 46 个 Mockito 单测不启动 Spring 上下文；另有 3 个 Testcontainers 集成用例（`WorkOrderConsistencyIntegrationTest`），覆盖 Flyway 从空库迁移、状态机合法/非法流转与真实并发开工。时序查询、Redis 限流与接口冒烟按 S2/S6 的实际改动继续追加，集成用例保持「只守最容易回归的路径」，不铺全量数据库测试；Docker 不可用时整类跳过。
 
 ---
 
