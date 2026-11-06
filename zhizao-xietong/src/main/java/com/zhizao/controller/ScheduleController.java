@@ -4,6 +4,7 @@ import com.zhizao.common.Result;
 import com.zhizao.dto.ScheduleRunResult;
 import com.zhizao.entity.ScheduleEntry;
 import com.zhizao.service.ScheduleService;
+import com.zhizao.service.WorkOrderService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -25,9 +26,17 @@ import java.util.List;
 public class ScheduleController {
 
     private final ScheduleService scheduleService;
+    private final WorkOrderService workOrderService;
 
-    public ScheduleController(ScheduleService scheduleService) {
+    /**
+     * 构造排程接口。
+     *
+     * @param scheduleService  排程服务
+     * @param workOrderService 工单服务，用于校验车间数据域
+     */
+    public ScheduleController(ScheduleService scheduleService, WorkOrderService workOrderService) {
         this.scheduleService = scheduleService;
+        this.workOrderService = workOrderService;
     }
 
     /**
@@ -49,6 +58,7 @@ public class ScheduleController {
      */
     @GetMapping("/work-orders/{workOrderId}")
     public Result<List<ScheduleEntry>> entries(@PathVariable Long workOrderId) {
+        workOrderService.getById(workOrderId);
         return Result.ok(scheduleService.entries(workOrderId));
     }
 }

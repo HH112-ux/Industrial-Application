@@ -14,6 +14,7 @@ import com.zhizao.enums.WorkOrderStatus;
 import com.zhizao.mapper.PlanMapper;
 import com.zhizao.mapper.ProcessMapper;
 import com.zhizao.mapper.WorkOrderMapper;
+import com.zhizao.security.DataScope;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
@@ -32,15 +33,35 @@ public class PlanService {
     private final ProcessMapper processMapper;
     private final WorkOrderMapper workOrderMapper;
     private final CodeGenerator codeGenerator;
+    private final DataScope dataScope;
 
+    /**
+     * 构造计划服务。
+     *
+     * @param planMapper      计划数据访问
+     * @param processMapper   工艺数据访问
+     * @param workOrderMapper 工单数据访问
+     * @param codeGenerator   业务编号生成器
+     * @param dataScope       车间数据域
+     */
     public PlanService(PlanMapper planMapper, ProcessMapper processMapper, WorkOrderMapper workOrderMapper,
-                       CodeGenerator codeGenerator) {
+                       CodeGenerator codeGenerator, DataScope dataScope) {
         this.planMapper = planMapper;
         this.processMapper = processMapper;
         this.workOrderMapper = workOrderMapper;
         this.codeGenerator = codeGenerator;
+        this.dataScope = dataScope;
     }
 
+    /**
+     * 分页查询计划。非管理员只能看到自己车间范围内的计划；管理端看板同样通过本查询取数。
+     *
+     * @param pageNum  页码
+     * @param pageSize 每页条数
+     * @param keyword  计划号、产品编号或名称关键字
+     * @param status   计划状态
+     * @return 计划分页结果
+     */
     public PageResult<Plan> list(int pageNum, int pageSize, String keyword, String status) {
         Page<Plan> page = new Page<>(pageNum, pageSize);
         LambdaQueryWrapper<Plan> qw = new LambdaQueryWrapper<>();
@@ -49,16 +70,27 @@ public class PlanService {
                 .or().like(Plan::getProductCode, keyword)
                 .or().like(Plan::getProductName, keyword));
         qw.eq(StringUtils.hasText(status), Plan::getStatus, status);
+        String workshop = dataScope.workshopFilter();
+        qw.eq(workshop != null, Plan::getWorkshop, workshop);
         qw.orderByDesc(Plan::getId);
         planMapper.selectPage(page, qw);
         return PageResult.of(page.getTotal(), page.getRecords());
     }
 
+    /**
+     * 查询计划详情。
+     *
+     * @param id 计划主键
+     * @return 计划详情
+     * @throws BusinessException 计划不存在时抛出
+     * @throws com.zhizao.common.ForbiddenException 计划不属于当前用户车间时抛出
+     */
     public Plan getById(Long id) {
         Plan plan = planMapper.selectById(id);
         if (plan == null) {
             throw new BusinessException("计划不存在");
         }
+        dataScope.requireWorkshop(plan.getWorkshop());
         return plan;
     }
 
@@ -66,6 +98,9 @@ public class PlanService {
         plan.setId(null);
         plan.setPlanOrderNo(codeGenerator.next("PO"));
         plan.setStatus(PlanStatus.PENDING_SCHEDULE.name());
+        if (!StringUtils.hasText(plan.getWorkshop())) {
+            plan.setWorkshop("一车间");
+        }
         planMapper.insert(plan);
         return plan;
     }

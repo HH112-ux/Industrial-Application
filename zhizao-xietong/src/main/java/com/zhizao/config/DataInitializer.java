@@ -42,6 +42,9 @@ public class DataInitializer implements CommandLineRunner {
             operator.setPassword(passwordEncoder.encode("123456"));
             operator.setNickname("张三");
             operator.setRole("USER");
+            operator.setEnabled(1);
+            operator.setTokenVersion(0);
+            operator.setWorkshopScope("一车间");
             userMapper.insert(operator);
         }
     }

@@ -1,6 +1,6 @@
 # 数据模型设计
 
-本文档描述现状数据库结构与重构目标模型。现状结构来自 `zhizao-xietong/src/main/resources/db/migration/V1__init.sql` 至 `V10__schedule_entry.sql`，目标结构为待评审设计，不包含未执行的迁移。
+本文档描述现状数据库结构与重构目标模型。现状结构来自 `zhizao-xietong/src/main/resources/db/migration/V1__init.sql` 至 `V12__audit_enhance.sql`，目标结构为待评审设计，不包含未执行的迁移。
 
 标注说明：`[代码实证]` 表示可从当前代码或迁移脚本直接核对；`[工程判断]` 表示基于现有规模与约束提出的设计取舍；`[待确认]` 表示需要用户拍板。
 
@@ -40,7 +40,7 @@ erDiagram
 | `pr_process` | `Process` | `ProcessMapper` | 工艺主数据，一行即一个版本 | `uk_process_no`、`uk_process_no_version (process_no, version)` |
 | `pr_process_operation` | `ProcessOperation` | `ProcessOperationMapper` | 工艺版本的工序路线 | `process_id` 普通索引，`(process_id, seq)` 由服务层保证不重复 |
 | `pr_bom` | `BomItem` | `BomItemMapper` | 工艺物料清单，按 `process_id` 归属版本 | 仅 `process_id` 普通索引；`version` 列已废弃，见 §2.2 |
-| `po_plan` | `Plan` | `PlanMapper` | 生产计划 | `uk_plan_order_no`，状态索引 |
+| `po_plan` | `Plan` | `PlanMapper` | 生产计划 | `uk_plan_order_no`，状态索引，`workshop` 索引 |
 | `po_schedule_entry` | `ScheduleEntry` | `ScheduleEntryMapper` | 有限产能排程结果与冲突原因 | `work_order_id`、`(device_id, start_time)`、`status` 索引；派生数据，无逻辑删除 |
 | `wo_work_order` | `WorkOrder` | `WorkOrderMapper` | 生产工单 | `uk_order_no`，`plan_id`/`status` 索引；`process_version` 记录开工时锁定的工艺版本 |
 | `wo_status_history` | `WorkOrderStatusHistory` | `WorkOrderStatusHistoryMapper` | 工单状态流转历史 | `(order_id, created_at)` 索引，只追加 |
@@ -49,23 +49,23 @@ erDiagram
 | `eq_maintenance` | `MaintenanceRecord` | `MaintenanceRecordMapper` | 点检/维修 | `uk_mt_no`，`device_id` 索引 |
 | `eq_telemetry` | `DeviceTelemetryRecord` | `DeviceTelemetryMapper` | 设备遥测时序 | `(device_id, reported_at)` 索引，`ingest_key` 唯一 |
 | `eq_device_credential` | `DeviceCredential` | `DeviceCredentialMapper` | 设备凭证 | `device_id` 唯一、`key_id` 唯一 |
-| `sys_user` | `SysUser` | `SysUserMapper` | 用户与角色 | `uk_username` |
+| `sys_user` | `SysUser` | `SysUserMapper` | 用户、角色、启停与车间数据域 | `uk_username`；`enabled`、`token_version`、`workshop_scope` 由 V11 增加 |
 | `sys_sequence` | `Sequence` | `SequenceMapper` | 编号序列 | 主键 `seq_name` |
-| `sys_audit_log` | `AuditLog` | `AuditLogMapper` | 写操作审计 | `created_at` 索引，无保留策略 |
+| `sys_audit_log` | `AuditLog` | `AuditLogMapper` | 写操作审计 | `created_at`、`(username, created_at)`、`uri` 索引，无保留策略 |
 
 ### 1.3 关键字段现状
 
 | 表 | 字段 | 现状 | 问题 |
 |---|---|---|---|
 | `wo_work_order` | `status` | `PENDING/IN_PRODUCTION/PENDING_QC/FINISHED` | 无流转历史，无法追溯操作人和时间 |
-| `wo_work_order` | `workshop` | 字符串，下达时固定写「一车间」 | 车间不是数据域，无法做权限隔离 |
+| `wo_work_order` | `workshop` | 字符串，下达时固定写「一车间」 | S6 起作为数据域依据：非管理员只能读写本车间数据 |
 | `wo_report` | `qty`、`qualified_qty`、`defect_qty` | 均可为空或任意整数 | 无正数校验、无累计上限、无幂等键 |
 | `wo_quality` | `result` | 字符串 `PASS/FAIL` | 质检记录先落库再校验结论，非法值依赖事务回滚 |
 | `pr_process` | `device_mat_req` | 逗号分隔的描述字符串 | 工序结构已由 `pr_process_operation` 承接，该字段保留为辅助描述 |
 | `pr_bom` | `version` | V3 增加，S4 起废弃 | 已无业务含义，保留列与存量数据；新逻辑只按 `process_id` 读写 |
-| `eq_device` | `status` | 由 MQTT 或手工接口修改 | 无 `last_seen_at`，无法判断设备是否失联 |
-| `sys_user` | `role` | `ADMIN/USER` | 无启用状态、无令牌版本、无数据域 |
-| `sys_audit_log` | `params` | 截断到 1000 字符 | 无结果状态、耗时、链路标识 |
+| `eq_device` | `status` | 由 MQTT 或手工接口修改 | S1 已补 `last_seen_at`；S6 已补 `workshop` 作为数据域 |
+| `sys_user` | `role` | `ADMIN/USER` | S6 已补 `enabled`、`token_version`、`workshop_scope`，逐请求查库即时生效 |
+| `sys_audit_log` | `params` | 截断到 1000 字符 | S6 已补查询索引；结果状态、耗时、链路标识留待 S7 |
 
 ---
 
@@ -256,18 +256,19 @@ V9 为存量工艺回填一条「默认工序」（`seq = 1`），保证迁移�
 
 | 变更 | 设计意图 |
 |---|---|
-| 新增 `enabled TINYINT NOT NULL DEFAULT 1` | 禁用用户立即失效 |
-| 新增 `token_version INT NOT NULL DEFAULT 0` | 改密或禁用后旧令牌失效 |
-| 新增 `workshop_scope VARCHAR(128)` | 数据域，逗号分隔车间；为空表示全部 |
-| 新增 `last_login_at` | 登录审计 |
+| 新增 `enabled TINYINT NOT NULL DEFAULT 1` | 禁用用户立即失效（S6 已落地） |
+| 新增 `token_version INT NOT NULL DEFAULT 0` | 改密或启停后旧令牌在下一次请求失效（S6 已落地） |
+| 新增 `workshop_scope VARCHAR(32)` | 单车间数据域；管理员为 NULL，非管理员为空时按无可见数据处理（S6 已落地） |
+| 新增 `last_login_at` | 登录审计，未落地 |
 
 #### `sys_audit_log`
 
 | 变更 | 设计意图 |
 |---|---|
-| 新增 `trace_id VARCHAR(64)` | 串联一次请求的日志 |
-| 新增 `result_status VARCHAR(16)` | `SUCCESS/FAILED` |
-| 新增 `duration_ms INT` | 慢操作识别 |
+| 新增 `idx_audit_user_time (username, created_at)`、`idx_audit_uri (uri)` | 支撑按操作人、路径与时间范围查询（S6 已落地） |
+| 新增 `trace_id VARCHAR(64)` | 串联一次请求的日志，留待 S7 |
+| 新增 `result_status VARCHAR(16)` | `SUCCESS/FAILED`，留待 S7 |
+| 新增 `duration_ms INT` | 慢操作识别，留待 S7 |
 | 新增 `error_code VARCHAR(32)` | 失败原因分类 |
 
 ### 2.3 一致性规则
@@ -287,15 +288,15 @@ V9 为存量工艺回填一条「默认工序」（`seq = 1`），保证迁移�
 
 | 迁移 | 内容 | 依赖 |
 |---|---|---|
-| `V4__device_online.sql` | `eq_device.last_seen_at`（S1 已落地）；`protocol`、`workshop` 随数据域迁移补充 | 无 |
+| `V4__device_online.sql` | `eq_device.last_seen_at`（S1 已落地）；`workshop` 由 `V11` 补充 | 无 |
 | `V5__device_credential.sql` | 新建 `eq_device_credential` | 无 |
 | `V6__device_telemetry.sql` | 新建 `eq_telemetry`（S2 已落地） | `V4` 可并行 |
 | `V7__work_order_consistency.sql` | `version`、`qty_done`、`qty_qualified`、`qty_defect`、`wo_status_history`（S3 已落地）；报工数量约束在服务层校验，未加数据库 CHECK，避免历史脏数据阻断迁移 | 与 `V4` 可并行 |
 | `V8__report_idempotency.sql` | `wo_report.idempotency_key` + 唯一索引 `uk_order_idem (order_id, idempotency_key)`（S3 补，已落地）；键由客户端生成，NULL 不参与去重 | 必须晚于 `V7` |
 | `V9__process_operation.sql` | 新建 `pr_process_operation`；`pr_process` 增加 `version` 与 `uk_process_no_version`；`wo_work_order` 增加 `process_version`；存量工艺回填「默认工序」并回填工单版本（S4 已落地） | 必须晚于 `V7` |
 | `V10__schedule_entry.sql` | 新建 `po_schedule_entry`，保存排程时间窗、队列位置与冲突业务码（S5 已落地） | 必须晚于 `V9` |
-| `V11__identity_scope.sql` | `sys_user` 启用状态、令牌版本、车间范围 | 无 |
-| `V12__audit_enhance.sql` | 审计字段扩展与索引 | 无 |
+| `V11__identity_scope.sql` | `sys_user` 增加 `enabled`、`token_version`、`workshop_scope`；`eq_device`、`po_plan` 增加 `workshop` 与索引；非管理员回填「一车间」（S6 已落地） | 无 |
+| `V12__audit_enhance.sql` | 审计查询索引 `idx_audit_user_time`、`idx_audit_uri`（S6 已落地） | 无 |
 | `V13__ai_sidecar.sql` | AI 审计表（最后阶段） | `V8`、`V11` |
 
-每个迁移只做一件事，可单独回滚到上一版本；生产环境执行前先备份，禁止在迁移中做数据回填与结构变更混合。`[工程判断]`
+每个迁移可单独回滚到上一版本；结构变更与回填放在同一迁移时，回填必须幂等并在 PR 中单独说明。生产环境执行前先备份。`[工程判断]`

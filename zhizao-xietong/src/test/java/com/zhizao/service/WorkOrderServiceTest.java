@@ -1,7 +1,11 @@
 package com.zhizao.service;
 
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.zhizao.common.BadRequestException;
 import com.zhizao.common.BusinessException;
+import com.zhizao.common.ForbiddenException;
 import com.zhizao.dto.QcRequest;
 import com.zhizao.dto.ReportRequest;
 import com.zhizao.entity.Process;
@@ -14,17 +18,25 @@ import com.zhizao.mapper.QualityRecordMapper;
 import com.zhizao.mapper.WorkOrderMapper;
 import com.zhizao.mapper.WorkOrderReportMapper;
 import com.zhizao.mapper.WorkOrderStatusHistoryMapper;
+import com.zhizao.security.DataScope;
+import com.zhizao.security.UserPrincipal;
+import org.junit.jupiter.api.AfterEach;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -33,6 +45,10 @@ import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class WorkOrderServiceTest {
+
+    static {
+        TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), WorkOrder.class);
+    }
 
     @Mock
     private WorkOrderMapper workOrderMapper;
@@ -57,7 +73,19 @@ class WorkOrderServiceTest {
     void setUp() {
         workOrderService = new WorkOrderService(
                 workOrderMapper, workOrderReportMapper, qualityRecordMapper, planMapper,
-                statusHistoryMapper, new WorkOrderStateMachine(), kitCheckService, processService, codeGenerator);
+                statusHistoryMapper, new WorkOrderStateMachine(), kitCheckService, processService, codeGenerator,
+                new DataScope());
+    }
+
+    @AfterEach
+    void clearSecurityContext() {
+        SecurityContextHolder.clearContext();
+    }
+
+    private void loginAs(String role, String workshopScope) {
+        UserPrincipal principal = new UserPrincipal("zhangsan", role, workshopScope);
+        SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
+                principal, null, List.of(new SimpleGrantedAuthority("ROLE_" + role))));
     }
 
     private WorkOrder order(String status) {
@@ -288,5 +316,38 @@ class WorkOrderServiceTest {
 
         verify(qualityRecordMapper, never()).insert(any(QualityRecord.class));
         verify(statusHistoryMapper, never()).insert(any(WorkOrderStatusHistory.class));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void listFiltersByWorkshopScope() {
+        loginAs("USER", "二车间");
+
+        workOrderService.list(1, 10, null, null);
+
+        ArgumentCaptor<LambdaQueryWrapper<WorkOrder>> captor = ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(workOrderMapper).selectPage(any(), captor.capture());
+        assertTrue(captor.getValue().getSqlSegment().contains("workshop"));
+        assertTrue(captor.getValue().getParamNameValuePairs().containsValue("二车间"));
+    }
+
+    @Test
+    void detailRejectsOrderFromAnotherWorkshop() {
+        loginAs("USER", "二车间");
+        WorkOrder order = order("PENDING");
+        order.setWorkshop("一车间");
+        when(workOrderMapper.selectById(1L)).thenReturn(order);
+
+        assertThrows(ForbiddenException.class, () -> workOrderService.getById(1L));
+    }
+
+    @Test
+    void adminSeesOrdersFromAnyWorkshop() {
+        loginAs("ADMIN", null);
+        WorkOrder order = order("PENDING");
+        order.setWorkshop("一车间");
+        when(workOrderMapper.selectById(1L)).thenReturn(order);
+
+        assertEquals("一车间", workOrderService.getById(1L).getWorkshop());
     }
 }

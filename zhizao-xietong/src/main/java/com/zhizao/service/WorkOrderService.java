@@ -21,6 +21,7 @@ import com.zhizao.mapper.QualityRecordMapper;
 import com.zhizao.mapper.WorkOrderMapper;
 import com.zhizao.mapper.WorkOrderReportMapper;
 import com.zhizao.mapper.WorkOrderStatusHistoryMapper;
+import com.zhizao.security.DataScope;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -49,6 +50,7 @@ public class WorkOrderService {
     private final KitCheckService kitCheckService;
     private final ProcessService processService;
     private final CodeGenerator codeGenerator;
+    private final DataScope dataScope;
 
     /**
      * 构造工单服务。
@@ -62,12 +64,13 @@ public class WorkOrderService {
      * @param kitCheckService      齐套校验服务
      * @param processService       工艺服务
      * @param codeGenerator        业务编号生成器
+     * @param dataScope            车间数据域
      */
     public WorkOrderService(WorkOrderMapper workOrderMapper, WorkOrderReportMapper workOrderReportMapper,
                             QualityRecordMapper qualityRecordMapper, PlanMapper planMapper,
                             WorkOrderStatusHistoryMapper statusHistoryMapper, WorkOrderStateMachine stateMachine,
                             KitCheckService kitCheckService, ProcessService processService,
-                            CodeGenerator codeGenerator) {
+                            CodeGenerator codeGenerator, DataScope dataScope) {
         this.workOrderMapper = workOrderMapper;
         this.workOrderReportMapper = workOrderReportMapper;
         this.qualityRecordMapper = qualityRecordMapper;
@@ -77,8 +80,18 @@ public class WorkOrderService {
         this.kitCheckService = kitCheckService;
         this.processService = processService;
         this.codeGenerator = codeGenerator;
+        this.dataScope = dataScope;
     }
 
+    /**
+     * 分页查询工单。非管理员只能看到自己车间范围内的工单；管理端看板同样通过本查询取数。
+     *
+     * @param pageNum  页码
+     * @param pageSize 每页条数
+     * @param keyword  工单号、产品编号、名称或车间关键字
+     * @param status   工单状态
+     * @return 工单分页结果
+     */
     public PageResult<WorkOrder> list(int pageNum, int pageSize, String keyword, String status) {
         Page<WorkOrder> page = new Page<>(pageNum, pageSize);
         LambdaQueryWrapper<WorkOrder> qw = new LambdaQueryWrapper<>();
@@ -88,16 +101,27 @@ public class WorkOrderService {
                 .or().like(WorkOrder::getProductName, keyword)
                 .or().like(WorkOrder::getWorkshop, keyword));
         qw.eq(StringUtils.hasText(status), WorkOrder::getStatus, status);
+        String workshop = dataScope.workshopFilter();
+        qw.eq(workshop != null, WorkOrder::getWorkshop, workshop);
         qw.orderByDesc(WorkOrder::getId);
         workOrderMapper.selectPage(page, qw);
         return PageResult.of(page.getTotal(), page.getRecords());
     }
 
+    /**
+     * 查询工单详情；开工、报工、质检与历史查询都经过这里，跨车间访问统一在入口拦截。
+     *
+     * @param id 工单主键
+     * @return 工单详情
+     * @throws BusinessException 工单不存在时抛出
+     * @throws com.zhizao.common.ForbiddenException 工单不属于当前用户车间时抛出
+     */
     public WorkOrder getById(Long id) {
         WorkOrder order = workOrderMapper.selectById(id);
         if (order == null) {
             throw new BusinessException("工单不存在");
         }
+        dataScope.requireWorkshop(order.getWorkshop());
         return order;
     }
 

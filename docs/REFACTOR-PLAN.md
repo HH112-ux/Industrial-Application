@@ -183,26 +183,28 @@
 
 ---
 
-## S6 权限与数据域
+## S6 权限与数据域（已落地）
 
-目标：用户禁用立即生效，限流跨实例一致，按车间限制数据访问，设备凭证与用户令牌分离。`[代码实证]`
+目标：用户禁用立即生效，改密后旧令牌失效，按车间限制数据访问，登录限流可替换实现。`[代码实证]`
 
 涉及文件：
 
-- `service/AuthService.java`：登录校验 `enabled`；刷新校验 `token_version`。
-- `security/JwtAuthenticationFilter.java`：校验令牌版本或改为每次请求查缓存。
-- `common/LoginRateLimiter.java`：改为 Redis 计数，保留本地降级。
-- `service/DeviceService.java`、`PlanService.java`、`WorkOrderService.java`：按 `workshop_scope` 过滤。
-- `controller/AuditLogController.java`：审计查询。
+- `service/AuthService.java`：登录校验 `enabled`；刷新校验 `token_version`；自助改密递增版本。
+- `security/JwtAuthenticationFilter.java`：每次请求查库校验 `enabled` 与 `token_version`，不使用缓存。
+- `security/UserPrincipal.java`、`security/DataScope.java`：当前用户主体与车间数据域判定。
+- `common/LoginRateLimiter.java`：限流端口；`common/LocalLoginRateLimiter.java` 为单实例本地实现。
+- `service/DeviceService.java`、`PlanService.java`、`WorkOrderService.java`：列表追加 `workshop` 条件，详情越权返回 403。
+- `controller/UserController.java`、`service/UserService.java`：用户启停、管理员重置密码、自助改密。
+- `controller/AuditLogController.java`、`service/AuditLogService.java`：审计查询。
 - 新增迁移 `V11__identity_scope.sql`、`V12__audit_enhance.sql`。
 
 验收：
 
-- 禁用用户后，已签发令牌在下一次请求即失效。
-- 修改密码后旧令牌失效。
-- 两个后端实例共享登录失败计数；Redis 不可用时降级为本地限流并记录告警。
-- USER 只能读写自己车间范围的工单与计划，跨车间返回 403。
-- 单测覆盖：禁用用户、令牌版本、限流阈值、车间过滤。
+- 禁用用户后，已签发令牌在下一次请求返回 401。
+- 修改密码或管理员重置密码后，旧令牌在下一次请求返回 401。
+- 登录限流保持在 `LoginRateLimiter` 端口之后；当前为单实例本地实现，多实例部署必须替换为共享存储实现，不引入 Redis。`[工程判断]`
+- USER 只能读写自己车间范围的设备、计划与工单；列表自动过滤，详情跨车间返回 403；管理端看板通过列表接口取数，同样受过滤。
+- 单测覆盖：禁用用户、令牌版本、HTTP 401、限流阈值、用户启停与改密、设备/计划/工单车间过滤。
 
 依赖与风险：依赖 S3 的历史与 S4 的车间字段。风险是现有数据没有车间归属，迁移时按「一车间」回填并记录。
 
@@ -259,12 +261,12 @@
 | 层级 | 范围 | 工具 | 是否进 CI |
 |---|---|---|---|
 | 单元测试 | 状态机、数量校验、齐套口径、签名、退避、权限过滤 | JUnit 5 + Mockito | 是 |
-| 集成测试 | Flyway 迁移、时序查询、乐观锁并发、Redis 限流 | Testcontainers（MySQL/Redis） | 是，标记 `integration` |
+| 集成测试 | Flyway 迁移、时序查询、乐观锁并发、限流端口 | Testcontainers（MySQL） | 是，标记 `integration` |
 | 接口冒烟 | 登录、设备上报、开工、报工、质检 | MockMvc + Testcontainers | 是 |
 | 前端构建 | 类型检查与打包 | `npm run build` | 是 |
 | AI 用例 | 抽取、归因、SQL 白名单 | 假模型实现 | 是，不访问外网 |
 
-当前 72 个 Mockito 单测不启动 Spring 上下文；另有 3 个 Testcontainers 集成用例（`WorkOrderConsistencyIntegrationTest`），覆盖 Flyway 从空库迁移、状态机合法/非法流转与真实并发开工。时序查询、Redis 限流与接口冒烟按 S2/S6 的实际改动继续追加，集成用例保持「只守最容易回归的路径」，不铺全量数据库测试；Docker 不可用时整类跳过。
+当前 105 个 Mockito 单测不启动 Spring 上下文；另有 3 个 Testcontainers 集成用例（`WorkOrderConsistencyIntegrationTest`），覆盖 Flyway 从空库迁移、状态机合法/非法流转与真实并发开工。时序查询与接口冒烟按后续阶段的实际改动继续追加；S6 的限流与身份校验用本地单测和 MVC 切片覆盖，不依赖 Redis。集成用例保持「只守最容易回归的路径」，不铺全量数据库测试；Docker 不可用时整类跳过。
 
 ---
 
@@ -276,6 +278,7 @@
 | 时序表增长过快 | 查询变慢、磁盘增长 | 90 天保留 + 月分区预案 |
 | 乐观锁重试造成体验差 | 用户重复点击失败 | 前端提示刷新，服务端不自动重试 |
 | 工艺历史数据无工序 | S4 无法直接上线 | 迁移生成默认工序并标记 |
-| 车间数据域回填错误 | 用户看不到历史数据 | 迁移前导出核对，先灰度一个车间 |
+| 车间数据域回填错误 | 用户看不到历史数据 | 迁移按「一车间」回填非管理员，迁移前导出核对，先灰度一个车间 |
+| 多实例部署仍用本地限流 | 尝试次数随实例数放大 | 限流已抽端口；多实例上线前必须替换为共享存储实现，代码注释与文档均已标注 |
 | AI 模型不稳定或超时 | 旁路不可用 | 默认关闭、超时降级、不重试主链路 |
 | 范围蔓延 | 重构周期失控 | 每阶段独立验收，未列入阶段的需求进入待办 |
