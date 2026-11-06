@@ -74,6 +74,18 @@ device:
   telemetry:
     retention-days: ${DEVICE_TELEMETRY_RETENTION_DAYS:90}
 
+ai:
+  # 默认关闭；关闭时三个 AI 端点返回 HTTP 503 + 业务码 503，其他功能不受影响
+  enabled: ${AI_ENABLED:false}
+  # fake 为离线确定性实现，CI 与本地演示无需网络与密钥；external 需手工配置模型地址与密钥
+  provider: ${AI_PROVIDER:fake}
+  timeout-seconds: ${AI_TIMEOUT_SECONDS:5}
+  model-url: ${AI_MODEL_URL:}
+  api-key: ${AI_API_KEY:}
+  model: ${AI_MODEL:gpt-4o-mini}
+  max-rows: ${AI_MAX_ROWS:200}
+  query-timeout-seconds: ${AI_QUERY_TIMEOUT_SECONDS:3}
+
 schedule:
   daily-hours: ${SCHEDULE_DAILY_HOURS:8}
   day-start-hour: ${SCHEDULE_DAY_START_HOUR:8}
