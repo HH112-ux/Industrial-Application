@@ -327,7 +327,7 @@ POST /api/schedules/run
   "scheduled": [
     {"workOrderId": 101, "planId": 1, "operationSeq": 1, "deviceType": "加工设备",
      "deviceId": 1, "startTime": "2026-11-10T08:00:00", "endTime": "2026-11-10T16:00:00",
-     "durationHours": 8.0, "estimated": 0, "queueRank": 1,
+     "durationHours": 8.0, "estimated": 0, "hoursSource": "STANDARD", "queueRank": 1,
      "rankBasis": "交期 2026-11-10，优先级 HIGH(3)", "status": "SCHEDULED"}
   ],
   "unscheduled": [
@@ -343,7 +343,9 @@ POST /api/schedules/run
 
 - 同一批待排工单、同一份设备数据重复运行，排序、设备选择与时间窗一致。
 - 只重排 `PENDING`（待开工）工单；`IN_PRODUCTION`、`PENDING_QC`、`FINISHED` 工单的排程记录不删除、不改期，并作为已占用产能参与落位。
-- 产能来自 `RUNNING` 设备；每台设备每日可用工时由 `schedule.daily-hours`（默认 8）与 `schedule.day-start-hour`（默认 8）配置。
+- 产能来自 `RUNNING` 设备；每台设备每日可用工时由 `schedule.daily-hours`（默认 8）与 `schedule.day-start-hour`（默认 8）配置。这两项是车间规则，允许有默认值。
+- 工序标准工时属于单据数据，缺失时**不排程**，返回 `STANDARD_HOURS_MISSING` 并指出缺工时的工序；不读取计划总工时，也不使用内置默认值。
+- 只有显式配置 `schedule.estimate-fallback-hours`（默认 0，即关闭）且大于 0 时，缺少标准工时的工序才按该估算值排程；结果中 `estimated=1`、`hoursSource=ESTIMATED`，消息写明「按估算工时」，前端同步提示估算工序数量。`hoursSource` 为 `STANDARD` 时表示按实际标准工时排程。
 - 结果落在 `po_schedule_entry`，记录设备类型、设备、时间窗、工时、队列位置与位置依据；`GET /api/schedules/work-orders/{workOrderId}` 可查询单张工单的落位原因。
 
 冲突业务码：
@@ -355,7 +357,8 @@ POST /api/schedules/run
 | `OPERATION_MISSING` | 工艺没有可排产工序 |
 | `DEVICE_TYPE_MISSING` | 工序未配置设备类型，且计划未指定可用设备 |
 | `NO_CAPACITY` | 该设备类型没有运行中的设备 |
-| `DURATION_INVALID` | 工单数量或标准工时无效 |
+| `DURATION_INVALID` | 工单数量无效，无法计算工序工时 |
+| `STANDARD_HOURS_MISSING` | 工序缺少标准工时，且未显式开启估算工时配置 |
 | `DUE_DATE_MISSING` | 计划缺少开始或完成日期 |
 | `DUE_DATE_MISSED` | 上一工序结束时间已晚于计划交期 |
 | `CAPACITY_OVERLOAD` | 交期前该设备类型产能已被占满 |

@@ -73,3 +73,5 @@ device:
 schedule:
   daily-hours: ${SCHEDULE_DAILY_HOURS:8}
   day-start-hour: ${SCHEDULE_DAY_START_HOUR:8}
+  # 显式开启的估算工时，单位小时；0 表示关闭，标准工时缺失时直接拒绝排程
+  estimate-fallback-hours: ${SCHEDULE_ESTIMATE_FALLBACK_HOURS:0}

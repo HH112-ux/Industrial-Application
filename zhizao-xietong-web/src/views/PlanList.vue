@@ -181,15 +181,19 @@ async function confirmDispatch() {
 
 async function runSchedule() {
   const result = await scheduleApi.run();
+  const estimatedCount = result.scheduled.filter((entry) => entry.hoursSource === 'ESTIMATED').length;
+  const estimateHint = estimatedCount
+    ? `，其中 ${estimatedCount} 道工序按估算工时排程（非标准工时）`
+    : '';
   if (result.unscheduledWorkOrders === 0) {
-    ElMessage.success(`排程完成：${result.scheduledWorkOrders} 张工单已排入`);
+    ElMessage.success(`排程完成：${result.scheduledWorkOrders} 张工单已排入${estimateHint}`);
     return;
   }
   const detail = result.unscheduled
     .map((entry) => `工单 ${entry.workOrderId}｜${entry.conflictCode}：${entry.message}`)
     .join('；');
   await ElMessageBox.alert(
-    `已排入 ${result.scheduledWorkOrders} 张，无法排入 ${result.unscheduledWorkOrders} 张。${detail}`,
+    `已排入 ${result.scheduledWorkOrders} 张${estimateHint}，无法排入 ${result.unscheduledWorkOrders} 张。${detail}`,
     '排程结果',
     { type: 'warning' }
   );

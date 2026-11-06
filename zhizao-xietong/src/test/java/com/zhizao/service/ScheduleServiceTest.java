@@ -61,8 +61,7 @@ class ScheduleServiceTest {
 
     @BeforeEach
     void setUp() {
-        scheduleService = new ScheduleService(workOrderMapper, planMapper, processOperationMapper,
-                deviceMapper, scheduleEntryMapper, BigDecimal.valueOf(8), 8);
+        scheduleService = newService(BigDecimal.ZERO);
         when(scheduleEntryMapper.selectList(any())).thenReturn(List.of());
     }
 
@@ -85,7 +84,45 @@ class ScheduleServiceTest {
         assertEquals(0, new BigDecimal("8.00").compareTo(entry.getDurationHours()));
         assertEquals(1, entry.getQueueRank());
         assertTrue(entry.getRankBasis().contains("交期 2026-11-10"));
+        assertEquals("STANDARD", entry.getHoursSource());
         assertNull(entry.getConflictCode());
+    }
+
+    @Test
+    void rejectsWhenStandardHoursMissingEvenIfPlanHasTotalHours() {
+        Plan plan = plan(1L, DAY, DAY, "HIGH");
+        plan.setEstHours(new BigDecimal("40"));
+        givenWorkOrders(order(101L, 1L, 5L, 8));
+        givenPlans(plan);
+        givenOperations(operation(5L, 1, TYPE, null));
+        givenDevices(device(1L, TYPE, "RUNNING"));
+
+        ScheduleRunResult result = scheduleService.run();
+
+        assertEquals(0, result.scheduledWorkOrders());
+        assertEquals(1, result.unscheduledWorkOrders());
+        ScheduleEntry entry = result.unscheduled().get(0);
+        assertEquals(ScheduleConflict.STANDARD_HOURS_MISSING.code(), entry.getConflictCode());
+        assertTrue(entry.getMessage().contains("工序1"));
+        assertNull(entry.getHoursSource());
+    }
+
+    @Test
+    void schedulesWithEstimatedHoursOnlyWhenExplicitlyEnabled() {
+        ScheduleService withEstimate = newService(BigDecimal.ONE);
+        givenWorkOrders(order(101L, 1L, 5L, 8));
+        givenPlans(plan(1L, DAY, DAY, "HIGH"));
+        givenOperations(operation(5L, 1, TYPE, null));
+        givenDevices(device(1L, TYPE, "RUNNING"));
+
+        ScheduleRunResult result = withEstimate.run();
+
+        assertEquals(1, result.scheduledWorkOrders());
+        ScheduleEntry entry = result.scheduled().get(0);
+        assertEquals(Integer.valueOf(1), entry.getEstimated());
+        assertEquals("ESTIMATED", entry.getHoursSource());
+        assertTrue(entry.getMessage().contains("估算工时"));
+        assertEquals(0, BigDecimal.ONE.compareTo(entry.getDurationHours()));
     }
 
     @Test
@@ -193,6 +230,11 @@ class ScheduleServiceTest {
         assertEquals(first.getEndTime(), second.getEndTime());
         assertEquals(first.getQueueRank(), second.getQueueRank());
         assertEquals(first.getDurationHours(), second.getDurationHours());
+    }
+
+    private ScheduleService newService(BigDecimal estimateFallbackHours) {
+        return new ScheduleService(workOrderMapper, planMapper, processOperationMapper,
+                deviceMapper, scheduleEntryMapper, BigDecimal.valueOf(8), 8, estimateFallbackHours);
     }
 
     private void givenWorkOrders(WorkOrder... orders) {
