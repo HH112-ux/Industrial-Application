@@ -196,7 +196,7 @@ erDiagram
 
 | 变更 | 设计意图 |
 |---|---|
-| 新增 `idempotency_key VARCHAR(64)` + 唯一索引 | 移动端弱网重试不产生重复报工 |
+| 新增 `idempotency_key VARCHAR(64)` + 唯一索引 | 移动端弱网重试不产生重复报工（S3 已落地，索引 `uk_order_idem (order_id, idempotency_key)`） |
 | 新增 `report_type VARCHAR(16) NOT NULL DEFAULT 'PRODUCTION'` | 区分生产报工与返工报工 |
 | 约束 `qty > 0`、`qualified_qty + defect_qty = qty`、`qty` 累计不超过工单数量 | 报工数量可信 |
 
@@ -247,9 +247,10 @@ erDiagram
 | `V5__device_credential.sql` | 新建 `eq_device_credential` | 无 |
 | `V6__device_telemetry.sql` | 新建 `eq_telemetry`（S2 已落地） | `V4` 可并行 |
 | `V7__work_order_consistency.sql` | `version`、`qty_done`、`qty_qualified`、`qty_defect`、`wo_status_history`（S3 已落地）；报工数量约束在服务层校验，未加数据库 CHECK，避免历史脏数据阻断迁移 | 与 `V4` 可并行 |
-| `V8__process_operation.sql` | 新建 `pr_operation`，`pr_process` 版本字段 | 无 |
-| `V9__identity_scope.sql` | `sys_user` 启用状态、令牌版本、车间范围 | 无 |
-| `V10__audit_enhance.sql` | 审计字段扩展与索引 | 无 |
-| `V11__ai_sidecar.sql` | AI 审计表（最后阶段） | `V7`、`V9` |
+| `V8__report_idempotency.sql` | `wo_report.idempotency_key` + 唯一索引 `uk_order_idem (order_id, idempotency_key)`（S3 补，已落地）；键由客户端生成，NULL 不参与去重 | 必须晚于 `V7` |
+| `V9__process_operation.sql` | 新建 `pr_operation`，`pr_process` 版本字段 | 无 |
+| `V10__identity_scope.sql` | `sys_user` 启用状态、令牌版本、车间范围 | 无 |
+| `V11__audit_enhance.sql` | 审计字段扩展与索引 | 无 |
+| `V12__ai_sidecar.sql` | AI 审计表（最后阶段） | `V8`、`V10` |
 
 每个迁移只做一件事，可单独回滚到上一版本；生产环境执行前先备份，禁止在迁移中做数据回填与结构变更混合。`[工程判断]`
