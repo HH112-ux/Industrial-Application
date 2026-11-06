@@ -2,6 +2,7 @@ package com.zhizao.service;
 
 import com.zhizao.common.BadRequestException;
 import com.zhizao.common.BusinessException;
+import com.zhizao.common.BusinessMetrics;
 import com.zhizao.dto.DeviceGatewayReport;
 import com.zhizao.dto.DeviceTelemetry;
 import com.zhizao.dto.DeviceTelemetryPoint;
@@ -46,6 +47,9 @@ class DeviceDataServiceTest {
     @Mock
     private DeviceIdempotencyGuard idempotencyGuard;
 
+    @Mock
+    private BusinessMetrics businessMetrics;
+
     private DeviceDataService deviceDataService;
 
     /**
@@ -53,7 +57,7 @@ class DeviceDataServiceTest {
      */
     @BeforeEach
     void setUp() {
-        deviceDataService = new DeviceDataService(deviceMapper, telemetryMapper, idempotencyGuard);
+        deviceDataService = new DeviceDataService(deviceMapper, telemetryMapper, idempotencyGuard, businessMetrics);
         lenient().when(idempotencyGuard.acquire(any())).thenReturn(true);
     }
 

@@ -212,24 +212,31 @@
 
 ---
 
-## S7 可观测性与前端适配
+## S7 可观测性与前端适配（已落地）
 
 目标：让重构后的能力在管理端可见，并暴露最基本的运行指标。
 
 涉及文件：
 
-- 后端：`actuator` 指标、设备在线率、上报延迟、工单节拍、齐套率；结构化日志增加 `traceId`。
-- 前端：设备详情页增加遥测历史折线图；工单详情页增加流转时间线；工艺页增加工序维护。
-- 移动端：报工表单增加数量校验提示与幂等键。
+- 后端：`common/BusinessMetrics.java` 注册 `zhizao.devices.online`、`zhizao.devices.total`、`zhizao.devices.online.rate`、`zhizao.work_orders.takt.per_hour`、`zhizao.materials.kit_rate`、`zhizao.telemetry.reports`、`zhizao.work_orders.reports`、`zhizao.telemetry.ingest`；`common/TraceIdFilter.java` 为每个请求写入 `traceId` 并回写 `X-Request-Id`。
+- 前端：设备列表的详情弹窗补齐实时数据与遥测历史折线图，可切换 1 小时/24 小时/7 天；工单列表增加流转记录时间线；工艺页的工序与 BOM 维护在 S4 已具备，本阶段只做联调确认。
+- 移动端：报工表单增加剩余数量、报工数量与合格/不良数量校验，并在打开表单时生成幂等键，成功后清空。
+
+指标口径：
+
+- 在线设备：`last_seen_at` 在阈值（默认 90 秒）内的设备数；设备总数为 0 台时在线率返回 `NaN`，表示未定义，不伪装成 0%。
+- 上报延迟：遥测上报处理耗时 Timer，无上报时只体现为计数 0。
+- 工单节拍：最近 24 小时完工工单的合格数量 / 24，无完工时为真实的 0。
+- 齐套率：待开工且已绑定工艺的工单中物料齐套占比；无此类工单时返回 `NaN`，不伪装成 100%。
 
 验收：
 
-- `/actuator/metrics` 可见设备在线数与上报计数。
-- 设备详情可切换 1 小时/24 小时/7 天查看历史曲线。
-- 工单详情可看到每次状态变更的操作人与时间。
-- 页面在 1280px 与 375px 宽度下无横向滚动。
+- `/actuator/metrics/zhizao.devices.online`、`/actuator/metrics/zhizao.telemetry.reports`、`/actuator/metrics/zhizao.work_orders.reports` 可见计数。
+- 设备详情可切换 1 小时/24 小时/7 天查看历史曲线；无数据时显示明确空态，不补点。
+- 工单列表的「流转记录」可看到每次状态变更的操作人与时间。
+- 页面在 1280px 与 375px 宽度下无横向滚动；窄屏侧栏收为图标，表格内部滚动。
 
-依赖与风险：依赖 S2、S3 的接口。风险是前端打包体积增长，图表按需引入。
+依赖与风险：依赖 S2、S3 的接口。风险是前端打包体积增长；ECharts 由既有依赖提供，未新增依赖。齐套率按请求实时计算待开工工单，工单量很大时需要改为定时快照。
 
 ---
 

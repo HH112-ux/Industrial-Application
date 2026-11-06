@@ -16,7 +16,7 @@
 
     <view class="actions">
       <button v-if="order.status === 'PENDING'" class="btn" @click="start">开工</button>
-      <button v-if="order.status === 'IN_PRODUCTION'" class="btn" @click="reportVisible = true">报工</button>
+      <button v-if="order.status === 'IN_PRODUCTION'" class="btn" @click="openReport">报工</button>
       <button v-if="order.status === 'PENDING_QC'" class="btn" @click="qcVisible = true">质检</button>
       <button v-if="order.status === 'FINISHED'" class="btn done" disabled>已完工</button>
     </view>
@@ -24,6 +24,7 @@
     <view v-if="reportVisible" class="mask" @click="reportVisible = false">
       <view class="sheet" @click.stop>
         <text class="sheet-title">报工</text>
+        <text class="hint">计划 {{ order.qty }}，已报 {{ order.qtyDone || 0 }}，剩余 {{ remainingQty }}；合格 + 不良必须等于报工数量</text>
         <input v-model="reportForm.qty" type="number" class="input" placeholder="报工数量" />
         <input v-model="reportForm.qualifiedQty" type="number" class="input" placeholder="合格数量" />
         <input v-model="reportForm.defectQty" type="number" class="input" placeholder="不良数量" />
@@ -56,9 +57,14 @@ export default {
       statusMap: workOrderStatusMap,
       reportVisible: false,
       qcVisible: false,
-      reportForm: { qty: 0, qualifiedQty: 0, defectQty: 0, operator: '' },
+      reportForm: { qty: 0, qualifiedQty: 0, defectQty: 0, operator: '', idempotencyKey: '' },
       qcForm: { result: 'PASS', defectDesc: '', inspector: '' }
     };
+  },
+  computed: {
+    remainingQty() {
+      return Math.max((this.order.qty || 0) - (this.order.qtyDone || 0), 0);
+    }
   },
   onLoad(options) {
     this.id = options.id;
@@ -67,7 +73,15 @@ export default {
   methods: {
     async load() {
       this.order = await workOrderApi.get(this.id);
-      this.reportForm.qty = this.order.qty || 0;
+      this.reportForm.qty = this.remainingQty;
+      this.reportForm.qualifiedQty = this.remainingQty;
+      this.reportForm.defectQty = 0;
+    },
+    openReport() {
+      if (!this.reportForm.idempotencyKey) {
+        this.reportForm.idempotencyKey = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+      }
+      this.reportVisible = true;
     },
     async start() {
       await workOrderApi.start(this.id);
@@ -75,12 +89,34 @@ export default {
       this.load();
     },
     async submitReport() {
-      if (!this.reportForm.qty) {
-        uni.showToast({ title: '请填写报工数量', icon: 'none' });
+      const qty = Number(this.reportForm.qty);
+      const qualified = Number(this.reportForm.qualifiedQty);
+      const defect = Number(this.reportForm.defectQty);
+      if (!qty || qty <= 0) {
+        uni.showToast({ title: '报工数量必须大于 0', icon: 'none' });
         return;
       }
-      await workOrderApi.report(this.id, this.reportForm);
+      if (qty > this.remainingQty) {
+        uni.showToast({ title: `最多可报 ${this.remainingQty} 件`, icon: 'none' });
+        return;
+      }
+      if (qualified < 0 || defect < 0) {
+        uni.showToast({ title: '数量不能为负', icon: 'none' });
+        return;
+      }
+      if (qualified + defect !== qty) {
+        uni.showToast({ title: '合格 + 不良必须等于报工数量', icon: 'none' });
+        return;
+      }
+      await workOrderApi.report(this.id, {
+        qty,
+        qualifiedQty: qualified,
+        defectQty: defect,
+        operator: this.reportForm.operator,
+        idempotencyKey: this.reportForm.idempotencyKey
+      });
       uni.showToast({ title: '已报工', icon: 'success' });
+      this.reportForm.idempotencyKey = '';
       this.reportVisible = false;
       this.load();
     },
@@ -154,6 +190,13 @@ export default {
   font-size: 32rpx;
   font-weight: 700;
   margin-bottom: 28rpx;
+}
+.hint {
+  display: block;
+  color: #5b6b82;
+  font-size: 24rpx;
+  line-height: 1.6;
+  margin-bottom: 20rpx;
 }
 .input {
   border: 1rpx solid #e3e8f0;

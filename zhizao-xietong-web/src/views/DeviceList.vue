@@ -48,6 +48,33 @@
       </div>
     </div>
 
+    <el-dialog v-model="telemetryDialog.visible" :title="`设备详情 - ${telemetryDialog.device?.deviceName || ''}`"
+      width="92%" style="max-width: 760px" @closed="closeTelemetry">
+      <div v-if="telemetry" class="telemetry">
+        <div class="t-item"><span>设备状态</span><b>{{ deviceStatusMap[telemetry.status]?.label || telemetry.status }}</b></div>
+        <div class="t-item"><span>数据来源</span><b>{{ telemetry.source || '-' }}</b></div>
+        <div class="t-item"><span>温度</span><b>{{ telemetry.temperature }} ℃</b></div>
+        <div class="t-item"><span>转速</span><b>{{ telemetry.rpm }} rpm</b></div>
+        <div class="t-item"><span>电流</span><b>{{ telemetry.current }} A</b></div>
+        <div class="t-item"><span>OEE</span><b>{{ telemetry.oee }}%</b></div>
+      </div>
+      <div v-else class="telemetry-empty">暂无实时数据</div>
+
+      <div class="history-head">
+        <span class="history-title">遥测历史</span>
+        <el-radio-group v-model="historyRange" size="small" @change="loadHistory">
+          <el-radio-button value="1h">近 1 小时</el-radio-button>
+          <el-radio-button value="24h">近 24 小时</el-radio-button>
+          <el-radio-button value="7d">近 7 天</el-radio-button>
+        </el-radio-group>
+      </div>
+      <div v-if="historyLoading" class="telemetry-empty">加载中…</div>
+      <div v-else-if="!historyPoints.length" class="telemetry-empty">
+        所选时间范围内没有遥测记录（设备未上报，或已超出 90 天保留期）
+      </div>
+      <div v-show="historyPoints.length" ref="historyChartRef" class="history-chart"></div>
+    </el-dialog>
+
     <el-dialog v-model="dialog.visible" :title="dialog.isEdit ? '编辑设备' : '新增设备'" width="520px">
       <el-form :model="form" label-width="90px">
         <el-form-item label="设备名称" required><el-input v-model="form.deviceName" /></el-form-item>
@@ -74,8 +101,9 @@
 </template>
 
 <script setup lang="ts">
-import { onMounted, onBeforeUnmount, reactive, ref } from 'vue';
-import { deviceApi, deviceDataApi, type Device, type DeviceTelemetry } from '@/api';
+import { nextTick, onMounted, onBeforeUnmount, reactive, ref } from 'vue';
+import * as echarts from 'echarts';
+import { deviceApi, deviceDataApi, type Device, type DeviceTelemetry, type DeviceTelemetryPoint } from '@/api';
 import { deviceStatusMap } from '@/utils/dict';
 import StatusTag from '@/components/StatusTag.vue';
 import { isAdmin } from '@/api/request';
@@ -154,17 +182,93 @@ const telemetryDialog = reactive({ visible: false, device: null as Device | null
 const telemetry = ref<DeviceTelemetry | null>(null);
 let telemetryTimer: number | undefined;
 
+const historyRange = ref<'1h' | '24h' | '7d'>('24h');
+const historyPoints = ref<DeviceTelemetryPoint[]>([]);
+const historyLoading = ref(false);
+const historyChartRef = ref<HTMLElement>();
+let historyChart: echarts.ECharts | null = null;
+
 async function loadTelemetry() {
   if (!telemetryDialog.device?.id) return;
   telemetry.value = await deviceDataApi.telemetry(telemetryDialog.device.id);
+}
+
+function localIso(date: Date): string {
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}`
+    + `T${p(date.getHours())}:${p(date.getMinutes())}:${p(date.getSeconds())}`;
+}
+
+function rangeStart(range: '1h' | '24h' | '7d'): Date {
+  const start = new Date();
+  if (range === '1h') {
+    start.setHours(start.getHours() - 1);
+  } else if (range === '24h') {
+    start.setHours(start.getHours() - 24);
+  } else {
+    start.setDate(start.getDate() - 7);
+  }
+  return start;
+}
+
+async function loadHistory() {
+  const id = telemetryDialog.device?.id;
+  if (!id) return;
+  historyLoading.value = true;
+  try {
+    historyPoints.value = await deviceDataApi.history(id, {
+      from: localIso(rangeStart(historyRange.value)),
+      to: localIso(new Date()),
+      limit: 1000
+    });
+    await nextTick();
+    renderHistory();
+  } finally {
+    historyLoading.value = false;
+  }
+}
+
+function renderHistory() {
+  if (!historyPoints.value.length) {
+    historyChart?.dispose();
+    historyChart = null;
+    return;
+  }
+  if (!historyChartRef.value) return;
+  if (!historyChart) historyChart = echarts.init(historyChartRef.value);
+  historyChart.setOption({
+    color: ['#e8871a', '#1d5fd6'],
+    tooltip: { trigger: 'axis' },
+    legend: { data: ['温度(℃)', '转速(rpm)'] },
+    grid: { left: 48, right: 56, top: 36, bottom: 32 },
+    xAxis: { type: 'time' },
+    yAxis: [
+      { type: 'value', name: '℃', scale: true },
+      { type: 'value', name: 'rpm', scale: true }
+    ],
+    series: [
+      {
+        name: '温度(℃)', type: 'line', showSymbol: false, smooth: true,
+        data: historyPoints.value.map((p) => [p.reportedAt, p.temperature ?? null])
+      },
+      {
+        name: '转速(rpm)', type: 'line', yAxisIndex: 1, showSymbol: false, smooth: true,
+        data: historyPoints.value.map((p) => [p.reportedAt, p.rpm ?? null])
+      }
+    ]
+  }, true);
 }
 
 function openTelemetry(row: Device) {
   telemetryDialog.device = row;
   telemetryDialog.visible = true;
   telemetry.value = null;
+  historyPoints.value = [];
+  historyChart?.dispose();
+  historyChart = null;
   loadTelemetry();
   telemetryTimer = window.setInterval(loadTelemetry, 3000);
+  nextTick(loadHistory);
 }
 
 function closeTelemetry() {
@@ -173,10 +277,20 @@ function closeTelemetry() {
     window.clearInterval(telemetryTimer);
     telemetryTimer = undefined;
   }
+  historyChart?.dispose();
+  historyChart = null;
 }
+
+function onResize() {
+  historyChart?.resize();
+}
+
+window.addEventListener('resize', onResize);
 
 onBeforeUnmount(() => {
   if (telemetryTimer) window.clearInterval(telemetryTimer);
+  window.removeEventListener('resize', onResize);
+  historyChart?.dispose();
 });
 </script>
 
@@ -203,5 +317,21 @@ onBeforeUnmount(() => {
   text-align: center;
   color: var(--zhizao-muted);
   padding: 20px;
+}
+.history-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 18px 0 10px;
+}
+.history-title {
+  font-weight: 700;
+  font-size: 14px;
+}
+.history-chart {
+  width: 100%;
+  height: 260px;
 }
 </style>

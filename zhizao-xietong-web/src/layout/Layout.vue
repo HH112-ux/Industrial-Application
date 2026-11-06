@@ -141,4 +141,33 @@ function logout() {
   background: var(--zhizao-bg);
   padding: 0;
 }
+.layout :deep(.el-container) {
+  min-width: 0;
+}
+@media (max-width: 900px) {
+  .sidebar {
+    width: 64px !important;
+  }
+  .brand {
+    padding: 14px 6px;
+    text-align: center;
+  }
+  .brand-name {
+    display: none;
+  }
+  .menu :deep(.el-menu-item) {
+    margin: 4px 6px;
+    padding: 0 !important;
+    justify-content: center;
+  }
+  .menu :deep(.el-menu-item span) {
+    display: none;
+  }
+  .header {
+    padding: 0 12px;
+  }
+  .user-name {
+    display: none;
+  }
+}
 </style>
