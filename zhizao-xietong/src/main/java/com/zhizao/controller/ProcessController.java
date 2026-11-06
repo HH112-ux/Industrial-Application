@@ -3,6 +3,8 @@ package com.zhizao.controller;
 import com.zhizao.common.PageResult;
 import com.zhizao.common.Result;
 import com.zhizao.entity.Process;
+import com.zhizao.entity.ProcessOperation;
+import com.zhizao.service.ProcessOperationService;
 import com.zhizao.service.ProcessService;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -16,15 +18,24 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.security.access.prepost.PreAuthorize;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
+import java.util.List;
+
+/**
+ * 工艺管理接口：工艺基础信息、版本复制、审批流转与工序维护。
+ *
+ * @author Caspian
+ */
 @Tag(name = "工艺管理")
 @RestController
 @RequestMapping("/api/processes")
 public class ProcessController {
 
     private final ProcessService processService;
+    private final ProcessOperationService processOperationService;
 
-    public ProcessController(ProcessService processService) {
+    public ProcessController(ProcessService processService, ProcessOperationService processOperationService) {
         this.processService = processService;
+        this.processOperationService = processOperationService;
     }
 
     @GetMapping
@@ -76,5 +87,37 @@ public class ProcessController {
     @PostMapping("/{id}/reject")
     public Result<Process> reject(@PathVariable Long id) {
         return Result.ok(processService.reject(id));
+    }
+
+    @PreAuthorize("hasRole('ADMIN')")
+    @PostMapping("/{id}/versions")
+    public Result<Process> createVersion(@PathVariable Long id) {
+        return Result.ok(processService.createVersion(id));
+    }
+
+    @GetMapping("/{id}/operations")
+    public Result<List<ProcessOperation>> listOperations(@PathVariable Long id) {
+        return Result.ok(processOperationService.list(id));
+    }
+
+    @PreAuthorize("hasRole('ADMIN')")
+    @PostMapping("/{id}/operations")
+    public Result<ProcessOperation> createOperation(@PathVariable Long id,
+                                                     @RequestBody ProcessOperation operation) {
+        return Result.ok(processOperationService.create(id, operation));
+    }
+
+    @PreAuthorize("hasRole('ADMIN')")
+    @PutMapping("/{id}/operations/{operationId}")
+    public Result<ProcessOperation> updateOperation(@PathVariable Long id, @PathVariable Long operationId,
+                                                     @RequestBody ProcessOperation operation) {
+        return Result.ok(processOperationService.update(id, operationId, operation));
+    }
+
+    @PreAuthorize("hasRole('ADMIN')")
+    @DeleteMapping("/{id}/operations/{operationId}")
+    public Result<Void> deleteOperation(@PathVariable Long id, @PathVariable Long operationId) {
+        processOperationService.delete(id, operationId);
+        return Result.ok();
     }
 }

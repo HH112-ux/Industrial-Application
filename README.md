@@ -7,7 +7,7 @@
 - 设备通过 MQTT 上报状态与遥测，支持持久会话、断线重订阅、设备签名校验与遥测历史查询
 - 生产计划下达为工单，工单按状态机流转：待生产 → 生产中 → 待质检 → 完工
 - 开工前按 BOM 校验物料齐套，报工记录合格数与不良数
-- 工艺发布审批、BOM 版本管理、设备维保记录、写操作审计
+- 工艺版本化与工序路线、BOM 按工艺版本管理、设备维保记录、写操作审计
 - Web 管理端（看板、主数据、计划、工单）与 uni-app 移动端（工单、报工、设备）
 
 ## 技术栈
@@ -42,8 +42,8 @@
 │   │   └── common/ config/ aspect/
 │   ├── src/main/resources/
 │   │   ├── application.yml          # 配置，全部支持环境变量覆盖
-│   │   └── db/migration/            # Flyway 迁移 V1–V8
-│   └── src/test/java/               # 49 个测试（46 单元 + 3 集成）
+│   │   └── db/migration/            # Flyway 迁移 V1–V9
+│   └── src/test/java/               # 65 个测试（62 单元 + 3 集成）
 ├── zhizao-xietong-web/              # Vue 3 管理端
 │   ├── src/views/                   # 8 个业务页面
 │   └── vite.config.ts               # 开发服务器 5173，代理 /api
@@ -235,7 +235,7 @@ docker compose up -d --build
 ## 测试与 CI
 
 ```bash
-# 后端全量测试（46 个单元测试 + 3 个 Testcontainers 集成测试）
+# 后端全量测试（62 个单元测试 + 3 个 Testcontainers 集成测试）
 cd zhizao-xietong && mvn test
 
 # 管理端生产构建（同时覆盖 TypeScript 编译与打包）
@@ -337,11 +337,11 @@ mvn test
 - 上报幂等由进程内缓存与 `eq_telemetry.ingest_key` 唯一索引共同保证；模拟数据不写入时序表
 - 工单开工、报工、质检使用乐观锁与状态历史：并发重复流转会被拒绝，每次流转留痕（S3）
 - 报工数量已做正数、合计与累计上限校验；报工幂等键已落地（`wo_report.idempotency_key`，同工单唯一，重试返回首次结果）
-- 工艺只有主表，没有工序建模；BOM 版本发布后仍可修改（S4）
+- 工艺已支持版本化与单级工序路线；BOM 不单独版本化，`pr_bom.version` 列保留但已废弃（S4）
 - 排产只是按优先级与日期排序，没有产能约束（S5）
 - 权限仅 ADMIN/USER 两级，无车间数据域；登录限流为单机内存（S6）
 - 只有 `/actuator/health`、`/actuator/info` 与标准输出日志，没有业务指标与告警（S7）
-- 测试 49 个（46 单元 + 3 Testcontainers 集成）；集成用例覆盖状态机流转与真实并发冲突，仅在 Docker 可用时执行；移动端构建未纳入 CI
+- 测试 65 个（62 单元 + 3 Testcontainers 集成）；集成用例覆盖状态机流转与真实并发冲突，仅在 Docker 可用时执行；移动端构建未纳入 CI
 - 完整 Docker Compose 五服务栈未在本机实测（本机端口被本地 MySQL/Redis 占用）
 - AI 能力未实现，处于规划阶段（P2）
 

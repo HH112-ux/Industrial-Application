@@ -19,6 +19,11 @@ import org.springframework.util.StringUtils;
 
 import java.util.List;
 
+/**
+ * 计划与调度服务。
+ *
+ * @author Caspian
+ */
 @Service
 public class PlanService {
 
@@ -78,7 +83,10 @@ public class PlanService {
     }
 
     /**
-     * 下达工单：待排产 → 进行中，并生成生产工单（自动匹配首个已发布工艺）。
+     * 下达工单：待排产 → 进行中，并生成生产工单（自动匹配首个已发布工艺并锁定其版本）。
+     *
+     * @param id 计划主键
+     * @return 新生成的工单
      */
     @Transactional
     public WorkOrder dispatch(Long id) {
@@ -101,6 +109,7 @@ public class PlanService {
         order.setWorkshop("一车间");
         order.setDeviceId(plan.getRequiredDeviceId());
         order.setProcessId(process != null ? process.getId() : null);
+        order.setProcessVersion(process != null ? process.getVersion() : null);
         order.setStatus(WorkOrderStatus.PENDING.name());
         workOrderMapper.insert(order);
 

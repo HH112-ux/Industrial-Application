@@ -11,14 +11,15 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import io.swagger.v3.oas.annotations.tags.Tag;
 
 import java.util.List;
 
 /**
- * 工艺物料清单（BOM）接口，支持版本管理。
+ * 工艺物料清单（BOM）接口。BOM 直接挂在工艺版本行下，不再单独维护 BOM 版本。
+ *
+ * @author Caspian
  */
 @Tag(name = "工艺物料清单(BOM)")
 @RestController
@@ -32,20 +33,8 @@ public class BomItemController {
     }
 
     @GetMapping
-    public Result<List<BomItem>> list(@PathVariable Long processId,
-                                      @RequestParam(required = false) Integer version) {
-        return Result.ok(bomItemService.listByProcess(processId, version));
-    }
-
-    @GetMapping("/versions")
-    public Result<List<Integer>> versions(@PathVariable Long processId) {
-        return Result.ok(bomItemService.listVersions(processId));
-    }
-
-    @PreAuthorize("hasRole('ADMIN')")
-    @PostMapping("/version")
-    public Result<Integer> newVersion(@PathVariable Long processId) {
-        return Result.ok(bomItemService.newVersion(processId));
+    public Result<List<BomItem>> list(@PathVariable Long processId) {
+        return Result.ok(bomItemService.listByProcess(processId));
     }
 
     @PreAuthorize("hasRole('ADMIN')")

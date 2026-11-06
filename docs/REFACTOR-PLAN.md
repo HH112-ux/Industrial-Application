@@ -122,7 +122,7 @@
 
 - 两个并发请求同时开工，只有一个成功，另一个返回 409 且不产生第二条历史。
 - 每次开工、报工、质检都写入一条历史，包含前后状态、操作人、备注。
-- `qty <= 0`、`qualifiedQty + defectQty != qty`、累计报工超过工单数量均返回 400/409，且不落报工记录。
+- `qty <= 0`、`qualifiedQty + defectQty != qty`、累计报工超过工单数量均按 HTTP 200 + 业务码拒绝，且不落报工记录。
 - 质检结论非法时不写质检记录。
 - 单测覆盖：状态机合法/非法流转、并发冲突分支、数量边界、历史内容。
 
@@ -132,26 +132,27 @@
 
 ## S4 工艺路线与 BOM
 
-目标：把工艺从「一个描述字段」升级为可排产的工序路线，并让 BOM 版本与工艺发布绑定。`[代码实证]`
+目标：把工艺从「一个描述字段」升级为可排产的工序路线，并让 BOM 与工艺版本绑定。采用 A 方案：同一 `process_no` 的多行表示不同版本，BOM 通过 `process_id` 归属版本行，不再单独维护 BOM 版本。`[代码实证]`
 
 涉及文件：
 
 - 新增 `entity/ProcessOperation.java`、`mapper/ProcessOperationMapper.java`、`service/ProcessOperationService.java`。
-- `service/ProcessService.java`：提交审批校验工序与 BOM；发布冻结版本。
-- `service/BomItemService.java`：按工艺版本读取；新版本从指定版本复制；唯一约束校验。
-- `service/KitCheckService.java`：按工单锁定的工艺版本读取 BOM，不再取全局最大版本。
-- `controller/ProcessController.java`：工序 CRUD。
+- `service/ProcessService.java`：提交审批校验工序与 BOM；发布冻结版本；`createVersion` 复制工序与 BOM 生成下一版草稿。
+- `service/BomItemService.java`：按 `process_id` 读取，不再按 version 过滤；同一版本内物料不可重复；已发布版本只读。
+- `service/KitCheckService.java`：按工单锁定的工艺版本（`process_id`）读取 BOM，不再取全局最大版本。
+- `controller/ProcessController.java`：工序 CRUD 与版本复制端点；`controller/BomItemController.java` 移除 BOM 版本端点。
 - 新增迁移 `V9__process_operation.sql`。
 
 验收：
 
-- 无工序或无 BOM 的工艺无法提交审批，返回 400 并说明缺什么。
-- 已发布工艺不可编辑，只能新建版本；新版本初始为草稿。
-- 工单开工使用创建时锁定的工艺版本，后续发布新版本不影响在制工单。
-- 齐套计算可按版本复现：同一工单重复计算结果一致。
-- 单测覆盖：发布前校验、版本冻结、按版本齐套、BOM 重复行拒绝。
+- 无工序或无 BOM 的工艺无法提交审批，返回 HTTP 200 + 业务码，message 明确缺什么。
+- 已发布工艺不可编辑，只能新建版本；新版本初始为草稿，工序与 BOM 已复制且可编辑。
+- 工单下达时锁定工艺版本（`process_id` + `process_version`），后续发布新版本不影响在制工单的齐套结果。
+- 齐套计算按 `process_id` 取数，同一工单重复计算结果一致。
+- 同一工艺版本内重复物料、工序重复序号被拒绝。
+- 单测覆盖：提交前校验、版本冻结、版本复制、按版本齐套、重复物料与重复序号。
 
-依赖与风险：依赖 S3 的工单工艺版本字段。风险是历史数据没有工序，处理方式是为存量工艺生成一条默认工序「默认工序」，并在迁移脚本中显式写入。
+依赖与风险：依赖 S3 的工单乐观锁。风险是历史数据没有工序，处理方式是为存量工艺生成一条默认工序「默认工序」，并在迁移脚本中显式写入。
 
 ---
 
@@ -169,7 +170,7 @@
 
 验收：
 
-- 下达工单必须指定已发布工艺；不指定返回 400。
+- 下达工单必须指定已发布工艺；不指定按 HTTP 200 + 业务码拒绝。
 - 排产建议按优先级降序、计划开始日期升序；同一设备时间窗不重叠。
 - 无可用设备时返回可解释原因（设备全部维修/时间窗不足），不静默排入。
 - 单测覆盖：优先级排序、时间窗冲突、无设备分支。
@@ -260,7 +261,7 @@
 | 前端构建 | 类型检查与打包 | `npm run build` | 是 |
 | AI 用例 | 抽取、归因、SQL 白名单 | 假模型实现 | 是，不访问外网 |
 
-当前 46 个 Mockito 单测不启动 Spring 上下文；另有 3 个 Testcontainers 集成用例（`WorkOrderConsistencyIntegrationTest`），覆盖 Flyway 从空库迁移、状态机合法/非法流转与真实并发开工。时序查询、Redis 限流与接口冒烟按 S2/S6 的实际改动继续追加，集成用例保持「只守最容易回归的路径」，不铺全量数据库测试；Docker 不可用时整类跳过。
+当前 62 个 Mockito 单测不启动 Spring 上下文；另有 3 个 Testcontainers 集成用例（`WorkOrderConsistencyIntegrationTest`），覆盖 Flyway 从空库迁移、状态机合法/非法流转与真实并发开工。时序查询、Redis 限流与接口冒烟按 S2/S6 的实际改动继续追加，集成用例保持「只守最容易回归的路径」，不铺全量数据库测试；Docker 不可用时整类跳过。
 
 ---
 

@@ -16,6 +16,9 @@
         <el-table-column label="工艺编号" width="130">
           <template #default="{ row }"><span class="cell-code">{{ row.processNo }}</span></template>
         </el-table-column>
+        <el-table-column label="版本" width="70">
+          <template #default="{ row }">V{{ row.version ?? 1 }}</template>
+        </el-table-column>
         <el-table-column prop="processName" label="工艺名称" min-width="150" />
         <el-table-column prop="processType" label="工艺类型" width="100" />
         <el-table-column prop="owner" label="责任人" width="100" />
@@ -23,10 +26,11 @@
         <el-table-column label="审批状态" width="100">
           <template #default="{ row }"><StatusTag :value="row.approvalStatus" :map="approvalStatusMap" /></template>
         </el-table-column>
-        <el-table-column label="操作" width="300" fixed="right">
+        <el-table-column label="操作" width="330" fixed="right">
           <template #default="{ row }">
-            <el-button v-if="isAdmin()" link type="primary" @click="openEdit(row)">编辑</el-button>
-            <el-button v-if="isAdmin()" link type="info" @click="openBom(row)">BOM</el-button>
+            <el-button v-if="isAdmin() && row.approvalStatus !== 'PUBLISHED'" link type="primary" @click="openEdit(row)">编辑</el-button>
+            <el-button v-if="isAdmin()" link type="info" @click="openDetail(row)">工序/BOM</el-button>
+            <el-button v-if="isAdmin()" link type="info" @click="createVersion(row)">新建版本</el-button>
             <el-button v-if="isAdmin() && row.approvalStatus === 'DRAFT'" link type="warning" @click="submit(row)">提交</el-button>
             <el-button v-if="isAdmin() && row.approvalStatus === 'PENDING'" link type="success" @click="approve(row)">通过</el-button>
             <el-button v-if="isAdmin() && row.approvalStatus === 'PENDING'" link type="danger" @click="reject(row)">驳回</el-button>
@@ -59,17 +63,37 @@
       </template>
     </el-dialog>
 
-    <el-dialog v-model="bomDialog.visible" :title="`BOM - ${bomDialog.processName}`" width="640px">
-      <div class="bom-toolbar">
-        <span class="bom-label">版本：</span>
-        <el-select v-model="bomVersion" style="width: 120px" @change="onVersionChange">
-          <el-option v-for="v in bomVersions" :key="v" :label="`V${v}`" :value="v" />
-        </el-select>
-        <el-button v-if="isAdmin()" type="primary" plain @click="newBomVersion">＋ 新建版本</el-button>
-        <span v-if="!isLatestVersion" class="bom-hint">历史版本只读</span>
-      </div>
+    <el-dialog v-model="detail.visible" :title="`工序/BOM - ${detail.processNo} V${detail.version}`" width="760px">
+      <div v-if="!isEditable" class="detail-hint">已发布版本只读，如需调整请新建版本</div>
 
-      <div v-if="isLatestVersion" class="bom-add">
+      <div class="section-title">工序路线</div>
+      <div v-if="isEditable" class="detail-add">
+        <el-input-number v-model="opForm.seq" :min="1" controls-position="right" style="width: 100px" />
+        <el-input v-model="opForm.operationName" placeholder="工序名称" style="width: 180px" />
+        <el-input v-model="opForm.deviceType" placeholder="设备类型" style="width: 150px" />
+        <el-input-number v-model="opForm.estHours" :min="0" :step="0.1" :precision="2" controls-position="right" style="width: 130px" />
+        <el-button v-if="!opForm.editingId" type="primary" @click="addOperation">添加</el-button>
+        <template v-else>
+          <el-button type="success" @click="saveOperation">保存</el-button>
+          <el-button @click="resetOpForm">取消</el-button>
+        </template>
+      </div>
+      <el-table v-if="operations.length" :data="operations" border size="small">
+        <el-table-column prop="seq" label="顺序" width="70" />
+        <el-table-column prop="operationName" label="工序名称" min-width="160" />
+        <el-table-column prop="deviceType" label="设备类型" width="140" />
+        <el-table-column prop="estHours" label="单件工时(h)" width="110" />
+        <el-table-column v-if="isEditable" label="操作" width="140">
+          <template #default="{ row }">
+            <el-button link type="primary" @click="editOperation(row)">编辑</el-button>
+            <el-button link type="danger" @click="removeOperation(row)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      <div v-else class="detail-empty">暂无工序，请添加</div>
+
+      <div class="section-title">物料清单（BOM）</div>
+      <div v-if="isEditable" class="detail-add">
         <el-select v-model="bomForm.matCode" filterable placeholder="选择物料" style="width: 240px">
           <el-option v-for="m in materials" :key="m.matCode" :label="`${m.matCode} · ${m.matName}`" :value="m.matCode" />
         </el-select>
@@ -87,21 +111,24 @@
           <template #default="{ row }">{{ matNameOf(row.matCode) }}</template>
         </el-table-column>
         <el-table-column prop="requiredQty" label="单件用量" width="100" />
-        <el-table-column v-if="isLatestVersion" label="操作" width="140">
+        <el-table-column v-if="isEditable" label="操作" width="140">
           <template #default="{ row }">
             <el-button link type="primary" @click="editBomItem(row)">编辑</el-button>
             <el-button link type="danger" @click="removeBomItem(row)">删除</el-button>
           </template>
         </el-table-column>
       </el-table>
-      <div v-else class="bom-empty">暂无 BOM 项，请添加</div>
+      <div v-else class="detail-empty">暂无 BOM 项，请添加</div>
     </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue';
-import { processApi, bomApi, materialApi, type Process, type BomItem } from '@/api';
+import {
+  processApi, processOperationApi, bomApi, materialApi,
+  type Process, type ProcessOperation, type BomItem
+} from '@/api';
 import { approvalStatusMap } from '@/utils/dict';
 import StatusTag from '@/components/StatusTag.vue';
 import { isAdmin } from '@/api/request';
@@ -186,44 +213,46 @@ async function remove(row: Process) {
   load();
 }
 
+async function createVersion(row: Process) {
+  await ElMessageBox.confirm(`将复制 V${row.version ?? 1} 的工序与 BOM 生成下一版草稿，继续？`, '新建版本', { type: 'info' });
+  const created = await processApi.createVersion(row.id!);
+  ElMessage.success(`已新建 V${created.version} 草稿`);
+  await load();
+}
+
 onMounted(load);
 
-const bomDialog = reactive({ visible: false, processId: null as number | null, processName: '' });
+const detail = reactive({
+  visible: false,
+  processId: null as number | null,
+  processNo: '',
+  version: 1,
+  approvalStatus: ''
+});
+const isEditable = computed(() => detail.approvalStatus !== 'PUBLISHED');
+const operations = ref<ProcessOperation[]>([]);
 const bomItems = ref<BomItem[]>([]);
 const materials = ref<{ matCode: string; matName: string }[]>([]);
+const opForm = reactive({ seq: 1, operationName: '', deviceType: '', estHours: 0, editingId: null as number | null });
 const bomForm = reactive({ matCode: '', requiredQty: 1, editingId: null as number | null });
-const bomVersion = ref<number>(1);
-const bomVersions = ref<number[]>([]);
-const isLatestVersion = computed(() => bomVersions.value.length === 0 || bomVersion.value === bomVersions.value[0]);
 
 function matNameOf(code: string) {
   return materials.value.find((m) => m.matCode === code)?.matName || code;
 }
 
-async function openBom(row: Process) {
-  bomDialog.processId = row.id!;
-  bomDialog.processName = row.processName;
-  bomDialog.visible = true;
+async function openDetail(row: Process) {
+  detail.processId = row.id!;
+  detail.processNo = row.processNo || '';
+  detail.version = row.version ?? 1;
+  detail.approvalStatus = row.approvalStatus || '';
+  detail.visible = true;
+  resetOpForm();
   resetBomForm();
-  await Promise.all([loadBomVersions(), loadMaterials()]);
+  await Promise.all([loadOperations(), loadBomItems(), loadMaterials()]);
 }
 
-async function loadBomVersions() {
-  bomVersions.value = await bomApi.versions(bomDialog.processId!);
-  bomVersion.value = bomVersions.value.length ? bomVersions.value[0] : 1;
-  await loadBomItems();
-}
-
-async function newBomVersion() {
-  await ElMessageBox.confirm('将复制当前最新版本的 BOM 项生成新版本，继续？', '新建版本', { type: 'info' });
-  const v = await bomApi.newVersion(bomDialog.processId!);
-  ElMessage.success(`已新建版本 V${v}`);
-  await loadBomVersions();
-}
-
-function onVersionChange() {
-  resetBomForm();
-  loadBomItems();
+async function loadOperations() {
+  operations.value = await processOperationApi.list(detail.processId!);
 }
 
 async function loadMaterials() {
@@ -232,7 +261,50 @@ async function loadMaterials() {
 }
 
 async function loadBomItems() {
-  bomItems.value = await bomApi.list(bomDialog.processId!);
+  bomItems.value = await bomApi.list(detail.processId!);
+}
+
+function resetOpForm() {
+  const maxSeq = operations.value.reduce((max, op) => Math.max(max, op.seq), 0);
+  Object.assign(opForm, { seq: maxSeq + 1, operationName: '', deviceType: '', estHours: 0, editingId: null });
+}
+
+async function addOperation() {
+  if (!opForm.operationName) {
+    ElMessage.warning('请填写工序名称');
+    return;
+  }
+  await processOperationApi.create(detail.processId!, {
+    seq: opForm.seq, operationName: opForm.operationName,
+    deviceType: opForm.deviceType || undefined, estHours: opForm.estHours
+  });
+  ElMessage.success('已添加工序');
+  resetOpForm();
+  loadOperations();
+}
+
+function editOperation(row: ProcessOperation) {
+  Object.assign(opForm, {
+    seq: row.seq, operationName: row.operationName,
+    deviceType: row.deviceType || '', estHours: row.estHours ?? 0, editingId: row.id!
+  });
+}
+
+async function saveOperation() {
+  await processOperationApi.update(detail.processId!, opForm.editingId!, {
+    seq: opForm.seq, operationName: opForm.operationName,
+    deviceType: opForm.deviceType || undefined, estHours: opForm.estHours
+  });
+  ElMessage.success('已保存');
+  resetOpForm();
+  loadOperations();
+}
+
+async function removeOperation(row: ProcessOperation) {
+  await ElMessageBox.confirm(`确定删除工序「${row.operationName}」吗？`, '提示', { type: 'warning' });
+  await processOperationApi.remove(detail.processId!, row.id!);
+  ElMessage.success('已删除');
+  loadOperations();
 }
 
 function resetBomForm() {
@@ -246,7 +318,7 @@ async function addBomItem() {
     ElMessage.warning('请选择物料');
     return;
   }
-  await bomApi.create(bomDialog.processId!, { matCode: bomForm.matCode, requiredQty: bomForm.requiredQty });
+  await bomApi.create(detail.processId!, { matCode: bomForm.matCode, requiredQty: bomForm.requiredQty });
   ElMessage.success('已添加');
   resetBomForm();
   loadBomItems();
@@ -267,7 +339,7 @@ async function saveBomEdit() {
     ElMessage.warning('请选择物料');
     return;
   }
-  await bomApi.update(bomDialog.processId!, bomForm.editingId!, { matCode: bomForm.matCode, requiredQty: bomForm.requiredQty });
+  await bomApi.update(detail.processId!, bomForm.editingId!, { matCode: bomForm.matCode, requiredQty: bomForm.requiredQty });
   ElMessage.success('已保存');
   resetBomForm();
   loadBomItems();
@@ -275,34 +347,33 @@ async function saveBomEdit() {
 
 async function removeBomItem(row: BomItem) {
   await ElMessageBox.confirm(`确定删除物料 ${row.matCode} 吗？`, '提示', { type: 'warning' });
-  await bomApi.remove(bomDialog.processId!, row.id!);
+  await bomApi.remove(detail.processId!, row.id!);
   ElMessage.success('已删除');
   loadBomItems();
 }
 </script>
 
 <style scoped>
-.bom-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 14px;
-}
-.bom-label {
-  font-size: 13px;
-  color: var(--zhizao-muted);
-}
-.bom-hint {
+.detail-hint {
   font-size: 12px;
   color: #e6a23c;
+  margin-bottom: 12px;
 }
-.bom-add {
+.section-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 16px 0 10px;
+}
+.section-title:first-of-type {
+  margin-top: 0;
+}
+.detail-add {
   display: flex;
   align-items: center;
   gap: 10px;
   margin-bottom: 14px;
 }
-.bom-empty {
+.detail-empty {
   text-align: center;
   color: var(--zhizao-muted);
   padding: 14px 0;
