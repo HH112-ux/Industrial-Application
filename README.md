@@ -42,8 +42,8 @@
 │   │   └── common/ config/ aspect/
 │   ├── src/main/resources/
 │   │   ├── application.yml          # 配置，全部支持环境变量覆盖
-│   │   └── db/migration/            # Flyway 迁移 V1–V9
-│   └── src/test/java/               # 65 个测试（62 单元 + 3 集成）
+│   │   └── db/migration/            # Flyway 迁移 V1–V10
+│   └── src/test/java/               # 73 个测试（70 单元 + 3 集成）
 ├── zhizao-xietong-web/              # Vue 3 管理端
 │   ├── src/views/                   # 8 个业务页面
 │   └── vite.config.ts               # 开发服务器 5173，代理 /api
@@ -235,7 +235,7 @@ docker compose up -d --build
 ## 测试与 CI
 
 ```bash
-# 后端全量测试（62 个单元测试 + 3 个 Testcontainers 集成测试）
+# 后端全量测试（70 个单元测试 + 3 个 Testcontainers 集成测试）
 cd zhizao-xietong && mvn test
 
 # 管理端生产构建（同时覆盖 TypeScript 编译与打包）
@@ -338,10 +338,10 @@ mvn test
 - 工单开工、报工、质检使用乐观锁与状态历史：并发重复流转会被拒绝，每次流转留痕（S3）
 - 报工数量已做正数、合计与累计上限校验；报工幂等键已落地（`wo_report.idempotency_key`，同工单唯一，重试返回首次结果）
 - 工艺已支持版本化与单级工序路线；BOM 不单独版本化，`pr_bom.version` 列保留但已废弃（S4）
-- 排产只是按优先级与日期排序，没有产能约束（S5）
+- 排产为有限产能贪心（S5）：按交期与优先级排队，使用运行中设备的时间窗；不做 APS 最优解，标准工时缺失时按默认 1 小时估算并在结果中标记「估算」
 - 权限仅 ADMIN/USER 两级，无车间数据域；登录限流为单机内存（S6）
 - 只有 `/actuator/health`、`/actuator/info` 与标准输出日志，没有业务指标与告警（S7）
-- 测试 65 个（62 单元 + 3 Testcontainers 集成）；集成用例覆盖状态机流转与真实并发冲突，仅在 Docker 可用时执行；移动端构建未纳入 CI
+- 测试 73 个（70 单元 + 3 Testcontainers 集成）；集成用例覆盖状态机流转与真实并发冲突，仅在 Docker 可用时执行；移动端构建未纳入 CI
 - 完整 Docker Compose 五服务栈未在本机实测（本机端口被本地 MySQL/Redis 占用）
 - AI 能力未实现，处于规划阶段（P2）
 

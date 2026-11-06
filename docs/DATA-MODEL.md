@@ -1,6 +1,6 @@
 # 数据模型设计
 
-本文档描述现状数据库结构与重构目标模型。现状结构来自 `zhizao-xietong/src/main/resources/db/migration/V1__init.sql` 至 `V9__process_operation.sql`，目标结构为待评审设计，不包含未执行的迁移。
+本文档描述现状数据库结构与重构目标模型。现状结构来自 `zhizao-xietong/src/main/resources/db/migration/V1__init.sql` 至 `V10__schedule_entry.sql`，目标结构为待评审设计，不包含未执行的迁移。
 
 标注说明：`[代码实证]` 表示可从当前代码或迁移脚本直接核对；`[工程判断]` 表示基于现有规模与约束提出的设计取舍；`[待确认]` 表示需要用户拍板。
 
@@ -17,14 +17,19 @@ erDiagram
     PO_PLAN ||--o{ WO_WORK_ORDER : "下达"
     WO_WORK_ORDER ||--o{ WO_REPORT : "报工"
     WO_WORK_ORDER ||--o{ WO_QUALITY : "质检"
+    WO_WORK_ORDER ||--o{ WO_STATUS_HISTORY : "流转"
+    WO_WORK_ORDER ||--o{ PO_SCHEDULE_ENTRY : "排程"
+    EQ_DEVICE ||--o{ PO_SCHEDULE_ENTRY : "占用"
     PR_PROCESS ||--o{ PR_BOM : "包含"
     PR_PROCESS ||--o{ PR_PROCESS_OPERATION : "包含工序"
     PR_PROCESS ||--o{ WO_WORK_ORDER : "执行"
     EQ_DEVICE ||--o{ EQ_MAINTENANCE : "维保"
     EQ_DEVICE ||--o{ WO_WORK_ORDER : "加工"
+    EQ_DEVICE ||--o{ EQ_TELEMETRY : "上报"
+    EQ_DEVICE ||--o| EQ_DEVICE_CREDENTIAL : "凭证"
 ```
 
-关系说明：计划下达后生成工单；工单记录报工与质检；工艺通过 BOM 关联物料；设备通过维保记录和工单关联生产。`sys_user`、`sys_sequence`、`sys_audit_log` 为支撑表，不参与业务外键关系。`[代码实证]`
+关系说明：计划下达后生成工单；工单记录报工、质检、状态流转与排程；工艺通过 BOM 关联物料；设备通过维保记录、遥测与排程时间窗关联生产。`sys_user`、`sys_sequence`、`sys_audit_log` 为支撑表，不参与业务外键关系。`[代码实证]`
 
 ### 1.2 表与实体对照
 
@@ -36,10 +41,14 @@ erDiagram
 | `pr_process_operation` | `ProcessOperation` | `ProcessOperationMapper` | 工艺版本的工序路线 | `process_id` 普通索引，`(process_id, seq)` 由服务层保证不重复 |
 | `pr_bom` | `BomItem` | `BomItemMapper` | 工艺物料清单，按 `process_id` 归属版本 | 仅 `process_id` 普通索引；`version` 列已废弃，见 §2.2 |
 | `po_plan` | `Plan` | `PlanMapper` | 生产计划 | `uk_plan_order_no`，状态索引 |
+| `po_schedule_entry` | `ScheduleEntry` | `ScheduleEntryMapper` | 有限产能排程结果与冲突原因 | `work_order_id`、`(device_id, start_time)`、`status` 索引；派生数据，无逻辑删除 |
 | `wo_work_order` | `WorkOrder` | `WorkOrderMapper` | 生产工单 | `uk_order_no`，`plan_id`/`status` 索引；`process_version` 记录开工时锁定的工艺版本 |
-| `wo_report` | `WorkOrderReport` | `WorkOrderReportMapper` | 报工记录 | `uk_report_no`，`order_id` 索引 |
+| `wo_status_history` | `WorkOrderStatusHistory` | `WorkOrderStatusHistoryMapper` | 工单状态流转历史 | `(order_id, created_at)` 索引，只追加 |
+| `wo_report` | `WorkOrderReport` | `WorkOrderReportMapper` | 报工记录 | `uk_report_no`，`order_id` 索引，`(order_id, idempotency_key)` 唯一 |
 | `wo_quality` | `QualityRecord` | `QualityRecordMapper` | 质检记录 | `uk_quality_no`，`order_id` 索引 |
 | `eq_maintenance` | `MaintenanceRecord` | `MaintenanceRecordMapper` | 点检/维修 | `uk_mt_no`，`device_id` 索引 |
+| `eq_telemetry` | `DeviceTelemetryRecord` | `DeviceTelemetryMapper` | 设备遥测时序 | `(device_id, reported_at)` 索引，`ingest_key` 唯一 |
+| `eq_device_credential` | `DeviceCredential` | `DeviceCredentialMapper` | 设备凭证 | `device_id` 唯一、`key_id` 唯一 |
 | `sys_user` | `SysUser` | `SysUserMapper` | 用户与角色 | `uk_username` |
 | `sys_sequence` | `Sequence` | `SequenceMapper` | 编号序列 | 主键 `seq_name` |
 | `sys_audit_log` | `AuditLog` | `AuditLogMapper` | 写操作审计 | `created_at` 索引，无保留策略 |
@@ -136,7 +145,33 @@ V9 为存量工艺回填一条「默认工序」（`seq = 1`），保证迁移�
 
 索引：`idx_order_time (order_id, created_at)`。历史表只追加，不更新、不删除；它是状态机审计的事实来源。`[工程判断]`
 
-#### 2.1.5 `sys_outbox` 领域事件发件箱（可选）
+#### 2.1.5 `po_schedule_entry` 有限产能排程结果（S5 已落地）
+
+| 字段 | 类型 | 约束 | 设计意图 |
+|---|---|---|---|
+| `id` | BIGINT | PK, AUTO_INCREMENT | 代理键 |
+| `work_order_id` | BIGINT | NOT NULL | 工单 |
+| `plan_id` | BIGINT | NOT NULL | 来源计划，便于按交期追溯 |
+| `operation_seq` | INT | NULL | 工序顺序；未绑定工序时为空 |
+| `operation_name` | VARCHAR(64) | NULL | 工序名称快照 |
+| `device_type` | VARCHAR(64) | NULL | 占用设备类型，回答「占的哪类产能」 |
+| `device_id` | BIGINT | NULL | 落位设备；无法排入时为空 |
+| `start_time` | DATETIME | NULL | 占用起始时间 |
+| `end_time` | DATETIME | NULL | 占用结束时间 |
+| `duration_hours` | DECIMAL(8,2) | NULL | 工序累计有效工时；跨天不等于首尾时间差 |
+| `estimated` | TINYINT | NOT NULL DEFAULT 0 | 工时为估算值，标准工时缺失时为 1 |
+| `queue_rank` | INT | NOT NULL | 本次排程队列位置，从 1 开始 |
+| `rank_basis` | VARCHAR(255) | NOT NULL | 位置依据：交期与优先级 |
+| `status` | VARCHAR(16) | NOT NULL | `SCHEDULED` / `UNSCHEDULED` |
+| `conflict_code` | VARCHAR(32) | NULL | 无法排入时的业务码 |
+| `message` | VARCHAR(255) | NULL | 可读原因或落位说明 |
+| `created_at` | DATETIME | NOT NULL DEFAULT CURRENT_TIMESTAMP | 本次运行写入时间 |
+
+索引：`idx_work_order (work_order_id)`、`idx_device_time (device_id, start_time)`、`idx_status (status)`。
+
+该表是派生数据：每次排程先物理删除 `PENDING` 工单的旧结果再重建；在产与已完工工单的结果保留，作为已占用产能与追溯依据。不设逻辑删除，避免重复运行后逻辑删除行不断累积。`[工程判断]`
+
+#### 2.1.6 `sys_outbox` 领域事件发件箱（可选）
 
 | 字段 | 类型 | 约束 | 设计意图 |
 |---|---|---|---|
@@ -151,7 +186,7 @@ V9 为存量工艺回填一条「默认工序」（`seq = 1`），保证迁移�
 
 当前没有 Kafka/RocketMQ。若后续需要把工单完工事件推给报表或 AI 旁路，用发件箱表保证「业务落库」和「事件投递」一致，比直接双写可靠。是否引入取决于是否出现第二个消费者；2026-11-06 已决策暂不引入，保留预案。`[已决策]`
 
-#### 2.1.6 AI 旁路表（最后阶段，可选）
+#### 2.1.7 AI 旁路表（最后阶段，可选）
 
 | 表 | 关键字段 | 用途 |
 |---|---|---|
@@ -258,8 +293,9 @@ V9 为存量工艺回填一条「默认工序」（`seq = 1`），保证迁移�
 | `V7__work_order_consistency.sql` | `version`、`qty_done`、`qty_qualified`、`qty_defect`、`wo_status_history`（S3 已落地）；报工数量约束在服务层校验，未加数据库 CHECK，避免历史脏数据阻断迁移 | 与 `V4` 可并行 |
 | `V8__report_idempotency.sql` | `wo_report.idempotency_key` + 唯一索引 `uk_order_idem (order_id, idempotency_key)`（S3 补，已落地）；键由客户端生成，NULL 不参与去重 | 必须晚于 `V7` |
 | `V9__process_operation.sql` | 新建 `pr_process_operation`；`pr_process` 增加 `version` 与 `uk_process_no_version`；`wo_work_order` 增加 `process_version`；存量工艺回填「默认工序」并回填工单版本（S4 已落地） | 必须晚于 `V7` |
-| `V10__identity_scope.sql` | `sys_user` 启用状态、令牌版本、车间范围 | 无 |
-| `V11__audit_enhance.sql` | 审计字段扩展与索引 | 无 |
-| `V12__ai_sidecar.sql` | AI 审计表（最后阶段） | `V8`、`V10` |
+| `V10__schedule_entry.sql` | 新建 `po_schedule_entry`，保存排程时间窗、队列位置与冲突业务码（S5 已落地） | 必须晚于 `V9` |
+| `V11__identity_scope.sql` | `sys_user` 启用状态、令牌版本、车间范围 | 无 |
+| `V12__audit_enhance.sql` | 审计字段扩展与索引 | 无 |
+| `V13__ai_sidecar.sql` | AI 审计表（最后阶段） | `V8`、`V11` |
 
 每个迁移只做一件事，可单独回滚到上一版本；生产环境执行前先备份，禁止在迁移中做数据回填与结构变更混合。`[工程判断]`

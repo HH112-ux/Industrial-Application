@@ -156,24 +156,27 @@
 
 ---
 
-## S5 计划与排产
+## S5 计划与排产（已落地）
 
 目标：下达工单时明确工艺与车间，排产从「只排序」升级为带设备时间窗的贪心排程。`[代码实证]`
 
 涉及文件：
 
 - `service/PlanService.java`：`dispatch` 接收 `processId/deviceId/workshop`，校验工艺已发布。
-- `service/ScheduleService.java`：按优先级、交期排序后，依次为工序分配设备时间窗；冲突时给出原因。
-- `service/DeviceService.java`：提供设备可用时间与状态查询。
+- `service/ScheduleService.java`：按交期、优先级排序后，依次为工序分配设备时间窗；冲突时给出业务码与原因。
+- `entity/ScheduleEntry.java`、`mapper/ScheduleEntryMapper.java`：排程结果落库，记录设备类型、时间窗、队列位置与依据。
+- `controller/ScheduleController.java`：排程重算与单工单排程查询。
 - `controller/PlanController.java`：`dispatch` 请求体改为 JSON。
-- 新增 `dto/DispatchRequest.java`、`dto/ScheduleSuggestion.java`。
+- 新增 `dto/DispatchRequest.java`、`dto/ScheduleRunResult.java`、`enums/ScheduleConflict.java`。
+- 新增迁移 `V10__schedule_entry.sql`。
 
 验收：
 
 - 下达工单必须指定已发布工艺；不指定按 HTTP 200 + 业务码拒绝。
-- 排产建议按优先级降序、计划开始日期升序；同一设备时间窗不重叠。
-- 无可用设备时返回可解释原因（设备全部维修/时间窗不足），不静默排入。
-- 单测覆盖：优先级排序、时间窗冲突、无设备分支。
+- 排程按交期升序、优先级降序、工单主键升序执行；同一设备时间窗不重叠。
+- 同一批工单与同一份设备数据重复运行结果一致；只重排 `PENDING` 工单，不改变在产/待质检/已完工工单的排程。
+- 产能刚好排满可落位；超出一点、无可用设备、设备类型缺失、交期排不进均返回明确的业务码与可读消息，不静默挪期或拉长工期。
+- 单测覆盖：刚好排满、超出一点、同类型竞争、空产能、重排不改在产；另补幂等重跑用例。
 - 不实现 APS 求解器，只做有限产能的贪心排程。`[工程判断]`
 
 依赖与风险：依赖 S4 的工序与标准工时。风险是标准工时缺失导致排程失真，处理方式是缺失时使用设备默认节拍并在结果中标记「估算」。
@@ -191,7 +194,7 @@
 - `common/LoginRateLimiter.java`：改为 Redis 计数，保留本地降级。
 - `service/DeviceService.java`、`PlanService.java`、`WorkOrderService.java`：按 `workshop_scope` 过滤。
 - `controller/AuditLogController.java`：审计查询。
-- 新增迁移 `V10__identity_scope.sql`、`V11__audit_enhance.sql`。
+- 新增迁移 `V11__identity_scope.sql`、`V12__audit_enhance.sql`。
 
 验收：
 
@@ -237,7 +240,7 @@
 - 新增 `ai/` 包：`AiAssistant` 端口、`FakeAiAssistant`、外部模型适配器。
 - 新增 `ai/tool/`：只读工具，复用现有 Service。
 - 新增 `controller/AiController.java`。
-- 新增迁移 `V12__ai_sidecar.sql`。
+- 新增迁移 `V13__ai_sidecar.sql`。
 - 配置：`ai.enabled=false`、模型地址与密钥从环境变量读取。
 
 验收：
@@ -261,7 +264,7 @@
 | 前端构建 | 类型检查与打包 | `npm run build` | 是 |
 | AI 用例 | 抽取、归因、SQL 白名单 | 假模型实现 | 是，不访问外网 |
 
-当前 62 个 Mockito 单测不启动 Spring 上下文；另有 3 个 Testcontainers 集成用例（`WorkOrderConsistencyIntegrationTest`），覆盖 Flyway 从空库迁移、状态机合法/非法流转与真实并发开工。时序查询、Redis 限流与接口冒烟按 S2/S6 的实际改动继续追加，集成用例保持「只守最容易回归的路径」，不铺全量数据库测试；Docker 不可用时整类跳过。
+当前 70 个 Mockito 单测不启动 Spring 上下文；另有 3 个 Testcontainers 集成用例（`WorkOrderConsistencyIntegrationTest`），覆盖 Flyway 从空库迁移、状态机合法/非法流转与真实并发开工。时序查询、Redis 限流与接口冒烟按 S2/S6 的实际改动继续追加，集成用例保持「只守最容易回归的路径」，不铺全量数据库测试；Docker 不可用时整类跳过。
 
 ---
 
