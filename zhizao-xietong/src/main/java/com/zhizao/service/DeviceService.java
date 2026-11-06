@@ -7,6 +7,7 @@ import com.zhizao.common.PageResult;
 import com.zhizao.entity.Device;
 import com.zhizao.enums.DeviceStatus;
 import com.zhizao.mapper.DeviceMapper;
+import com.zhizao.security.DataScope;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
@@ -23,17 +24,28 @@ public class DeviceService {
 
     private final DeviceMapper deviceMapper;
     private final CodeGenerator codeGenerator;
+    private final DataScope dataScope;
 
     @Value("${device.online-threshold-seconds:90}")
     private long onlineThresholdSeconds;
 
-    public DeviceService(DeviceMapper deviceMapper, CodeGenerator codeGenerator) {
+    /**
+     * 构造设备服务。
+     *
+     * @param deviceMapper  设备数据访问
+     * @param codeGenerator 业务编号生成器
+     * @param dataScope     车间数据域
+     */
+    public DeviceService(DeviceMapper deviceMapper, CodeGenerator codeGenerator, DataScope dataScope) {
         this.deviceMapper = deviceMapper;
         this.codeGenerator = codeGenerator;
+        this.dataScope = dataScope;
     }
 
     /**
      * 分页查询设备，并为每条记录计算在线标记。
+     *
+     * <p>非管理员只能看到自己车间范围内的设备；管理端看板同样通过本查询取数。</p>
      *
      * @param pageNum  页码，从 1 开始
      * @param pageSize 每页条数
@@ -50,6 +62,8 @@ public class DeviceService {
                 .or().like(Device::getManufacturer, keyword)
                 .or().like(Device::getModel, keyword));
         qw.eq(StringUtils.hasText(status), Device::getStatus, status);
+        String workshop = dataScope.workshopFilter();
+        qw.eq(workshop != null, Device::getWorkshop, workshop);
         qw.orderByDesc(Device::getId);
         deviceMapper.selectPage(page, qw);
         page.getRecords().forEach(this::applyOnline);
@@ -62,12 +76,14 @@ public class DeviceService {
      * @param id 设备主键
      * @return 设备详情
      * @throws com.zhizao.common.BusinessException 设备不存在时抛出
+     * @throws com.zhizao.common.ForbiddenException 设备不属于当前用户车间时抛出
      */
     public Device getById(Long id) {
         Device device = deviceMapper.selectById(id);
         if (device == null) {
             throw new BusinessException("设备不存在");
         }
+        dataScope.requireWorkshop(device.getWorkshop());
         applyOnline(device);
         return device;
     }
@@ -77,6 +93,9 @@ public class DeviceService {
         device.setDeviceNo(codeGenerator.next("EQ"));
         if (device.getStatus() == null) {
             device.setStatus(DeviceStatus.STOPPED.name());
+        }
+        if (!StringUtils.hasText(device.getWorkshop())) {
+            device.setWorkshop("一车间");
         }
         deviceMapper.insert(device);
         return device;

@@ -22,6 +22,7 @@ public class Plan {
     private LocalDate planEnd;
     private String priority;
     private String batch;
+    private String workshop;
     private Long requiredDeviceId;
     private BigDecimal estHours;
     private String status;
@@ -48,6 +49,8 @@ public class Plan {
     public void setPriority(String priority) { this.priority = priority; }
     public String getBatch() { return batch; }
     public void setBatch(String batch) { this.batch = batch; }
+    public String getWorkshop() { return workshop; }
+    public void setWorkshop(String workshop) { this.workshop = workshop; }
     public Long getRequiredDeviceId() { return requiredDeviceId; }
     public void setRequiredDeviceId(Long requiredDeviceId) { this.requiredDeviceId = requiredDeviceId; }
     public BigDecimal getEstHours() { return estHours; }

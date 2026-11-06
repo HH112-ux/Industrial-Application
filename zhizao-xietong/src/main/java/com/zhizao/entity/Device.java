@@ -25,6 +25,7 @@ public class Device {
     private String model;
     private String serialNo;
     private String status;
+    private String workshop;
     private LocalDateTime lastSeenAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
@@ -51,6 +52,8 @@ public class Device {
     public void setSerialNo(String serialNo) { this.serialNo = serialNo; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+    public String getWorkshop() { return workshop; }
+    public void setWorkshop(String workshop) { this.workshop = workshop; }
 
     /**
      * 获取最近一次有效上报时间。

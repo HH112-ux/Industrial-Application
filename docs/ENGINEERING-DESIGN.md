@@ -16,7 +16,7 @@
 配套文档：
 
 - [DATA-MODEL.md](DATA-MODEL.md)：17 张现状表与目标表设计
-- [API-CONTRACT.md](API-CONTRACT.md)：55 个现状端点与目标端点
+- [API-CONTRACT.md](API-CONTRACT.md)：60 个现状端点与目标端点
 - [REFACTOR-PLAN.md](REFACTOR-PLAN.md)：S0–S8 分期、验收与风险
 
 ---
@@ -36,15 +36,15 @@
 | 指标 | 数值 | 证据 |
 |---|---|---|
 | 仓库提交 | 初始 1 个提交，整理阶段追加 3 个 | `git log --oneline` |
-| 跟踪文件 | 193 个（S0 整理后 139 个，S1–S5 新增代码、迁移、测试与文档） | `git ls-files \| wc -l` |
-| Java 文件 | 114 个 / 8023 行（S5 后） | 主代码 99 个 / 6138 行，测试 15 个 / 1885 行 |
-| 后端分层 | 11 Controller、17 个 service 包文件、17 Entity、17 Mapper、10 DTO、7 Enum | `src/main/java/com/zhizao` |
-| 数据库 | 12 张表，3 个 Flyway 迁移（S0 基线）；当前 17 张表、10 个迁移 | `src/main/resources/db/migration` |
+| 跟踪文件 | 193 个（S0 整理后 139 个，S1–S6 新增代码、迁移、测试与文档） | `git ls-files \| wc -l` |
+| Java 文件 | 133 个 / 9730 行（S6 后） | 主代码 111 个 / 7057 行，测试 22 个 / 2673 行 |
+| 后端分层 | 13 Controller、19 个 service 包文件、17 Entity、17 Mapper、13 DTO、7 Enum | `src/main/java/com/zhizao` |
+| 数据库 | 12 张表，3 个 Flyway 迁移（S0 基线）；当前 17 张表、12 个迁移 | `src/main/resources/db/migration` |
 | 管理端 | Vue 3 + TypeScript，11 个页面组件 | `zhizao-xietong-web/src` |
 | 移动端 | uni-app，493 行，3 个页面 | `mobile-app/pages` |
-| 测试 | 19 个用例（S0 基线）；当前 75 个（72 单元 + 3 Testcontainers 集成），全部通过 | `mvn -o clean test` |
+| 测试 | 19 个用例（S0 基线）；当前 108 个（105 单元 + 3 Testcontainers 集成），全部通过 | `mvn -o clean test` |
 | CI | GitHub Actions 执行提交信息校验、密钥扫描、后端测试与前端构建，main 分支已开启保护 | `.github/workflows/ci.yml` |
-| 端点 | 55 个（S0 基线 46 + S1 设备凭证 2 + S2 遥测历史 1 + S3 工单历史 1 + S4 工序 4 + S4 版本复制 1 + S5 排程 2 − S4 移除 BOM 版本 2） | 见 [API-CONTRACT.md](API-CONTRACT.md) |
+| 端点 | 60 个（S0 基线 46 + S1 设备凭证 2 + S2 遥测历史 1 + S3 工单历史 1 + S4 工序 4 + S4 版本复制 1 + S5 排程 2 + S6 用户 4 + S6 审计 1 − S4 移除 BOM 版本 2） | 见 [API-CONTRACT.md](API-CONTRACT.md) |
 
 仓库不是空壳。后端有真实 MQTT 接入、真实状态机、真实齐套计算和真实数据库迁移；主要问题集中在可靠性、并发正确性、数据留痕与工程化配套，而不是「有没有实现」。`[代码实证]`
 
@@ -59,11 +59,11 @@ graph TB
     end
     subgraph "后端 zhizao-xietong"
         Sec["Spring Security + JWT"]
-        Ctrl["Controller × 10"]
-        Svc["Service × 15"]
+        Ctrl["Controller × 13"]
+        Svc["Service × 19"]
         Gateway["MQTT 设备网关 + 设备签名校验"]
         Aspect["审计切面"]
-        Mapper["MyBatis-Plus Mapper × 14"]
+        Mapper["MyBatis-Plus Mapper × 17"]
     end
     DB[("MySQL 8")]
     Redis[("Redis 7")]
@@ -86,13 +86,13 @@ graph TB
 
 | 包 | 文件数 | 职责 | 关键类 |
 |---|---|---|---|
-| `controller` | 9 | REST 入口与鉴权注解 | `WorkOrderController`、`DeviceDataController` |
-| `service` | 14 | 业务编排、状态机、齐套、编号、排产 | `WorkOrderService`、`KitCheckService`、`CodeGenerator` |
+| `controller` | 13 | REST 入口与鉴权注解 | `WorkOrderController`、`DeviceDataController`、`UserController` |
+| `service` | 19 | 业务编排、状态机、齐套、编号、排产、用户与审计 | `WorkOrderService`、`KitCheckService`、`CodeGenerator`、`UserService` |
 | `gateway` | 1 | MQTT 订阅与上报解析 | `MqttDeviceGateway` |
-| `security` | 3 | JWT 生成、解析、过滤器 | `JwtUtil`、`JwtAuthenticationFilter` |
-| `entity` / `mapper` | 12 / 12 | 持久化模型与访问 | `WorkOrder`、`WorkOrderMapper` |
-| `dto` | 7 | 请求与响应 | `ReportRequest`、`QcRequest` |
-| `common` | 6 | 返回体、分页、异常、限流、MyBatis 配置 | `Result`、`GlobalExceptionHandler`、`LoginRateLimiter` |
+| `security` | 7 | JWT 生成、解析、过滤器、主体与数据域 | `JwtUtil`、`JwtAuthenticationFilter`、`DataScope` |
+| `entity` / `mapper` | 17 / 17 | 持久化模型与访问 | `WorkOrder`、`WorkOrderMapper` |
+| `dto` | 13 | 请求与响应 | `ReportRequest`、`QcRequest`、`UserView` |
+| `common` | 10 | 返回体、分页、异常、限流端口与本地实现 | `Result`、`GlobalExceptionHandler`、`LoginRateLimiter` |
 | `config` | 3 | Redis、OpenAPI、初始化数据 | `RedisConfig`、`DataInitializer` |
 | `aspect` | 1 | 写操作审计 | `AuditAspect` |
 
@@ -117,20 +117,20 @@ graph TB
 | 齐套校验 | 真实 | `service/KitCheckService.java:30-59` | 按最新 BOM 计算「单件用量 × 工单数量」，库存不足即缺料 |
 | 排产 | 有限贪心（S5） | `service/ScheduleService.java` | 按交期与优先级排队，在运行中设备上寻找时间窗；落不下返回业务码，结果落库可追溯，不做 APS |
 | 编号生成 | 真实 | `service/CodeGenerator.java:26-34` | 数据库行锁按月自增，跨重启不重复 |
-| 权限 | 真实，粒度粗 | `security/SecurityConfig.java:48-50` | JWT + ADMIN/USER；无数据域，刷新令牌信任旧角色 |
-| 登录限流 | 单机内存 | `common/LoginRateLimiter.java:19-32` | `ConcurrentHashMap` 滑动窗口，多实例不共享 |
-| 审计 | 真实，能力有限 | `aspect/AuditAspect.java:33-50` | 只审计非认证的写操作，参数截断 1000 字符，无结果与耗时 |
-| 多租户 | 无 | `db/migration/V1__init.sql` | 全库无 `tenant_id`；工单 `workshop` 只是字符串，未用于隔离 |
+| 权限 | 真实，两级角色 + 车间数据域 | `security/SecurityConfig.java`、`security/DataScope.java` | JWT + ADMIN/USER；过滤器逐请求查库校验 `enabled` 与 `token_version`，禁用或改密后下一次请求 401；非管理员按 `workshop_scope` 过滤设备、计划与工单 |
+| 登录限流 | 端口 + 单实例本地实现 | `common/LoginRateLimiter.java`、`common/LocalLoginRateLimiter.java` | 限流逻辑在端口后；本地 `ConcurrentHashMap` 滑动窗口，多实例部署必须替换为共享存储实现 |
+| 审计 | 真实，可查询 | `aspect/AuditAspect.java`、`controller/AuditLogController.java` | 只审计非认证的写操作，参数截断 1000 字符；S6 增加按操作人/路径/日期查询与索引 |
+| 多租户 | 无 | `db/migration/V1__init.sql` | 全库无 `tenant_id`；工单、设备与计划的 `workshop` 作为单车间数据域，不做多租户 |
 | 管理端 | 真实调用后端 | `zhizao-xietong-web/src/views/Dashboard.vue` | KPI 与图表走真实分页接口，不是静态假数据 |
 | 移动端 | 真实页面 | `mobile-app/pages` | 工单、报工、设备三个页面，调用后端接口 |
-| 测试 | 单测为主，薄集成 | `src/test/java` | 72 个 Mockito 用例，无 Spring 上下文；另有 3 个 Testcontainers 集成用例覆盖状态机合法/非法流转与乐观锁并发 |
+| 测试 | 单测为主，薄集成 | `src/test/java` | 105 个 Mockito 用例，无 Spring 上下文；另有 3 个 Testcontainers 集成用例覆盖状态机合法/非法流转与乐观锁并发 |
 | CI | S0 已补，后追加集成测试 | `.github/workflows/ci.yml` | 提交信息校验、密钥扫描、后端测试（含 Testcontainers，缺 Docker 自动跳过）、前端构建四条门禁 |
 
 需要纠正的一点：BOM 在早期说明中被描述为只读，S4 之前已有新增、修改、删除与版本复制接口。S4 采用 A 方案后，版本由 `pr_process` 行表达，`pr_bom.version` 废弃；真正的缺口变成「已发布版本仍可修改」，现已通过发布冻结与版本复制解决。`[代码实证]`
 
 ### 2.5 端点和测试基线
 
-55 个端点按域分布：认证 2、设备 6、设备数据 4、物料 5、工艺 13（含工序 4 与版本复制 1）、BOM 4、计划 6、工单 6、维保 5、设备凭证 2、排程 2。S0 基线为 19 个测试：工单服务 8 个、齐套 5 个、认证 3 个、设备数据 2 个、编号 1 个；S1 后为 29 个；S2 后为 37 个，新增设备签名 6 个、指数退避 1 个、遥测保留 2 个，设备数据用例扩到 11 个；S3 后为 44 个，新增乐观锁冲突、历史留痕、报工数量边界与状态机用例 7 个；报工幂等后为 49 个，新增同键重发与键长边界单测 2 个、Testcontainers 集成用例 3 个（合法流转、非法流转、并发开始仅推进一次）；S4 后为 65 个，新增提交审批校验、发布冻结、版本复制、工序重复序号、BOM 重复物料与齐套版本隔离单测 16 个；S5 后为 75 个，新增排程边界 8 个（刚好排满、超出一点、同类型竞争、空产能、重排不改在产、幂等重跑、缺工时被拒、显式估算）与下达校验 2 个。集成用例依赖 Docker，缺失时明确跳过并输出提示，不影响本地与 CI 构建。`[代码实证]`
+60 个端点按域分布：认证 2、用户 4、审计 1、设备 6、设备数据 4、物料 5、工艺 13（含工序 4 与版本复制 1）、BOM 4、计划 6、工单 6、维保 5、设备凭证 2、排程 2。S0 基线为 19 个测试：工单服务 8 个、齐套 5 个、认证 3 个、设备数据 2 个、编号 1 个；S1 后为 29 个；S2 后为 37 个，新增设备签名 6 个、指数退避 1 个、遥测保留 2 个，设备数据用例扩到 11 个；S3 后为 44 个，新增乐观锁冲突、历史留痕、报工数量边界与状态机用例 7 个；报工幂等后为 49 个，新增同键重发与键长边界单测 2 个、Testcontainers 集成用例 3 个（合法流转、非法流转、并发开始仅推进一次）；S4 后为 65 个，新增提交审批校验、发布冻结、版本复制、工序重复序号、BOM 重复物料与齐套版本隔离单测 16 个；S5 后为 75 个，新增排程边界 8 个（刚好排满、超出一点、同类型竞争、空产能、重排不改在产、幂等重跑、缺工时被拒、显式估算）与下达校验 2 个；S6 后为 108 个（105 单元 + 3 集成），新增认证即时失效、过滤器逐请求校验、HTTP 401、限流阈值、用户启停与改密、审计查询与脱敏、设备/计划/工单车间过滤共 33 个单元用例。集成用例依赖 Docker，缺失时明确跳过并输出提示，不影响本地与 CI 构建。`[代码实证]`
 
 ---
 
@@ -273,7 +273,7 @@ sequenceDiagram
 
 ## 5. 接口摘要
 
-现状 55 个端点：S4 移除了 BOM 版本端点 2 个，S5 新增排程端点 2 个，其余路径保留，其中约 20 个需要收紧行为或调整请求体：登录与刷新、设备状态、遥测与集成、物料库存字段、工艺审批、BOM 读写、计划更新与下达、开工报工质检、维保创建。目标新增端点中，设备凭证 2 个已在 S1 落地、遥测历史 1 个已在 S2 落地、工单历史 1 个已在 S3 落地、工序维护 4 个已在 S4 落地，S4 另新增版本复制 1 个、S5 新增排程 2 个；剩余目标覆盖审计查询、运行指标与 AI 建议。
+现状 60 个端点：S4 移除了 BOM 版本端点 2 个，S5 新增排程端点 2 个，S6 新增用户管理 4 个与审计查询 1 个，其余路径保留，其中约 20 个需要收紧行为或调整请求体：登录与刷新、设备状态、遥测与集成、物料库存字段、工艺审批、BOM 读写、计划更新与下达、开工报工质检、维保创建。目标新增端点中，设备凭证 2 个已在 S1 落地、遥测历史 1 个已在 S2 落地、工单历史 1 个已在 S3 落地、工序维护 4 个已在 S4 落地，S4 另新增版本复制 1 个、S5 新增排程 2 个、S6 新增用户与审计 5 个；剩余目标覆盖运行指标与 AI 建议。
 
 完整清单与契约见 [API-CONTRACT.md](API-CONTRACT.md)。
 
@@ -446,7 +446,7 @@ AI 是旁路能力，优先级 P2，排在 S8，可整体取消。它的价值�
 
 ### 8.8 验收与降级
 
-- `ai.enabled=false`：AI 端点返回 503，其他 55 个端点行为不变。
+- `ai.enabled=false`：AI 端点返回 503，其他 60 个端点行为不变。
 - 模型超时 5 秒：返回「建议暂不可用」，不重试、不影响当前页面其他操作。
 - 假模型测试覆盖：合法 JSON 解析、模型返回非法 JSON、字段缺失、超时、权限过滤注入。
 - 输出必须通过 JSON Schema 校验；校验失败按「不可用」处理，不展示半成品。

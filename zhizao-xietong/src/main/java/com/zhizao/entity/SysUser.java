@@ -16,6 +16,9 @@ public class SysUser {
     private String password;
     private String nickname;
     private String role;
+    private Integer enabled;
+    private Integer tokenVersion;
+    private String workshopScope;
     private LocalDateTime createdAt;
     @TableLogic
     private Integer deleted;
@@ -30,6 +33,12 @@ public class SysUser {
     public void setNickname(String nickname) { this.nickname = nickname; }
     public String getRole() { return role; }
     public void setRole(String role) { this.role = role; }
+    public Integer getEnabled() { return enabled; }
+    public void setEnabled(Integer enabled) { this.enabled = enabled; }
+    public Integer getTokenVersion() { return tokenVersion; }
+    public void setTokenVersion(Integer tokenVersion) { this.tokenVersion = tokenVersion; }
+    public String getWorkshopScope() { return workshopScope; }
+    public void setWorkshopScope(String workshopScope) { this.workshopScope = workshopScope; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
     public Integer getDeleted() { return deleted; }

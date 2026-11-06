@@ -56,6 +56,30 @@ public class GlobalExceptionHandler {
         return Result.error(e.getCode(), e.getMessage());
     }
 
+    /**
+     * 账号禁用或跨车间越权，返回 HTTP 403。
+     *
+     * @param e 访问拒绝异常
+     * @return 带 HTTP 403 状态码的错误响应
+     */
+    @ExceptionHandler(ForbiddenException.class)
+    public ResponseEntity<Result<Void>> handleForbidden(ForbiddenException e) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .body(Result.error(403, e.getMessage()));
+    }
+
+    /**
+     * 令牌失效或账号不可用，返回 HTTP 401，前端据此清理本地令牌。
+     *
+     * @param e 未认证异常
+     * @return 带 HTTP 401 状态码的错误响应
+     */
+    @ExceptionHandler(UnauthorizedException.class)
+    public ResponseEntity<Result<Void>> handleUnauthorized(UnauthorizedException e) {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                .body(Result.error(401, e.getMessage()));
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public Result<Void> handleValid(MethodArgumentNotValidException e) {
         FieldError fieldError = e.getBindingResult().getFieldError();
