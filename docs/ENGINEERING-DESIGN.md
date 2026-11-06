@@ -36,14 +36,14 @@
 | 指标 | 数值 | 证据 |
 |---|---|---|
 | 仓库提交 | 初始 1 个提交，整理阶段追加 3 个 | `git log --oneline` |
-| 跟踪文件 | 139 个（初始 140，删除 2 个赛事文件，新增 1 个根 README） | `git ls-files \| wc -l` |
-| Java 文件 | 79 个 / 3647 行 | 主代码 74 个 / 3193 行，测试 5 个 / 454 行 |
-| 后端分层 | 9 Controller、14 Service、12 Entity、12 Mapper、7 DTO、5 Enum | `src/main/java/com/zhizao` |
-| 数据库 | 12 张表，3 个 Flyway 迁移 | `src/main/resources/db/migration` |
+| 跟踪文件 | 163 个（S0 整理后 139 个，S1 新增代码、迁移、测试与文档） | `git ls-files \| wc -l` |
+| Java 文件 | 89 个 / 4953 行（S1 后） | 主代码 82 个 / 4302 行，测试 7 个 / 651 行 |
+| 后端分层 | 10 Controller、15 Service（另 1 个幂等组件）、13 Entity、13 Mapper、7 DTO、5 Enum | `src/main/java/com/zhizao` |
+| 数据库 | 12 张表，3 个 Flyway 迁移（S0 基线）；S1 后 13 张表、5 个迁移 | `src/main/resources/db/migration` |
 | 管理端 | Vue 3 + TypeScript，2009 行，8 个业务页面 | `zhizao-xietong-web/src` |
 | 移动端 | uni-app，493 行，3 个页面 | `mobile-app/pages` |
-| 测试 | 19 个用例，全部通过 | `mvn -o test` |
-| CI | 无 | 无 `.github/workflows` |
+| 测试 | 19 个用例（S0 基线）；S1 后 29 个，全部通过 | `mvn -o test` |
+| CI | S0 起由 GitHub Actions 执行提交信息校验、后端测试与前端构建 | `.github/workflows/ci.yml` |
 | 端点 | 46 个 | 见 [API-CONTRACT.md](API-CONTRACT.md) |
 
 仓库不是空壳。后端有真实 MQTT 接入、真实状态机、真实齐套计算和真实数据库迁移；主要问题集中在可靠性、并发正确性、数据留痕与工程化配套，而不是「有没有实现」。`[代码实证]`
@@ -124,13 +124,13 @@ graph TB
 | 管理端 | 真实调用后端 | `zhizao-xietong-web/src/views/Dashboard.vue` | KPI 与图表走真实分页接口，不是静态假数据 |
 | 移动端 | 真实页面 | `mobile-app/pages` | 工单、报工、设备三个页面，调用后端接口 |
 | 测试 | 单测 | `src/test/java` | 19 个 Mockito 用例，无 Spring 上下文、无数据库、无并发用例 |
-| CI | 无 | 仓库根目录 | 没有自动构建与测试入口 |
+| CI | S0 已补 | `.github/workflows/ci.yml` | 提交信息校验、后端测试、前端构建三条门禁 |
 
 需要纠正的一点：BOM 在早期说明中被描述为只读，当前代码已经有新增、修改、删除与版本复制接口。真正的缺口是版本发布后仍可修改、读取时取全局最大版本、齐套计算没有绑定工单执行时的工艺版本。`[代码实证]`
 
 ### 2.5 端点和测试基线
 
-46 个端点按域分布：认证 2、设备 6、设备数据 3、物料 5、工艺 8、BOM 6、计划 6、工单 5、维保 5。19 个测试覆盖工单服务 8 个、齐套 5 个、认证 3 个、设备数据 2 个、编号 1 个。没有集成测试，也没有任何用例验证 MQTT 重连、并发开工、报工数量边界。`[代码实证]`
+46 个端点按域分布：认证 2、设备 6、设备数据 3、物料 5、工艺 8、BOM 6、计划 6、工单 5、维保 5。S0 基线为 19 个测试：工单服务 8 个、齐套 5 个、认证 3 个、设备数据 2 个、编号 1 个；S1 后为 29 个，新增设备签名 6 个、指数退避 1 个，设备数据用例扩到 5 个。仍没有集成测试，也没有用例覆盖并发开工与报工数量边界。`[代码实证]`
 
 ---
 
