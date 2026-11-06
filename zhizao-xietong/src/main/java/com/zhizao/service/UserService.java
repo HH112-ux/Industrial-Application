@@ -92,6 +92,31 @@ public class UserService {
     }
 
     /**
+     * 管理员分配非管理员的车间数据域。
+     *
+     * <p>认证过滤器每次请求重新查库并构建用户主体，因此分配结果在下一次请求即生效，
+     * 不需要递增令牌版本。管理员本身不受车间限制，拒绝分配以免造成误解。</p>
+     *
+     * @param id            用户主键
+     * @param workshopScope 车间名称，不能为空
+     * @return 更新后的用户视图
+     * @throws BusinessException 用户不存在、目标为管理员或车间为空时抛出
+     */
+    @Transactional
+    public UserView assignWorkshop(Long id, String workshopScope) {
+        SysUser user = requireUser(id);
+        if ("ADMIN".equals(user.getRole())) {
+            throw new BusinessException("管理员不受车间数据域限制，无需分配车间");
+        }
+        if (!StringUtils.hasText(workshopScope)) {
+            throw new BusinessException("车间数据域不能为空");
+        }
+        user.setWorkshopScope(workshopScope.trim());
+        userMapper.updateById(user);
+        return UserView.of(user);
+    }
+
+    /**
      * 查询用户，不存在时按业务拒绝处理。
      *
      * @param id 用户主键

@@ -1,5 +1,6 @@
 package com.zhizao.service;
 
+import com.zhizao.common.BusinessException;
 import com.zhizao.entity.SysUser;
 import com.zhizao.mapper.SysUserMapper;
 import org.junit.jupiter.api.Test;
@@ -11,6 +12,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -74,5 +77,35 @@ class UserServiceTest {
         verify(userMapper).updateById(captor.capture());
         assertEquals("encoded-new", captor.getValue().getPassword());
         assertEquals(Integer.valueOf(3), captor.getValue().getTokenVersion());
+    }
+
+    @Test
+    void assigningWorkshopTrimsValueAndKeepsTokenVersion() {
+        when(userMapper.selectById(1L)).thenReturn(user());
+
+        userService.assignWorkshop(1L, "  二车间  ");
+
+        ArgumentCaptor<SysUser> captor = ArgumentCaptor.forClass(SysUser.class);
+        verify(userMapper).updateById(captor.capture());
+        assertEquals("二车间", captor.getValue().getWorkshopScope());
+        assertEquals(Integer.valueOf(2), captor.getValue().getTokenVersion());
+    }
+
+    @Test
+    void assigningBlankWorkshopIsRejected() {
+        when(userMapper.selectById(1L)).thenReturn(user());
+
+        assertThrows(BusinessException.class, () -> userService.assignWorkshop(1L, "  "));
+        verify(userMapper, never()).updateById(org.mockito.ArgumentMatchers.<SysUser>any());
+    }
+
+    @Test
+    void assigningWorkshopToAdminIsRejected() {
+        SysUser admin = user();
+        admin.setRole("ADMIN");
+        when(userMapper.selectById(1L)).thenReturn(admin);
+
+        assertThrows(BusinessException.class, () -> userService.assignWorkshop(1L, "一车间"));
+        verify(userMapper, never()).updateById(org.mockito.ArgumentMatchers.<SysUser>any());
     }
 }

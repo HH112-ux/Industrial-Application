@@ -1,6 +1,6 @@
 # 数据模型设计
 
-本文档描述现状数据库结构与重构目标模型。现状结构来自 `zhizao-xietong/src/main/resources/db/migration/V1__init.sql` 至 `V12__audit_enhance.sql`，目标结构为待评审设计，不包含未执行的迁移。
+本文档描述现状数据库结构与重构目标模型。现状结构来自 `zhizao-xietong/src/main/resources/db/migration/V1__init.sql` 至 `V13__user_scope_reset.sql`，目标结构为待评审设计，不包含未执行的迁移。
 
 标注说明：`[代码实证]` 表示可从当前代码或迁移脚本直接核对；`[工程判断]` 表示基于现有规模与约束提出的设计取舍；`[待确认]` 表示需要用户拍板。
 
@@ -49,7 +49,7 @@ erDiagram
 | `eq_maintenance` | `MaintenanceRecord` | `MaintenanceRecordMapper` | 点检/维修 | `uk_mt_no`，`device_id` 索引 |
 | `eq_telemetry` | `DeviceTelemetryRecord` | `DeviceTelemetryMapper` | 设备遥测时序 | `(device_id, reported_at)` 索引，`ingest_key` 唯一 |
 | `eq_device_credential` | `DeviceCredential` | `DeviceCredentialMapper` | 设备凭证 | `device_id` 唯一、`key_id` 唯一 |
-| `sys_user` | `SysUser` | `SysUserMapper` | 用户、角色、启停与车间数据域 | `uk_username`；`enabled`、`token_version`、`workshop_scope` 由 V11 增加 |
+| `sys_user` | `SysUser` | `SysUserMapper` | 用户、角色、启停与车间数据域 | `uk_username`；`enabled`、`token_version`、`workshop_scope` 由 V11 增加，V13 将非管理员范围重置为 `NULL` |
 | `sys_sequence` | `Sequence` | `SequenceMapper` | 编号序列 | 主键 `seq_name` |
 | `sys_audit_log` | `AuditLog` | `AuditLogMapper` | 写操作审计 | `created_at`、`(username, created_at)`、`uri` 索引，无保留策略 |
 
@@ -295,8 +295,9 @@ V9 为存量工艺回填一条「默认工序」（`seq = 1`），保证迁移�
 | `V8__report_idempotency.sql` | `wo_report.idempotency_key` + 唯一索引 `uk_order_idem (order_id, idempotency_key)`（S3 补，已落地）；键由客户端生成，NULL 不参与去重 | 必须晚于 `V7` |
 | `V9__process_operation.sql` | 新建 `pr_process_operation`；`pr_process` 增加 `version` 与 `uk_process_no_version`；`wo_work_order` 增加 `process_version`；存量工艺回填「默认工序」并回填工单版本（S4 已落地） | 必须晚于 `V7` |
 | `V10__schedule_entry.sql` | 新建 `po_schedule_entry`，保存排程时间窗、队列位置与冲突业务码（S5 已落地） | 必须晚于 `V9` |
-| `V11__identity_scope.sql` | `sys_user` 增加 `enabled`、`token_version`、`workshop_scope`；`eq_device`、`po_plan` 增加 `workshop` 与索引；非管理员回填「一车间」（S6 已落地） | 无 |
+| `V11__identity_scope.sql` | `sys_user` 增加 `enabled`、`token_version`、`workshop_scope`；`eq_device`、`po_plan` 增加 `workshop` 与索引（S6 已落地） | 无 |
 | `V12__audit_enhance.sql` | 审计查询索引 `idx_audit_user_time`、`idx_audit_uri`（S6 已落地） | 无 |
-| `V13__ai_sidecar.sql` | AI 审计表（最后阶段） | `V8`、`V11` |
+| `V13__user_scope_reset.sql` | 将非管理员的 `workshop_scope` 重置为 `NULL`，纠正 V11 无依据的「一车间」回填，落实 deny-by-default（S6 已落地） | `V11` |
+| `V14__ai_sidecar.sql` | AI 审计表（最后阶段） | `V8`、`V11` |
 
 每个迁移可单独回滚到上一版本；结构变更与回填放在同一迁移时，回填必须幂等并在 PR 中单独说明。生产环境执行前先备份。`[工程判断]`

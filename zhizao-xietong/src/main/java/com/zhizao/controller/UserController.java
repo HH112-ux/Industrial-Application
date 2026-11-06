@@ -6,6 +6,7 @@ import com.zhizao.common.UnauthorizedException;
 import com.zhizao.dto.PasswordChangeRequest;
 import com.zhizao.dto.PasswordResetRequest;
 import com.zhizao.dto.UserView;
+import com.zhizao.dto.WorkshopAssignRequest;
 import com.zhizao.security.UserPrincipal;
 import com.zhizao.service.AuthService;
 import com.zhizao.service.UserService;
@@ -85,6 +86,19 @@ public class UserController {
     public Result<Void> resetPassword(@PathVariable Long id, @RequestBody PasswordResetRequest request) {
         userService.resetPassword(id, request.newPassword());
         return Result.ok();
+    }
+
+    /**
+     * 管理员为用户分配车间数据域。分配后该用户下一次请求即按新车间过滤。
+     *
+     * @param id      用户主键
+     * @param request 车间名称
+     * @return 更新后的用户视图
+     */
+    @PreAuthorize("hasRole('ADMIN')")
+    @PostMapping("/{id}/workshop")
+    public Result<UserView> assignWorkshop(@PathVariable Long id, @RequestBody WorkshopAssignRequest request) {
+        return Result.ok(userService.assignWorkshop(id, request.workshopScope()));
     }
 
     /**
