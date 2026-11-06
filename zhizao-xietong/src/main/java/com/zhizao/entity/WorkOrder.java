@@ -4,9 +4,17 @@ import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableLogic;
 import com.baomidou.mybatisplus.annotation.TableName;
+import com.baomidou.mybatisplus.annotation.Version;
 
 import java.time.LocalDateTime;
 
+/**
+ * 生产工单：一次排产下达的执行单元，携带状态与累计报工数量。
+ *
+ * <p>`version` 用于乐观锁，同一工单的并发流转只有一次能成功；累计数量用于报工上限校验。</p>
+ *
+ * @author Caspian
+ */
 @TableName("wo_work_order")
 public class WorkOrder {
 
@@ -17,11 +25,16 @@ public class WorkOrder {
     private String productCode;
     private String productName;
     private Integer qty;
+    private Integer qtyDone;
+    private Integer qtyQualified;
+    private Integer qtyDefect;
     private String batch;
     private String workshop;
     private Long deviceId;
     private Long processId;
     private String status;
+    @Version
+    private Integer version;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     @TableLogic
@@ -39,6 +52,12 @@ public class WorkOrder {
     public void setProductName(String productName) { this.productName = productName; }
     public Integer getQty() { return qty; }
     public void setQty(Integer qty) { this.qty = qty; }
+    public Integer getQtyDone() { return qtyDone; }
+    public void setQtyDone(Integer qtyDone) { this.qtyDone = qtyDone; }
+    public Integer getQtyQualified() { return qtyQualified; }
+    public void setQtyQualified(Integer qtyQualified) { this.qtyQualified = qtyQualified; }
+    public Integer getQtyDefect() { return qtyDefect; }
+    public void setQtyDefect(Integer qtyDefect) { this.qtyDefect = qtyDefect; }
     public String getBatch() { return batch; }
     public void setBatch(String batch) { this.batch = batch; }
     public String getWorkshop() { return workshop; }
@@ -49,6 +68,8 @@ public class WorkOrder {
     public void setProcessId(Long processId) { this.processId = processId; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
+    public Integer getVersion() { return version; }
+    public void setVersion(Integer version) { this.version = version; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }

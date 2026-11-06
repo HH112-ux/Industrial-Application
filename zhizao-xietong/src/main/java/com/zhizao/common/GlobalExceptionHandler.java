@@ -42,9 +42,18 @@ public class GlobalExceptionHandler {
                 .body(Result.error(400, e.getMessage()));
     }
 
+    /**
+     * 处理业务拒绝：保持 HTTP 200，业务码由异常携带。
+     *
+     * <p>既有异常的默认业务码为 500，行为与改造前一致；新接口可携带 409 等业务码，
+     * 遵循接口契约中「请求合法但业务规则不满足」的口径。</p>
+     *
+     * @param e 业务异常
+     * @return 带业务码的统一响应体
+     */
     @ExceptionHandler(BusinessException.class)
     public Result<Void> handleBusiness(BusinessException e) {
-        return Result.error(e.getMessage());
+        return Result.error(e.getCode(), e.getMessage());
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
