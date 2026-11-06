@@ -1,10 +1,14 @@
 package com.zhizao.service;
 
+import com.zhizao.common.BadRequestException;
 import com.zhizao.common.BusinessException;
 import com.zhizao.dto.DeviceGatewayReport;
 import com.zhizao.dto.DeviceTelemetry;
+import com.zhizao.dto.DeviceTelemetryPoint;
 import com.zhizao.entity.Device;
+import com.zhizao.entity.DeviceTelemetryRecord;
 import com.zhizao.mapper.DeviceMapper;
+import com.zhizao.mapper.DeviceTelemetryMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -12,8 +16,12 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.time.LocalDateTime;
+import java.util.List;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
@@ -33,6 +41,9 @@ class DeviceDataServiceTest {
     private DeviceMapper deviceMapper;
 
     @Mock
+    private DeviceTelemetryMapper telemetryMapper;
+
+    @Mock
     private DeviceIdempotencyGuard idempotencyGuard;
 
     private DeviceDataService deviceDataService;
@@ -42,7 +53,7 @@ class DeviceDataServiceTest {
      */
     @BeforeEach
     void setUp() {
-        deviceDataService = new DeviceDataService(deviceMapper, idempotencyGuard);
+        deviceDataService = new DeviceDataService(deviceMapper, telemetryMapper, idempotencyGuard);
         lenient().when(idempotencyGuard.acquire(any())).thenReturn(true);
     }
 
@@ -95,6 +106,101 @@ class DeviceDataServiceTest {
                 "k-1", "HTTP");
 
         verify(deviceMapper, never()).updateById(any(Device.class));
+        verify(telemetryMapper, never()).insert(any(DeviceTelemetryRecord.class));
+    }
+
+    @Test
+    void reportIsPersistedToTelemetryTable() {
+        when(deviceMapper.selectOne(any())).thenReturn(device());
+
+        deviceDataService.handleGatewayReport(
+                new DeviceGatewayReport("EQ-202609-0001", "RUNNING", 45.5, 1500.0, 8.5, null, null, null, null, "k-2"),
+                "k-2", "HTTP");
+
+        ArgumentCaptor<DeviceTelemetryRecord> captor = ArgumentCaptor.forClass(DeviceTelemetryRecord.class);
+        verify(telemetryMapper).insert(captor.capture());
+        DeviceTelemetryRecord record = captor.getValue();
+        assertEquals(1L, record.getDeviceId());
+        assertEquals("EQ-202609-0001", record.getDeviceNo());
+        assertEquals("RUNNING", record.getStatus());
+        assertEquals(45.5, record.getTemperature(), 0.01);
+        assertEquals(1500, record.getRpm());
+        assertEquals(8.5, record.getCurrent(), 0.01);
+        assertEquals("HTTP", record.getSource());
+        assertEquals("k-2", record.getIngestKey());
+        assertNotNull(record.getReportedAt());
+        assertNotNull(record.getReceivedAt());
+    }
+
+    @Test
+    void reportUsesDeviceTimestampWhenPresent() {
+        when(deviceMapper.selectOne(any())).thenReturn(device());
+        long millis = 1_760_000_000_000L;
+
+        deviceDataService.handleGatewayReport(
+                new DeviceGatewayReport("EQ-202609-0001", "RUNNING", 45.5, 1500.0, 8.5,
+                        null, millis, null, null, null),
+                null, "MQTT");
+
+        ArgumentCaptor<DeviceTelemetryRecord> captor = ArgumentCaptor.forClass(DeviceTelemetryRecord.class);
+        verify(telemetryMapper).insert(captor.capture());
+        assertEquals(java.time.Instant.ofEpochMilli(millis).atZone(java.time.ZoneId.systemDefault()).toLocalDateTime(),
+                captor.getValue().getReportedAt());
+        assertNull(captor.getValue().getIngestKey());
+    }
+
+    @Test
+    void historyRejectsInvertedRange() {
+        when(deviceMapper.selectById(1L)).thenReturn(device());
+
+        LocalDateTime from = LocalDateTime.now();
+        assertThrows(BadRequestException.class,
+                () -> deviceDataService.history(1L, from, from.minusHours(1), 10));
+    }
+
+    @Test
+    void historyUnknownDeviceThrows() {
+        when(deviceMapper.selectById(9L)).thenReturn(null);
+
+        assertThrows(BusinessException.class,
+                () -> deviceDataService.history(9L, null, null, 10));
+    }
+
+    @Test
+    void historyMapsRecordsToPoints() {
+        when(deviceMapper.selectById(1L)).thenReturn(device());
+        DeviceTelemetryRecord record = new DeviceTelemetryRecord();
+        record.setReportedAt(LocalDateTime.of(2026, 11, 6, 10, 0));
+        record.setTemperature(45.2);
+        record.setRpm(1500);
+        record.setCurrent(8.5);
+        record.setStatus("RUNNING");
+        record.setSource("MQTT");
+        when(telemetryMapper.selectList(any())).thenReturn(List.of(record));
+
+        List<DeviceTelemetryPoint> points = deviceDataService.history(1L, null, null, 5000);
+
+        assertEquals(1, points.size());
+        DeviceTelemetryPoint point = points.get(0);
+        assertEquals(LocalDateTime.of(2026, 11, 6, 10, 0), point.reportedAt());
+        assertEquals(45.2, point.temperature(), 0.01);
+        assertEquals(1500, point.rpm());
+        assertEquals("RUNNING", point.status());
+        assertEquals("MQTT", point.source());
+    }
+
+    @Test
+    void telemetryWriteFailureDoesNotBlockStatusUpdate() {
+        when(deviceMapper.selectOne(any())).thenReturn(device());
+        when(deviceMapper.selectById(1L)).thenReturn(device());
+        when(telemetryMapper.insert(any(DeviceTelemetryRecord.class)))
+                .thenThrow(new RuntimeException("db down"));
+
+        deviceDataService.handleGatewayReport(
+                new DeviceGatewayReport("EQ-202609-0001", "RUNNING", 45.0, 1500.0, 8.5));
+
+        verify(deviceMapper).updateById(any(Device.class));
+        assertEquals("MQTT", deviceDataService.getTelemetry(1L).source());
     }
 
     @Test

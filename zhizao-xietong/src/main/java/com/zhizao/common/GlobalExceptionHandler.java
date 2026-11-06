@@ -30,6 +30,18 @@ public class GlobalExceptionHandler {
                 .body(Result.error(e.getStatus(), e.getMessage()));
     }
 
+    /**
+     * 处理请求参数非法，返回 HTTP 400，避免与业务拒绝（200 + code=500）混用。
+     *
+     * @param e 参数非法异常
+     * @return 带 HTTP 400 状态码的错误响应
+     */
+    @ExceptionHandler(BadRequestException.class)
+    public ResponseEntity<Result<Void>> handleBadRequest(BadRequestException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(Result.error(400, e.getMessage()));
+    }
+
     @ExceptionHandler(BusinessException.class)
     public Result<Void> handleBusiness(BusinessException e) {
         return Result.error(e.getMessage());
