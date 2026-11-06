@@ -67,3 +67,5 @@ device:
   idempotency:
     ttl-seconds: ${DEVICE_IDEMPOTENCY_TTL_SECONDS:600}
     max-entries: ${DEVICE_IDEMPOTENCY_MAX_ENTRIES:10000}
+  telemetry:
+    retention-days: ${DEVICE_TELEMETRY_RETENTION_DAYS:90}
