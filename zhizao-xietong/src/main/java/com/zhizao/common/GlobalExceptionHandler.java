@@ -1,6 +1,7 @@
 package com.zhizao.common;
 
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.FieldError;
@@ -11,9 +12,23 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 /**
  * 全局异常处理：统一转 Result。
+ *
+ * @author Caspian
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    /**
+     * 处理设备鉴权异常，按凭证无效或设备停用返回 401/403。
+     *
+     * @param e 设备鉴权异常
+     * @return 带 HTTP 状态码的错误响应
+     */
+    @ExceptionHandler(DeviceAuthException.class)
+    public ResponseEntity<Result<Void>> handleDeviceAuth(DeviceAuthException e) {
+        return ResponseEntity.status(e.getStatus())
+                .body(Result.error(e.getStatus(), e.getMessage()));
+    }
 
     @ExceptionHandler(BusinessException.class)
     public Result<Void> handleBusiness(BusinessException e) {

@@ -53,3 +53,17 @@ mqtt:
   username: ${MQTT_USERNAME:}
   password: ${MQTT_PASSWORD:}
   topic: ${MQTT_TOPIC:factory/devices/+/status}
+  client-id: ${MQTT_CLIENT_ID:zhizao-backend}
+  qos: ${MQTT_QOS:1}
+
+device:
+  online-threshold-seconds: ${DEVICE_ONLINE_THRESHOLD_SECONDS:90}
+  credential-key: ${DEVICE_CREDENTIAL_KEY:}
+  simulation:
+    enabled: ${DEVICE_SIMULATION_ENABLED:false}
+  auth:
+    enabled: ${DEVICE_AUTH_ENABLED:false}
+    signature-tolerance-seconds: ${DEVICE_SIGNATURE_TOLERANCE_SECONDS:300}
+  idempotency:
+    ttl-seconds: ${DEVICE_IDEMPOTENCY_TTL_SECONDS:600}
+    max-entries: ${DEVICE_IDEMPOTENCY_MAX_ENTRIES:10000}
