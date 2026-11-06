@@ -30,6 +30,16 @@ jobs:
             fi
           fi
           npx --no -- commitlint --from "$FROM" --to HEAD --verbose
+      # The squash merge subject is the pull request title plus " (#<number>)".
+      # Validating exactly that form stops a non-conforming title from turning
+      # the default branch red after merge, which branch commits alone cannot catch.
+      - name: Validate pull request title
+        if: github.event_name == 'pull_request'
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          printf '%s (#%s)\n' "$PR_TITLE" "$PR_NUMBER" | npx --no -- commitlint --verbose
 
   # Secret scan scope is intentionally limited to the commits introduced by this
   # push or pull request. Scanning full history would fail the build on legacy
