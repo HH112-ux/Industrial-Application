@@ -1,6 +1,6 @@
 # 接口契约
 
-现状接口以当前代码为准，共 50 个端点（S0 基线 46 个，S1 新增设备凭证 2 个，S2 新增遥测历史 1 个，S3 新增工单历史 1 个）。目标接口尚未落地的部分仍为设计稿。
+现状接口以当前代码为准，共 53 个端点（S0 基线 46 个，S1 新增设备凭证 2 个，S2 新增遥测历史 1 个，S3 新增工单历史 1 个，S4 新增工序 4 个与版本复制 1 个并移除 BOM 版本端点 2 个）。目标接口尚未落地的部分仍为设计稿。
 
 标注说明：`[代码实证]` 表示已在 Controller 中核对；`[工程判断]` 表示设计建议；`[待确认]` 表示需要用户拍板。
 
@@ -46,7 +46,7 @@
 
 两条判定线的区别是责任方：客户端把请求写错了属于前者；请求格式正确但当前业务状态不接受，属于后者。业务拒绝使用 HTTP 200 是为了让前端统一按 `code` 提示，而不是被浏览器或网关当成传输错误。
 
-已有接口维持现状：`BusinessException` 仍由全局处理器转成 HTTP 200 + `code=500`，参数错误也仍是 HTTP 200。这样避免一次性改动 49 个端点的响应语义、把现有 Web 与移动端打崩。新接口的新写法只对新代码生效。`[代码实证]`
+已有接口维持现状：`BusinessException` 仍由全局处理器转成 HTTP 200 + `code=500`，参数错误也仍是 HTTP 200。这样避免一次性改动 53 个端点的响应语义、把现有 Web 与移动端打崩。新接口的新写法只对新代码生效。`[代码实证]`
 
 ### 1.2 认证
 
@@ -72,7 +72,7 @@
 | 403 | 403 | 角色或数据域不允许 |
 | 404 | 404 | 资源不存在 |
 | 429 | 429 | 登录或设备上报限流 |
-| 500 | 500 | 未预期异常；已有接口的业务拒绝也暂用此码（HTTP 200） |
+| 500 | 500 | 未预期异常；业务规则拒绝（如工艺缺工序/BOM 不能提交审批）也使用 HTTP 200 + 此码 |
 
 `code` 是给前端判断的业务码，HTTP 状态码是给网关与监控判断的传输语义。两者不一致只出现在「业务拒绝」这一类，且仅限按 §1.1.1 口径实现的新接口。
 
@@ -123,23 +123,24 @@
 
 | # | 方法 | 路径 | 现状鉴权 | 用途 | 处置 | 目标变更 |
 |---|---|---|---|---|---|---|
-| 17 | GET | `/api/processes` | 登录 | 工艺分页 | 保留 | 增加 `version` 过滤 |
-| 18 | GET | `/api/processes/{id}` | 登录 | 工艺详情 | 改行为 | 返回工序列表与当前版本 |
+| 17 | GET | `/api/processes` | 登录 | 工艺分页 | 保留 | 返回 `version` 字段，按版本展示 |
+| 18 | GET | `/api/processes/{id}` | 登录 | 工艺详情 | 保留 | 返回版本信息（含 `version`）；工序走独立端点 |
 | 19 | POST | `/api/processes` | ADMIN | 新建工艺 | 保留 | 初始版本 `1`，状态 `DRAFT` |
 | 20 | PUT | `/api/processes/{id}` | ADMIN | 更新工艺 | 改行为 | 已发布工艺不可改，只能新建版本 |
 | 21 | DELETE | `/api/processes/{id}` | ADMIN | 删除工艺 | 保留 | 有工单引用时拒绝 |
-| 22 | POST | `/api/processes/{id}/submit` | ADMIN | 提交审批 | 改行为 | 校验至少 1 道工序、BOM 至少 1 行 |
+| 22 | POST | `/api/processes/{id}/submit` | ADMIN | 提交审批 | 改行为 | 校验至少 1 道工序、BOM 至少 1 行；缺项返回 HTTP 200 + 业务码，message 说明缺什么 |
 | 23 | POST | `/api/processes/{id}/approve` | ADMIN | 审批发布 | 改行为 | 发布时冻结版本，写 `published_at` |
 | 24 | POST | `/api/processes/{id}/reject` | ADMIN | 驳回 | 保留 | 记录驳回原因 |
+| 58 | POST | `/api/processes/{id}/versions` | ADMIN | 复制下一版草稿 | 新增 | S4 已落地；复制基础信息、工序与 BOM，状态 `DRAFT` |
 
 ### 2.6 工艺物料清单
 
 | # | 方法 | 路径 | 现状鉴权 | 用途 | 处置 | 目标变更 |
 |---|---|---|---|---|---|---|
-| 25 | GET | `/api/processes/{processId}/bom` | 登录 | 读取 BOM | 改行为 | `version` 省略时读当前发布版本，不再读全局最大版本 |
-| 26 | GET | `/api/processes/{processId}/bom/versions` | 登录 | 版本列表 | 保留 | 返回版本与发布状态 |
-| 27 | POST | `/api/processes/{processId}/bom/version` | ADMIN | 复制新版本 | 改行为 | 从指定版本复制，校验工艺未发布 |
-| 28 | POST | `/api/processes/{processId}/bom` | ADMIN | 新增 BOM 行 | 改行为 | 校验物料存在、用量大于 0、同版本不重复 |
+| 25 | GET | `/api/processes/{processId}/bom` | 登录 | 读取 BOM | 改行为 | 按 `process_id` 读取该工艺版本的 BOM，不区分 `version` |
+| 26 | GET | `/api/processes/{processId}/bom/versions` | 登录 | 版本列表 | 移除 | S4 A 方案：BOM 不再单独版本化，版本由工艺行表达 |
+| 27 | POST | `/api/processes/{processId}/bom/version` | ADMIN | 复制新版本 | 移除 | 能力迁移到 `POST /api/processes/{id}/versions`（#58） |
+| 28 | POST | `/api/processes/{processId}/bom` | ADMIN | 新增 BOM 行 | 改行为 | 校验物料存在、用量大于 0、同一 `process_id` 下物料不重复 |
 | 29 | PUT | `/api/processes/{processId}/bom/{id}` | ADMIN | 更新 BOM 行 | 改行为 | 已发布版本只读 |
 | 30 | DELETE | `/api/processes/{processId}/bom/{id}` | ADMIN | 删除 BOM 行 | 改行为 | 已发布版本只读 |
 
@@ -182,7 +183,7 @@
 | 51 | POST | `/api/devices/{id}/credential` | ADMIN | 签发或轮换设备凭证，明文密钥仅返回一次 | 已落地 | S1 已实现 |
 | 52 | POST | `/api/devices/{id}/credential/revoke` | ADMIN | 吊销设备凭证 | 已落地 | S1 已实现 |
 
-端点合计：50（S0 基线 46 + S1 设备凭证 2 + S2 遥测历史 1 + S3 工单历史 1）。`[代码实证]`
+端点合计：53（S0 基线 46 + S1 设备凭证 2 + S2 遥测历史 1 + S3 工单历史 1 + S4 工序 4 + S4 版本复制 1 − S4 移除 BOM 版本端点 2）。`[代码实证]`
 
 ---
 
@@ -190,15 +191,15 @@
 
 | # | 方法 | 路径 | 鉴权 | 用途 | 阶段 |
 |---|---|---|---|---|---|
-| 49 | GET | `/api/processes/{id}/operations` | 登录 | 工序列表 | S4 |
-| 50 | POST/PUT/DELETE | `/api/processes/{id}/operations[/{opId}]` | ADMIN | 工序维护 | S4 |
+| 49 | GET | `/api/processes/{id}/operations` | 登录 | 工序列表 | S4 已落地 |
+| 50 | POST/PUT/DELETE | `/api/processes/{id}/operations[/{opId}]` | ADMIN | 工序维护（重复序号拒绝、已发布只读） | S4 已落地 |
 | 53 | GET | `/api/audit-logs` | ADMIN | 审计查询 | S6 |
 | 54 | GET | `/api/metrics/overview` | ADMIN | 设备在线率、工单节拍、齐套率 | S7 |
 | 55 | POST | `/api/ai/device-issue/suggest` | 登录 | AI 异常归因建议，只读 | S8（P2） |
 | 56 | POST | `/api/ai/report/draft` | 登录 | 自然语言转结构化报工草稿，不提交 | S8（P2） |
 | 57 | POST | `/api/ai/query` | ADMIN | 生产数据问答，只读视图 | S8（P2） |
 
-新增端点均遵循同一返回体与错误码约定。设备凭证的 2 个端点已在 S1 落地（§2.10），遥测历史已在 S2 落地（§2.3 与 §4.4），工单历史已在 S3 落地（§2.8）。
+新增端点均遵循同一返回体与错误码约定。设备凭证的 2 个端点已在 S1 落地（§2.10），遥测历史已在 S2 落地（§2.3 与 §4.4），工单历史已在 S3 落地（§2.8），工序维护与版本复制已在 S4 落地（§2.5、§4.5）。
 
 ---
 
@@ -286,6 +287,18 @@ GET /api/devices/1/telemetry/history?from=2026-11-05T00:00:00&to=2026-11-06T00:0
 ```
 
 响应 `data` 为按 `reportedAt` 升序的数组，字段包含 `reportedAt`、`temperature`、`rpm`、`current`、`status`、`source`。`limit` 上限 1000，超出按 1000 处理；`from > to` 返回 `400`。`[工程判断]`
+
+### 4.5 工艺版本与工序（S4 已落地）
+
+工艺版本采用 A 方案：同一 `processNo` 的每一行 `pr_process` 是一个版本，`id` 即版本标识；`version` 字段用于展示与递增，同一 `processNo` 内唯一。
+
+- `POST /api/processes/{id}/versions`：以指定版本为源复制出下一版草稿，同时复制工序与 BOM；新版本 `approvalStatus=DRAFT`，可继续编辑。
+- `GET /api/processes/{id}/operations`：按 `seq` 升序返回该版本的工序。
+- `POST/PUT/DELETE /api/processes/{id}/operations[/{operationId}]`：维护工序；`seq` 在同一版本内不可重复；已发布版本不可修改。
+- `POST /api/processes/{id}/submit`：提交前校验至少 1 道工序与至少 1 行 BOM。缺项属于业务规则拒绝，按 §1.1.1 返回 **HTTP 200 + 业务码**，`message` 形如「提交审批前请先添加工序与BOM 物料」。
+- `GET/POST/PUT/DELETE /api/processes/{processId}/bom`：BOM 直接归属工艺版本行，按 `process_id` 读取；`version` 列已废弃，接口不再接受 `version` 参数；同一版本内物料不可重复；已发布版本只读。
+
+在制工单的齐套计算只读取工单 `processId` 指向的版本行，因此发布新版本不会改变既有工单的齐套结果。`[代码实证]`
 
 ---
 
