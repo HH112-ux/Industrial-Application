@@ -31,6 +31,37 @@ jobs:
           fi
           npx --no -- commitlint --from "$FROM" --to HEAD --verbose
 
+  # Secret scan scope is intentionally limited to the commits introduced by this
+  # push or pull request. Scanning full history would fail the build on legacy
+  # commits that cannot be fixed without rewriting history.
+  secret-scan:
+    name: Secret scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install gitleaks
+        run: |
+          curl -sSfL https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz \
+            | tar -xz gitleaks
+          sudo install -m 755 gitleaks /usr/local/bin/gitleaks
+      - name: Scan changed commits
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch --no-tags origin "${{ github.base_ref }}"
+            RANGE="origin/${{ github.base_ref }}..HEAD"
+          else
+            BEFORE="${{ github.event.before }}"
+            if [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+              RANGE="HEAD~1..HEAD"
+            else
+              RANGE="$BEFORE..${{ github.event.after }}"
+            fi
+          fi
+          echo "Scanning range: $RANGE"
+          gitleaks git --no-banner --redact --log-opts="$RANGE"
+
   backend:
     name: Backend tests
     runs-on: ubuntu-latest
