@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.zhizao.common.BusinessException;
 import com.zhizao.common.PageResult;
+import com.zhizao.dto.DispatchRequest;
 import com.zhizao.entity.Plan;
 import com.zhizao.entity.Process;
 import com.zhizao.entity.WorkOrder;
@@ -83,21 +84,27 @@ public class PlanService {
     }
 
     /**
-     * 下达工单：待排产 → 进行中，并生成生产工单（自动匹配首个已发布工艺并锁定其版本）。
+     * 下达工单：待排产 → 进行中，并生成生产工单。
      *
-     * @param id 计划主键
+     * <p>必须显式指定已发布工艺，工单会锁定该工艺版本；车间与设备可由请求覆盖，
+     * 设备为空时取计划上的所需设备。不再自动挑选「第一个已发布工艺」，避免多工艺产品下错工艺。</p>
+     *
+     * @param id      计划主键
+     * @param request 下达请求，包含工艺版本、可选设备与车间
      * @return 新生成的工单
+     * @throws BusinessException 计划状态不允许或工艺未发布时抛出
      */
     @Transactional
-    public WorkOrder dispatch(Long id) {
+    public WorkOrder dispatch(Long id, DispatchRequest request) {
         Plan plan = getById(id);
         if (!PlanStatus.PENDING_SCHEDULE.name().equals(plan.getStatus())) {
             throw new BusinessException("仅「待排产」的计划可下达工单");
         }
-        Process process = processMapper.selectOne(new LambdaQueryWrapper<Process>()
-                .eq(Process::getApprovalStatus, ApprovalStatus.PUBLISHED.name())
-                .orderByAsc(Process::getId)
-                .last("LIMIT 1"));
+        Process process = request == null || request.processId() == null
+                ? null : processMapper.selectById(request.processId());
+        if (process == null || !ApprovalStatus.PUBLISHED.name().equals(process.getApprovalStatus())) {
+            throw new BusinessException("下达工单必须指定已发布工艺");
+        }
 
         WorkOrder order = new WorkOrder();
         order.setOrderNo(codeGenerator.next("WO"));
@@ -106,10 +113,10 @@ public class PlanService {
         order.setProductName(plan.getProductName());
         order.setQty(plan.getPlanQty());
         order.setBatch(plan.getBatch());
-        order.setWorkshop("一车间");
-        order.setDeviceId(plan.getRequiredDeviceId());
-        order.setProcessId(process != null ? process.getId() : null);
-        order.setProcessVersion(process != null ? process.getVersion() : null);
+        order.setWorkshop(StringUtils.hasText(request.workshop()) ? request.workshop().trim() : "一车间");
+        order.setDeviceId(request.deviceId() != null ? request.deviceId() : plan.getRequiredDeviceId());
+        order.setProcessId(process.getId());
+        order.setProcessVersion(process.getVersion());
         order.setStatus(WorkOrderStatus.PENDING.name());
         workOrderMapper.insert(order);
 

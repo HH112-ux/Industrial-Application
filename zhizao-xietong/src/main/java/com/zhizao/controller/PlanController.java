@@ -2,6 +2,7 @@ package com.zhizao.controller;
 
 import com.zhizao.common.PageResult;
 import com.zhizao.common.Result;
+import com.zhizao.dto.DispatchRequest;
 import com.zhizao.entity.Plan;
 import com.zhizao.entity.WorkOrder;
 import com.zhizao.service.PlanService;
@@ -61,9 +62,16 @@ public class PlanController {
         return Result.ok();
     }
 
+    /**
+     * 下达工单。必须显式指定已发布工艺，避免自动挑选工艺导致下错版本。
+     *
+     * @param id      计划主键
+     * @param request 生产工艺、可选设备与车间
+     * @return 新生成的工单
+     */
     @PreAuthorize("hasRole('ADMIN')")
     @PostMapping("/{id}/dispatch")
-    public Result<WorkOrder> dispatch(@PathVariable Long id) {
-        return Result.ok(planService.dispatch(id));
+    public Result<WorkOrder> dispatch(@PathVariable Long id, @RequestBody DispatchRequest request) {
+        return Result.ok(planService.dispatch(id, request));
     }
 }

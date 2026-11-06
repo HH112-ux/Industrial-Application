@@ -125,12 +125,51 @@ export const processOperationApi = {
   remove: (processId: number, id: number) => request.delete(`/processes/${processId}/operations/${id}`)
 };
 
+export interface DispatchRequest {
+  processId: number;
+  deviceId?: number;
+  workshop?: string;
+}
+
+export interface ScheduleEntry {
+  id?: number;
+  workOrderId: number;
+  planId: number;
+  operationSeq?: number;
+  operationName?: string;
+  deviceType?: string;
+  deviceId?: number;
+  startTime?: string;
+  endTime?: string;
+  durationHours?: number;
+  estimated?: number;
+  queueRank: number;
+  rankBasis: string;
+  status: string;
+  conflictCode?: string;
+  message?: string;
+}
+
+export interface ScheduleRunResult {
+  runAt: string;
+  scheduledWorkOrders: number;
+  unscheduledWorkOrders: number;
+  scheduled: ScheduleEntry[];
+  unscheduled: ScheduleEntry[];
+}
+
 export const planApi = {
   list: (params: Record<string, any>) => request.get<any, PageResult<Plan>>('/plans', { params }),
   create: (data: Plan) => request.post('/plans', data),
   update: (id: number, data: Plan) => request.put(`/plans/${id}`, data),
   remove: (id: number) => request.delete(`/plans/${id}`),
-  dispatch: (id: number) => request.post(`/plans/${id}/dispatch`)
+  dispatch: (id: number, data: DispatchRequest) => request.post(`/plans/${id}/dispatch`, data)
+};
+
+export const scheduleApi = {
+  run: () => request.post<any, ScheduleRunResult>('/schedules/run'),
+  entries: (workOrderId: number) =>
+    request.get<any, ScheduleEntry[]>(`/schedules/work-orders/${workOrderId}`)
 };
 
 export const workOrderApi = {

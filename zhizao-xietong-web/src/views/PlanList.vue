@@ -9,6 +9,7 @@
         <el-button type="primary" @click="load">查询</el-button>
         <el-button @click="reset">重置</el-button>
         <div class="spacer" />
+        <el-button v-if="isAdmin()" @click="runSchedule">重排待排工单</el-button>
         <el-button v-if="isAdmin()" type="primary" @click="openCreate">＋ 新建计划</el-button>
       </div>
 
@@ -63,12 +64,33 @@
         <el-button type="primary" @click="save">保存</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="dispatchDialog.visible" title="下达工单" width="500px">
+      <el-form label-width="100px">
+        <el-form-item label="计划订单号">
+          <span class="cell-code">{{ dispatchDialog.plan?.planOrderNo }}</span>
+        </el-form-item>
+        <el-form-item label="生产工艺" required>
+          <el-select v-model="dispatchDialog.processId" placeholder="选择已发布工艺" style="width: 100%">
+            <el-option v-for="p in publishedProcesses" :key="p.id"
+              :label="`${p.processNo} / v${p.version} ${p.processName}`" :value="p.id!" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="车间">
+          <el-input v-model="dispatchDialog.workshop" placeholder="缺省一车间" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="dispatchDialog.visible = false">取消</el-button>
+        <el-button type="primary" @click="confirmDispatch">确定下达</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue';
-import { planApi, type Plan } from '@/api';
+import { planApi, processApi, scheduleApi, type Plan, type Process } from '@/api';
 import { planStatusMap, priorityMap } from '@/utils/dict';
 import StatusTag from '@/components/StatusTag.vue';
 import { isAdmin } from '@/api/request';
@@ -80,6 +102,10 @@ const query = reactive({ pageNum: 1, pageSize: 10, keyword: '', status: '' });
 
 const dialog = reactive({ visible: false, isEdit: false });
 const form = reactive<Plan>({ productCode: '', productName: '', planQty: 1, planStart: '', planEnd: '', priority: 'MEDIUM', batch: '', estHours: undefined });
+const dispatchDialog = reactive<{ visible: boolean; plan: Plan | null; processId?: number; workshop: string }>({
+  visible: false, plan: null, processId: undefined, workshop: '一车间'
+});
+const publishedProcesses = ref<Process[]>([]);
 
 async function load() {
   loading.value = true;
@@ -128,10 +154,45 @@ async function save() {
 }
 
 async function dispatch(row: Plan) {
-  await ElMessageBox.confirm(`确定下达计划 ${row.planOrderNo} 并生成生产工单吗？`, '提示', { type: 'warning' });
-  await planApi.dispatch(row.id!);
+  dispatchDialog.plan = row;
+  dispatchDialog.processId = undefined;
+  dispatchDialog.workshop = '一车间';
+  dispatchDialog.visible = true;
+  const res = await processApi.list({ pageNum: 1, pageSize: 100, approvalStatus: 'PUBLISHED' });
+  publishedProcesses.value = res.records;
+  if (!res.records.length) {
+    ElMessage.warning('暂无已发布工艺，请先在工艺管理完成审批');
+  }
+}
+
+async function confirmDispatch() {
+  if (!dispatchDialog.processId) {
+    ElMessage.warning('请选择已发布工艺');
+    return;
+  }
+  await planApi.dispatch(dispatchDialog.plan!.id!, {
+    processId: dispatchDialog.processId,
+    workshop: dispatchDialog.workshop || undefined
+  });
   ElMessage.success('已下达工单');
+  dispatchDialog.visible = false;
   load();
+}
+
+async function runSchedule() {
+  const result = await scheduleApi.run();
+  if (result.unscheduledWorkOrders === 0) {
+    ElMessage.success(`排程完成：${result.scheduledWorkOrders} 张工单已排入`);
+    return;
+  }
+  const detail = result.unscheduled
+    .map((entry) => `工单 ${entry.workOrderId}｜${entry.conflictCode}：${entry.message}`)
+    .join('；');
+  await ElMessageBox.alert(
+    `已排入 ${result.scheduledWorkOrders} 张，无法排入 ${result.unscheduledWorkOrders} 张。${detail}`,
+    '排程结果',
+    { type: 'warning' }
+  );
 }
 
 async function remove(row: Plan) {

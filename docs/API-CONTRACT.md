@@ -1,6 +1,6 @@
 # 接口契约
 
-现状接口以当前代码为准，共 53 个端点（S0 基线 46 个，S1 新增设备凭证 2 个，S2 新增遥测历史 1 个，S3 新增工单历史 1 个，S4 新增工序 4 个与版本复制 1 个并移除 BOM 版本端点 2 个）。目标接口尚未落地的部分仍为设计稿。
+现状接口以当前代码为准，共 55 个端点（S0 基线 46 个，S1 新增设备凭证 2 个，S2 新增遥测历史 1 个，S3 新增工单历史 1 个，S4 新增工序 4 个与版本复制 1 个并移除 BOM 版本端点 2 个，S5 新增排程 2 个）。目标接口尚未落地的部分仍为设计稿。
 
 标注说明：`[代码实证]` 表示已在 Controller 中核对；`[工程判断]` 表示设计建议；`[待确认]` 表示需要用户拍板。
 
@@ -46,7 +46,7 @@
 
 两条判定线的区别是责任方：客户端把请求写错了属于前者；请求格式正确但当前业务状态不接受，属于后者。业务拒绝使用 HTTP 200 是为了让前端统一按 `code` 提示，而不是被浏览器或网关当成传输错误。
 
-已有接口维持现状：`BusinessException` 仍由全局处理器转成 HTTP 200 + `code=500`，参数错误也仍是 HTTP 200。这样避免一次性改动 53 个端点的响应语义、把现有 Web 与移动端打崩。新接口的新写法只对新代码生效。`[代码实证]`
+已有接口维持现状：`BusinessException` 仍由全局处理器转成 HTTP 200 + `code=500`，参数错误也仍是 HTTP 200。这样避免一次性改动 55 个端点的响应语义、把现有 Web 与移动端打崩。新接口的新写法只对新代码生效。`[代码实证]`
 
 ### 1.2 认证
 
@@ -153,7 +153,7 @@
 | 33 | POST | `/api/plans` | ADMIN | 新建计划 | 保留 | 校验 `planEnd >= planStart`、数量大于 0 |
 | 34 | PUT | `/api/plans/{id}` | ADMIN | 更新计划 | 改行为 | 已下达计划不可改数量与日期 |
 | 35 | DELETE | `/api/plans/{id}` | ADMIN | 删除计划 | 保留 | 有工单时拒绝 |
-| 36 | POST | `/api/plans/{id}/dispatch` | ADMIN | 下达工单 | 改签名 | 必填 `processId`；移除「自动取第一个已发布工艺」和固定「一车间」 |
+| 36 | POST | `/api/plans/{id}/dispatch` | ADMIN | 下达工单 | 已落地 | S5 改为 JSON 请求体，必填 `processId` 且必须为已发布工艺；`deviceId` 为空时取计划所需设备；`workshop` 为空时缺省「一车间」 |
 
 ### 2.8 生产工单
 
@@ -183,7 +183,14 @@
 | 51 | POST | `/api/devices/{id}/credential` | ADMIN | 签发或轮换设备凭证，明文密钥仅返回一次 | 已落地 | S1 已实现 |
 | 52 | POST | `/api/devices/{id}/credential/revoke` | ADMIN | 吊销设备凭证 | 已落地 | S1 已实现 |
 
-端点合计：53（S0 基线 46 + S1 设备凭证 2 + S2 遥测历史 1 + S3 工单历史 1 + S4 工序 4 + S4 版本复制 1 − S4 移除 BOM 版本端点 2）。`[代码实证]`
+### 2.11 计划排程
+
+| # | 方法 | 路径 | 现状鉴权 | 用途 | 处置 | 目标变更 |
+|---|---|---|---|---|---|---|
+| 59 | POST | `/api/schedules/run` | ADMIN | 重算全部「待开工」工单的有限产能排程 | 已落地 | S5 已实现；幂等，只重排 `PENDING` 工单 |
+| 60 | GET | `/api/schedules/work-orders/{workOrderId}` | 登录 | 查询单张工单的排程依据 | 已落地 | S5 已实现；返回设备类型、时间窗、队列位置与依据 |
+
+端点合计：55（S0 基线 46 + S1 设备凭证 2 + S2 遥测历史 1 + S3 工单历史 1 + S4 工序 4 + S4 版本复制 1 + S5 排程 2 − S4 移除 BOM 版本端点 2）。`[代码实证]`
 
 ---
 
@@ -193,13 +200,15 @@
 |---|---|---|---|---|---|
 | 49 | GET | `/api/processes/{id}/operations` | 登录 | 工序列表 | S4 已落地 |
 | 50 | POST/PUT/DELETE | `/api/processes/{id}/operations[/{opId}]` | ADMIN | 工序维护（重复序号拒绝、已发布只读） | S4 已落地 |
+| 59 | POST | `/api/schedules/run` | ADMIN | 重算待排工单的有限产能排程，返回成功与冲突明细 | S5 已落地 |
+| 60 | GET | `/api/schedules/work-orders/{workOrderId}` | 登录 | 查询工单排程依据（设备、时间窗、队列位置） | S5 已落地 |
 | 53 | GET | `/api/audit-logs` | ADMIN | 审计查询 | S6 |
 | 54 | GET | `/api/metrics/overview` | ADMIN | 设备在线率、工单节拍、齐套率 | S7 |
 | 55 | POST | `/api/ai/device-issue/suggest` | 登录 | AI 异常归因建议，只读 | S8（P2） |
 | 56 | POST | `/api/ai/report/draft` | 登录 | 自然语言转结构化报工草稿，不提交 | S8（P2） |
 | 57 | POST | `/api/ai/query` | ADMIN | 生产数据问答，只读视图 | S8（P2） |
 
-新增端点均遵循同一返回体与错误码约定。设备凭证的 2 个端点已在 S1 落地（§2.10），遥测历史已在 S2 落地（§2.3 与 §4.4），工单历史已在 S3 落地（§2.8），工序维护与版本复制已在 S4 落地（§2.5、§4.5）。
+新增端点均遵循同一返回体与错误码约定。设备凭证的 2 个端点已在 S1 落地（§2.10），遥测历史已在 S2 落地（§2.3 与 §4.4），工单历史已在 S3 落地（§2.8），工序维护与版本复制已在 S4 落地（§2.5、§4.5），排程已在 S5 落地（§2.11、§4.6）。
 
 ---
 
@@ -266,9 +275,9 @@ deviceNo|status|temperature|rpm|current|timestamp|nonce
 - **并发同键**：两个请求同时到达时由唯一索引裁决，后到者按重复请求处理。
 - **保留期**：幂等键随报工记录保存在 `wo_report`，当前不设过期与清理任务，保留期等同于报工记录；如后续引入归档，需同步更新本节。`[代码实证]`
 
-### 4.3 计划下达
+### 4.3 计划下达（S5 已落地）
 
-目标请求体：
+请求体：
 
 ```json
 {
@@ -278,7 +287,7 @@ deviceNo|status|temperature|rpm|current|timestamp|nonce
 }
 ```
 
-`processId` 必填且必须为已发布工艺；`deviceId` 可为空，为空时由排产建议给出；`workshop` 为空时取计划默认车间。现状自动取第一个已发布工艺并硬编码车间，会让多工艺产品下错工艺。`[代码实证]`
+`processId` 必填且必须为已发布工艺，否则按 §1.1.1 返回 **HTTP 200 + 业务码**，`message` 为「下达工单必须指定已发布工艺」；`deviceId` 可为空，为空时取计划上的 `requiredDeviceId`；`workshop` 为空时缺省「一车间」。不再自动挑选「第一个已发布工艺」，避免多工艺产品下错版本。`[代码实证]`
 
 ### 4.4 时序查询
 
@@ -299,6 +308,59 @@ GET /api/devices/1/telemetry/history?from=2026-11-05T00:00:00&to=2026-11-06T00:0
 - `GET/POST/PUT/DELETE /api/processes/{processId}/bom`：BOM 直接归属工艺版本行，按 `process_id` 读取；`version` 列已废弃，接口不再接受 `version` 参数；同一版本内物料不可重复；已发布版本只读。
 
 在制工单的齐套计算只读取工单 `processId` 指向的版本行，因此发布新版本不会改变既有工单的齐套结果。`[代码实证]`
+
+### 4.6 有限产能排程（S5 已落地）
+
+排程是**贪心 + 有限产能**，不是 APS：不做最优解、不引入求解器。一次运行的处理顺序为：交期升序 → 优先级降序 → 工单主键升序；每张工单按工序顺序、在运行中设备上寻找最早可用的工作日时间窗。工序允许跨天但不会越过计划完成日期；落不下就返回业务码与可读原因。
+
+请求与响应：
+
+```http
+POST /api/schedules/run
+```
+
+```json
+{
+  "runAt": "2026-11-06T19:30:00",
+  "scheduledWorkOrders": 1,
+  "unscheduledWorkOrders": 1,
+  "scheduled": [
+    {"workOrderId": 101, "planId": 1, "operationSeq": 1, "deviceType": "加工设备",
+     "deviceId": 1, "startTime": "2026-11-10T08:00:00", "endTime": "2026-11-10T16:00:00",
+     "durationHours": 8.0, "estimated": 0, "queueRank": 1,
+     "rankBasis": "交期 2026-11-10，优先级 HIGH(3)", "status": "SCHEDULED"}
+  ],
+  "unscheduled": [
+    {"workOrderId": 102, "planId": 2, "operationSeq": 1, "deviceType": "加工设备",
+     "queueRank": 2, "rankBasis": "交期 2026-11-10，优先级 LOW(1)", "status": "UNSCHEDULED",
+     "conflictCode": "CAPACITY_OVERLOAD",
+     "message": "设备类型「加工设备」在 2026-11-10 至 2026-11-10 的产能已被占满，工序无法在交期内排入"}
+  ]
+}
+```
+
+幂等与边界：
+
+- 同一批待排工单、同一份设备数据重复运行，排序、设备选择与时间窗一致。
+- 只重排 `PENDING`（待开工）工单；`IN_PRODUCTION`、`PENDING_QC`、`FINISHED` 工单的排程记录不删除、不改期，并作为已占用产能参与落位。
+- 产能来自 `RUNNING` 设备；每台设备每日可用工时由 `schedule.daily-hours`（默认 8）与 `schedule.day-start-hour`（默认 8）配置。
+- 结果落在 `po_schedule_entry`，记录设备类型、设备、时间窗、工时、队列位置与位置依据；`GET /api/schedules/work-orders/{workOrderId}` 可查询单张工单的落位原因。
+
+冲突业务码：
+
+| 业务码 | 含义 |
+|---|---|
+| `PLAN_MISSING` | 工单关联的计划不存在 |
+| `PROCESS_MISSING` | 工单未绑定工艺 |
+| `OPERATION_MISSING` | 工艺没有可排产工序 |
+| `DEVICE_TYPE_MISSING` | 工序未配置设备类型，且计划未指定可用设备 |
+| `NO_CAPACITY` | 该设备类型没有运行中的设备 |
+| `DURATION_INVALID` | 工单数量或标准工时无效 |
+| `DUE_DATE_MISSING` | 计划缺少开始或完成日期 |
+| `DUE_DATE_MISSED` | 上一工序结束时间已晚于计划交期 |
+| `CAPACITY_OVERLOAD` | 交期前该设备类型产能已被占满 |
+
+冲突不改变工单状态，也不静默挪期或拉长工期；需要人工调整交期、增加设备或拆分批量后重新运行。`[代码实证]`
 
 ---
 
