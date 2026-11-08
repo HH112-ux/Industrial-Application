@@ -1,7 +1,6 @@
 services:
   mysql:
     image: mysql:8.0
-    container_name: zhizao-mysql
     environment:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
       MYSQL_DATABASE: zhizao_xietong
@@ -16,28 +15,25 @@ services:
       retries: 30
       start_period: 30s
     ports:
-      - "3306:3306"
+      - "${MYSQL_PORT:-3306}:3306"
 
   redis:
     image: redis:7-alpine
-    container_name: zhizao-redis
     command: redis-server --appendonly yes
     volumes:
       - redis-data:/data
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
 
   mqtt:
     image: eclipse-mosquitto:2
-    container_name: zhizao-mqtt
     ports:
-      - "1883:1883"
+      - "${MQTT_PORT:-1883}:1883"
     volumes:
       - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
 
   backend:
     build: ./zhizao-xietong
-    container_name: zhizao-backend
     environment:
       DB_URL: jdbc:mysql://mysql:3306/zhizao_xietong?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
       DB_USERNAME: root
@@ -54,15 +50,14 @@ services:
       mqtt:
         condition: service_started
     ports:
-      - "8080:8080"
+      - "${BACKEND_PORT:-8080}:8080"
 
   frontend:
     build: ./zhizao-xietong-web
-    container_name: zhizao-frontend
     depends_on:
       - backend
     ports:
-      - "8081:80"
+      - "${FRONTEND_PORT:-8081}:80"
 
 volumes:
   mysql-data:
