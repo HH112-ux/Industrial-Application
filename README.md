@@ -216,7 +216,7 @@ npm run build
 
 ### Docker Compose
 
-`docker-compose.yml` 定义了 MySQL、Redis、Mosquitto、后端、前端五个服务，端口分别为 3306、6379、1883、8080、8081。
+`docker-compose.yml` 定义了 MySQL、Redis、Mosquitto、后端、前端五个服务，宿主机端口分别为 `3306`、`6379`、`1883`、`8080`、`8081`，可用环境变量覆盖（`MYSQL_PORT`、`REDIS_PORT`、`MQTT_PORT`、`BACKEND_PORT`、`FRONTEND_PORT`）。
 
 ```bash
 cp .env.example .env
@@ -224,7 +224,14 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-已实测：`docker compose up -d mqtt` 可正常启动 Mosquitto。完整五服务栈未在当前机器实测，原因是本机 3306 与 6379 已被本地 MySQL/Redis 占用；在独立主机上执行上述命令前，请确认端口未被占用。
+已实测：五服务栈可完整拉起并跑通关键链路。一键验证脚本：
+
+```bash
+./scripts/verify.sh
+# 成功后保留现场：./scripts/verify.sh --keep
+```
+
+脚本使用 `13306/16379/11883/18080/18081` 避开本机端口，依次执行：登录 → 建计划 → 下达工单 → 开工 → 报工 → 质检 → 查状态历史 → 查遥测历史 → 查指标，每步输出 PASS/FAIL，失败时打印日志尾部并保留现场，成功后自动 `docker compose down -v` 清理。
 
 ## 接口与文档
 
