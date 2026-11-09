@@ -3,6 +3,7 @@ package com.zhizao.service;
 import com.zhizao.common.BadRequestException;
 import com.zhizao.common.BusinessException;
 import com.zhizao.common.BusinessMetrics;
+import com.zhizao.common.ForbiddenException;
 import com.zhizao.dto.DeviceGatewayReport;
 import com.zhizao.dto.DeviceTelemetry;
 import com.zhizao.dto.DeviceTelemetryPoint;
@@ -10,12 +11,16 @@ import com.zhizao.entity.Device;
 import com.zhizao.entity.DeviceTelemetryRecord;
 import com.zhizao.mapper.DeviceMapper;
 import com.zhizao.mapper.DeviceTelemetryMapper;
+import com.zhizao.security.DataScope;
+import com.zhizao.security.UserPrincipal;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -26,6 +31,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -51,6 +57,9 @@ class DeviceDataServiceTest {
     @Mock
     private BusinessMetrics businessMetrics;
 
+    @Mock
+    private DeviceService deviceService;
+
     private DeviceDataService deviceDataService;
 
     /**
@@ -58,7 +67,8 @@ class DeviceDataServiceTest {
      */
     @BeforeEach
     void setUp() {
-        deviceDataService = new DeviceDataService(deviceMapper, telemetryMapper, idempotencyGuard, businessMetrics);
+        deviceDataService = new DeviceDataService(deviceMapper, telemetryMapper, idempotencyGuard,
+                businessMetrics, deviceService);
         lenient().when(idempotencyGuard.acquire(any())).thenReturn(true);
     }
 
@@ -74,7 +84,7 @@ class DeviceDataServiceTest {
     @Test
     void handleReportUpdatesStatusAndCachesTelemetry() {
         when(deviceMapper.selectOne(any())).thenReturn(device());
-        when(deviceMapper.selectById(1L)).thenReturn(device());
+        when(deviceService.getById(1L)).thenReturn(device());
 
         deviceDataService.handleGatewayReport(
                 new DeviceGatewayReport("EQ-202609-0001", "RUNNING", 45.0, 1500.0, 8.5));
@@ -181,7 +191,7 @@ class DeviceDataServiceTest {
 
     @Test
     void historyRejectsInvertedRange() {
-        when(deviceMapper.selectById(1L)).thenReturn(device());
+        when(deviceService.getById(1L)).thenReturn(device());
 
         LocalDateTime from = LocalDateTime.now();
         assertThrows(BadRequestException.class,
@@ -190,15 +200,33 @@ class DeviceDataServiceTest {
 
     @Test
     void historyUnknownDeviceThrows() {
-        when(deviceMapper.selectById(9L)).thenReturn(null);
+        when(deviceService.getById(9L)).thenThrow(new BusinessException("设备不存在"));
 
         assertThrows(BusinessException.class,
                 () -> deviceDataService.history(9L, null, null, 10));
     }
 
     @Test
+    void telemetryAndHistoryRejectDeviceOutsideWorkshop() {
+        Device otherWorkshop = device();
+        otherWorkshop.setWorkshop("二车间");
+        when(deviceMapper.selectById(1L)).thenReturn(otherWorkshop);
+        DeviceService scopedDeviceService = new DeviceService(deviceMapper, mock(CodeGenerator.class), new DataScope());
+        DeviceDataService scoped = new DeviceDataService(deviceMapper, telemetryMapper, idempotencyGuard,
+                businessMetrics, scopedDeviceService);
+        SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
+                new UserPrincipal("lisi", "USER", "一车间"), null, List.of()));
+        try {
+            assertThrows(ForbiddenException.class, () -> scoped.getTelemetry(1L));
+            assertThrows(ForbiddenException.class, () -> scoped.history(1L, null, null, 10));
+        } finally {
+            SecurityContextHolder.clearContext();
+        }
+    }
+
+    @Test
     void historyMapsRecordsToPoints() {
-        when(deviceMapper.selectById(1L)).thenReturn(device());
+        when(deviceService.getById(1L)).thenReturn(device());
         DeviceTelemetryRecord record = new DeviceTelemetryRecord();
         record.setReportedAt(LocalDateTime.of(2026, 11, 6, 10, 0));
         record.setTemperature(45.2);
@@ -222,7 +250,7 @@ class DeviceDataServiceTest {
     @Test
     void telemetryWriteFailureDoesNotBlockStatusUpdate() {
         when(deviceMapper.selectOne(any())).thenReturn(device());
-        when(deviceMapper.selectById(1L)).thenReturn(device());
+        when(deviceService.getById(1L)).thenReturn(device());
         when(telemetryMapper.insert(any(DeviceTelemetryRecord.class)))
                 .thenThrow(new RuntimeException("db down"));
 
@@ -243,7 +271,7 @@ class DeviceDataServiceTest {
 
     @Test
     void telemetryWithoutReportAndSimulationOffReturnsNoneSource() {
-        when(deviceMapper.selectById(1L)).thenReturn(device());
+        when(deviceService.getById(1L)).thenReturn(device());
 
         DeviceTelemetry t = deviceDataService.getTelemetry(1L);
 
