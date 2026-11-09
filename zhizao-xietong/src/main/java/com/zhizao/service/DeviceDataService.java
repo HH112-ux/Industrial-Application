@@ -7,6 +7,7 @@ import com.zhizao.common.BusinessMetrics;
 import com.zhizao.dto.DeviceGatewayReport;
 import com.zhizao.dto.DeviceTelemetry;
 import com.zhizao.dto.DeviceTelemetryPoint;
+import com.zhizao.dto.TelemetryHistory;
 import com.zhizao.entity.Device;
 import com.zhizao.entity.DeviceTelemetryRecord;
 import com.zhizao.enums.DeviceStatus;
@@ -23,6 +24,8 @@ import org.springframework.util.StringUtils;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
@@ -98,24 +101,25 @@ public class DeviceDataService {
             return simulatedTelemetry(device);
         }
         return new DeviceTelemetry(device.getDeviceNo(), device.getDeviceName(), device.getStatus(),
-                0, 0, 0, 0, null, "NONE");
+                null, null, null, null, null, "NONE");
     }
 
     /**
-     * 查询设备遥测历史，按上报时间升序返回。
+     * 查询设备遥测历史，按上报时间升序返回最近 {@code limit} 个采样点。
      *
-     * <p>不传时间范围时默认最近 24 小时；条数默认 500，超过 1000 按 1000 处理。</p>
+     * <p>不传时间范围时默认最近 24 小时；条数默认 500，超过 1000 按 1000 处理。
+     * 区间内点数超过上限时返回最近的点，并用 {@code truncated} 标记更早数据已被截断。</p>
      *
      * @param deviceId 设备主键
      * @param from     起始时间（含），为空表示当前时间前 24 小时
      * @param to       结束时间（含），为空表示当前时间
      * @param limit    返回条数上限，非正数按默认值处理
-     * @return 升序排列的遥测采样
+     * @return 遥测采样与截断状态
      * @throws BusinessException    设备不存在时抛出
      * @throws BadRequestException  起始时间晚于结束时间时抛出
      * @throws com.zhizao.common.ForbiddenException 设备不属于当前用户车间时抛出
      */
-    public List<DeviceTelemetryPoint> history(Long deviceId, LocalDateTime from, LocalDateTime to, Integer limit) {
+    public TelemetryHistory historyResult(Long deviceId, LocalDateTime from, LocalDateTime to, Integer limit) {
         Device device = deviceService.getById(deviceId);
         if (device == null) {
             throw new BusinessException("设备不存在");
@@ -126,17 +130,38 @@ public class DeviceDataService {
             throw new BadRequestException("起始时间不能晚于结束时间");
         }
         int size = limit == null || limit <= 0 ? DEFAULT_HISTORY_LIMIT : Math.min(limit, MAX_HISTORY_LIMIT);
+        Long total = telemetryMapper.selectCount(new LambdaQueryWrapper<DeviceTelemetryRecord>()
+                .eq(DeviceTelemetryRecord::getDeviceId, deviceId)
+                .ge(DeviceTelemetryRecord::getReportedAt, start)
+                .le(DeviceTelemetryRecord::getReportedAt, end));
         List<DeviceTelemetryRecord> records = telemetryMapper.selectList(
                 new LambdaQueryWrapper<DeviceTelemetryRecord>()
                         .eq(DeviceTelemetryRecord::getDeviceId, deviceId)
                         .ge(DeviceTelemetryRecord::getReportedAt, start)
                         .le(DeviceTelemetryRecord::getReportedAt, end)
-                        .orderByAsc(DeviceTelemetryRecord::getReportedAt)
+                        .orderByDesc(DeviceTelemetryRecord::getReportedAt)
                         .last("LIMIT " + size));
-        return records.stream()
+        records = new ArrayList<>(records);
+        Collections.reverse(records);
+        List<DeviceTelemetryPoint> points = records.stream()
                 .map(r -> new DeviceTelemetryPoint(r.getReportedAt(), r.getTemperature(), r.getRpm(),
                         r.getCurrent(), r.getStatus(), r.getSource()))
                 .toList();
+        long count = total == null ? points.size() : total;
+        return new TelemetryHistory(points, count, count > points.size());
+    }
+
+    /**
+     * 查询设备遥测历史（只返回采样点），供内部工具复用。
+     *
+     * @param deviceId 设备主键
+     * @param from     起始时间（含），为空表示当前时间前 24 小时
+     * @param to       结束时间（含），为空表示当前时间
+     * @param limit    返回条数上限，非正数按默认值处理
+     * @return 升序排列的遥测采样
+     */
+    public List<DeviceTelemetryPoint> history(Long deviceId, LocalDateTime from, LocalDateTime to, Integer limit) {
+        return historyResult(deviceId, from, to, limit).points();
     }
 
     /**
@@ -230,10 +255,10 @@ public class DeviceDataService {
 
     private DeviceTelemetry toTelemetry(Device device, DeviceGatewayReport report, String source) {
         boolean running = DeviceStatus.RUNNING.name().equals(report.status());
-        double temperature = report.temperature() == null ? 0 : report.temperature();
-        int rpm = report.rpm() == null ? 0 : report.rpm().intValue();
-        double current = report.current() == null ? 0 : report.current();
-        double oee = round1(running ? 60 + random.nextDouble() * 35 : 0); // OEE 仍需可用率/性能/质量，此处估算
+        Double temperature = report.temperature();
+        Integer rpm = report.rpm() == null ? null : report.rpm().intValue();
+        Double current = report.current();
+        Double oee = round1(running ? 60 + random.nextDouble() * 35 : 0); // OEE 仍需可用率/性能/质量，此处估算
         return new DeviceTelemetry(device.getDeviceNo(), device.getDeviceName(),
                 report.status() == null ? device.getStatus() : report.status(),
                 temperature, rpm, current, oee, LocalDateTime.now(), source);
