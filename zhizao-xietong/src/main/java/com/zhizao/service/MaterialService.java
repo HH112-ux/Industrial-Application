@@ -1,6 +1,7 @@
 package com.zhizao.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.zhizao.common.BusinessException;
 import com.zhizao.common.PageResult;
@@ -61,6 +62,37 @@ public class MaterialService {
         List<Material> materials = materialMapper.selectList(
                 new LambdaQueryWrapper<Material>().in(Material::getMatCode, codes));
         return materials.stream().collect(Collectors.toMap(Material::getMatCode, m -> m));
+    }
+
+    /**
+     * 批量按编码查询并对物料行加锁，供开工预占在事务内串行化同一物料的可用量核算。
+     *
+     * @param codes 物料编码
+     * @return 物料编码到物料的映射
+     */
+    public Map<String, Material> listByCodesForUpdate(List<String> codes) {
+        if (codes == null || codes.isEmpty()) {
+            return Map.of();
+        }
+        List<Material> materials = materialMapper.selectList(
+                new LambdaQueryWrapper<Material>().in(Material::getMatCode, codes).last("FOR UPDATE"));
+        return materials.stream().collect(Collectors.toMap(Material::getMatCode, m -> m));
+    }
+
+    /**
+     * 扣减物料库存，库存不足时按 0 封底；同时清空物料缓存，避免读到扣减前的数量。
+     *
+     * @param matCode 物料编码
+     * @param qty     扣减数量，非正数时忽略
+     */
+    @CacheEvict(cacheNames = "material", allEntries = true)
+    public void deductStock(String matCode, int qty) {
+        if (qty <= 0) {
+            return;
+        }
+        materialMapper.update(null, new LambdaUpdateWrapper<Material>()
+                .eq(Material::getMatCode, matCode)
+                .setSql("stock_qty = GREATEST(stock_qty - " + qty + ", 0)"));
     }
 
     @CacheEvict(cacheNames = "material", allEntries = true)
