@@ -24,6 +24,8 @@ export BACKEND_PORT="${BACKEND_PORT:-18080}"
 export FRONTEND_PORT="${FRONTEND_PORT:-18081}"
 export MYSQL_ROOT_PASSWORD="${MYSQL_ROOT_PASSWORD:-verify-root}"
 export JWT_SECRET="${JWT_SECRET:-verify-only-jwt-secret-0123456789abcdef}"
+# 每次验证使用一次性随机管理员口令，脚本内不保存固定明文口令
+export APP_BOOTSTRAP_ADMIN_PASSWORD="${APP_BOOTSTRAP_ADMIN_PASSWORD:-$(openssl rand -base64 24)}"
 
 COMPOSE=(docker compose -p "$PROJECT_NAME" -f docker-compose.yml)
 BASE_URL="http://127.0.0.1:${BACKEND_PORT}"
@@ -100,7 +102,7 @@ fi
 echo "== 3. 登录 =="
 LOGIN="$(curl -sS -X POST "${BASE_URL}/api/auth/login" \
   -H 'Content-Type: application/json' \
-  -d '{"username":"admin","password":"admin123"}')"
+  -d '{"username":"admin","password":"'"${APP_BOOTSTRAP_ADMIN_PASSWORD}"'"}')"
 TOKEN="$(printf '%s' "$LOGIN" | jq -r '.data.token // empty')"
 [[ "$(printf '%s' "$LOGIN" | jq -r '.code')" == "0" && -n "$TOKEN" ]] \
   || fail "管理员登录失败" "$LOGIN"

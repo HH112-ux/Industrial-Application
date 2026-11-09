@@ -124,12 +124,9 @@ curl -X POST http://localhost:8080/api/work-orders/1/qc \
 
 除 `/api/auth/**` 外，所有接口需携带 JWT：请求头 `Authorization: Bearer <token>`。登录接口 `POST /api/auth/login`。
 
-默认账号（首次启动自动初始化）：
-
-| 账号 | 密码 | 角色 | 权限 |
-|------|------|------|------|
-| admin | admin123 | ADMIN | 全部（增删改、审批、下达、BOM 维护）|
-| zhangsan | 123456 | USER | 只读 + 现场操作（开工/报工/质检）|
+首次启动自动创建管理员账号 `admin`，初始口令来自环境变量 `APP_BOOTSTRAP_ADMIN_PASSWORD`；
+未配置时启动日志会打印一次性随机口令。演示账号 `zhangsan` 仅在 `dev` profile 下创建，
+口令来自 `DEMO_INIT_PASSWORD`。登录后请立即修改初始口令。
 
 管理类写接口（增删改、审批、下达、BOM 维护）标注 `@PreAuthorize("hasRole('ADMIN')")`，仅 ADMIN 可调用；USER 仅可查询与执行工单现场操作。
 

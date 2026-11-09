@@ -103,14 +103,11 @@ cd zhizao-xietong && mvn spring-boot:run
 - 业务指标：<http://localhost:8080/actuator/metrics>（如 `zhizao.devices.online`、`zhizao.telemetry.reports`）
 - Swagger UI：<http://localhost:8080/swagger-ui/index.html>
 
-首次启动时 `DataInitializer` 会创建默认账号：
+首次启动时 `DataInitializer` 会创建管理员账号 `admin`：
 
-| 账号 | 密码 | 角色 |
-|---|---|---|
-| `admin` | `admin123` | ADMIN |
-| `zhangsan` | `123456` | USER |
-
-生产环境必须替换默认密码。
+- 初始口令通过环境变量 `APP_BOOTSTRAP_ADMIN_PASSWORD` 注入；
+- 未配置时启动日志会打印一次性随机口令，请登录后立即修改；
+- 演示账号 `zhangsan` 仅在 `dev` profile 下创建，口令来自 `DEMO_INIT_PASSWORD`。
 
 ### 4. 启动管理端
 
@@ -120,7 +117,7 @@ npm ci
 npm run dev
 ```
 
-访问 <http://localhost:5173>，使用上表账号登录。Vite 将 `/api` 代理到 `http://localhost:8080`。
+访问 <http://localhost:5173>，使用管理员账号登录。Vite 将 `/api` 代理到 `http://localhost:8080`。
 
 ### 5. 启动移动端 H5（可选）
 
