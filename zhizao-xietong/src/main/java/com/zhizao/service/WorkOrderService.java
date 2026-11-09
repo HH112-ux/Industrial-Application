@@ -145,7 +145,10 @@ public class WorkOrderService {
     }
 
     /**
-     * 开工：工艺必须已发布 → 物料齐套校验 → 状态机流转到「生产中」→ 写入状态历史。
+     * 开工：工艺必须已发布 → 物料齐套校验并预占库存 → 状态机流转到「生产中」→ 写入状态历史。
+     *
+     * <p>齐套按「库存 − 其他工单已预占」核算，校验通过后在同一事务内写入预占记录；
+     * 后续状态流转失败会整体回滚，不会留下悬空预占。</p>
      *
      * @param id       工单主键
      * @param operator 操作人，取自登录令牌，为空时记为 system
@@ -162,7 +165,7 @@ public class WorkOrderService {
         if (!ApprovalStatus.PUBLISHED.name().equals(process.getApprovalStatus())) {
             throw new BusinessException("工艺未发布，无法开工");
         }
-        KitCheckResult kit = kitCheckService.check(order);
+        KitCheckResult kit = kitCheckService.reserve(order);
         if (!kit.passed()) {
             throw new BusinessException("物料不齐套，缺料：" +
                     kit.shortages().stream().map(KitCheckResult.ShortageItem::matName)
@@ -266,6 +269,7 @@ public class WorkOrderService {
         String remark = StringUtils.hasText(req.defectDesc()) ? req.defectDesc() : "质检结论 " + req.result();
         if (pass) {
             transitionWithHistory(order, WorkOrderStatus.FINISHED, req.inspector(), remark);
+            kitCheckService.consume(order);
             maybeFinishPlan(order.getPlanId());
         } else {
             order.setQtyRework(qtyValue(order.getQtyRework()) + lastReportQty(order.getId()));

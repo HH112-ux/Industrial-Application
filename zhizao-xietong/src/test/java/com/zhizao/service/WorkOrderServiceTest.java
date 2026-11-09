@@ -121,7 +121,7 @@ class WorkOrderServiceTest {
         WorkOrder order = order("PENDING");
         when(workOrderMapper.selectById(1L)).thenReturn(order);
         when(processService.getById(2L)).thenReturn(publishedProcess());
-        when(kitCheckService.check(order)).thenReturn(KitCheckResult.pass());
+        when(kitCheckService.reserve(order)).thenReturn(KitCheckResult.pass());
         when(workOrderMapper.updateById(order)).thenReturn(1);
 
         WorkOrder result = workOrderService.start(1L, "zhangsan");
@@ -135,7 +135,7 @@ class WorkOrderServiceTest {
         WorkOrder order = order("PENDING");
         when(workOrderMapper.selectById(1L)).thenReturn(order);
         when(processService.getById(2L)).thenReturn(publishedProcess());
-        when(kitCheckService.check(order)).thenReturn(KitCheckResult.pass());
+        when(kitCheckService.reserve(order)).thenReturn(KitCheckResult.pass());
         when(workOrderMapper.updateById(order)).thenReturn(1);
 
         workOrderService.start(1L, "zhangsan");
@@ -153,7 +153,7 @@ class WorkOrderServiceTest {
         WorkOrder order = order("PENDING");
         when(workOrderMapper.selectById(1L)).thenReturn(order);
         when(processService.getById(2L)).thenReturn(publishedProcess());
-        when(kitCheckService.check(order)).thenReturn(KitCheckResult.pass());
+        when(kitCheckService.reserve(order)).thenReturn(KitCheckResult.pass());
         when(workOrderMapper.updateById(order)).thenReturn(0);
 
         BusinessException error = assertThrows(BusinessException.class,
@@ -179,7 +179,7 @@ class WorkOrderServiceTest {
         WorkOrder order = order("PENDING");
         when(workOrderMapper.selectById(1L)).thenReturn(order);
         when(processService.getById(2L)).thenReturn(publishedProcess());
-        when(kitCheckService.check(order)).thenReturn(new KitCheckResult(false,
+        when(kitCheckService.reserve(order)).thenReturn(new KitCheckResult(false,
                 List.of(new KitCheckResult.ShortageItem("MT-001", "45#圆钢", 10, 5))));
 
         assertThrows(BusinessException.class, () -> workOrderService.start(1L, "zhangsan"));
@@ -290,6 +290,7 @@ class WorkOrderServiceTest {
 
         assertEquals("FINISHED", result.getStatus());
         verify(qualityRecordMapper).insert(any(QualityRecord.class));
+        verify(kitCheckService).consume(order);
         WorkOrderStatusHistory history = capturedHistory();
         assertEquals("PENDING_QC", history.getFromStatus());
         assertEquals("FINISHED", history.getToStatus());

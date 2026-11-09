@@ -5,8 +5,10 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.zhizao.entity.BomItem;
 import com.zhizao.entity.Material;
+import com.zhizao.entity.MaterialReservation;
 import com.zhizao.entity.WorkOrder;
 import com.zhizao.mapper.BomItemMapper;
+import com.zhizao.mapper.MaterialReservationMapper;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -23,6 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -35,12 +38,17 @@ class KitCheckServiceTest {
     @Mock
     private MaterialService materialService;
 
+    @Mock
+    private MaterialReservationMapper reservationMapper;
+
     @InjectMocks
     private KitCheckService kitCheckService;
 
     @BeforeAll
     static void initTableInfo() {
         TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), BomItem.class);
+        TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""),
+                MaterialReservation.class);
     }
 
     private WorkOrder orderWithProcess(int qty) {
@@ -108,7 +116,7 @@ class KitCheckServiceTest {
         KitCheckResult.ShortageItem s = result.shortages().get(0);
         assertEquals("MT-001", s.matCode());
         assertEquals(10, s.need());
-        assertEquals(5, s.stock());
+        assertEquals(5, s.available());
     }
 
     @Test
@@ -122,7 +130,7 @@ class KitCheckServiceTest {
         KitCheckResult.ShortageItem s = result.shortages().get(0);
         assertEquals("MT-999", s.matName());
         assertEquals(6, s.need());
-        assertEquals(0, s.stock());
+        assertEquals(0, s.available());
     }
 
     @Test
@@ -165,5 +173,86 @@ class KitCheckServiceTest {
         newVersionOrder.setProcessId(2L);
         newVersionOrder.setQty(10);
         assertFalse(kitCheckService.check(newVersionOrder).passed());
+    }
+
+    @Test
+    void availableExcludesReservationFromOtherOrder() {
+        when(bomItemMapper.selectList(any())).thenReturn(List.of(bomItem("MT-001", 1)));
+        when(materialService.listByCodes(any())).thenReturn(Map.of("MT-001", material("MT-001", "45#圆钢", 20)));
+        when(reservationMapper.selectList(any())).thenReturn(List.of(reservation(2L, "MT-001", 15)));
+
+        KitCheckResult result = kitCheckService.check(orderWithProcess(10));
+
+        assertFalse(result.passed(), "库存 20 已被其他工单预占 15，可用 5 不足以生产 10 件");
+        assertEquals(5, result.shortages().get(0).available());
+    }
+
+    @Test
+    void ownReservationDoesNotBlockRecheck() {
+        WorkOrder order = orderWithProcess(10);
+        order.setId(1L);
+        when(bomItemMapper.selectList(any())).thenReturn(List.of(bomItem("MT-001", 1)));
+        when(materialService.listByCodes(any())).thenReturn(Map.of("MT-001", material("MT-001", "45#圆钢", 20)));
+        when(reservationMapper.selectList(any())).thenReturn(List.of(reservation(1L, "MT-001", 15)));
+
+        assertTrue(kitCheckService.check(order).passed(), "自身预占不应再次占用可用量");
+    }
+
+    @Test
+    void reserveWritesReservationWhenAvailable() {
+        WorkOrder order = orderWithProcess(10);
+        order.setId(7L);
+        when(bomItemMapper.selectList(any())).thenReturn(List.of(bomItem("MT-001", 2)));
+        when(materialService.listByCodesForUpdate(any()))
+                .thenReturn(Map.of("MT-001", material("MT-001", "45#圆钢", 20)));
+
+        KitCheckResult result = kitCheckService.reserve(order);
+
+        assertTrue(result.passed());
+        ArgumentCaptor<MaterialReservation> captor = ArgumentCaptor.forClass(MaterialReservation.class);
+        verify(reservationMapper).insert(captor.capture());
+        MaterialReservation inserted = captor.getValue();
+        assertEquals(7L, inserted.getWorkOrderId());
+        assertEquals("MT-001", inserted.getMatCode());
+        assertEquals(20, inserted.getReservedQty());
+        assertEquals(MaterialReservation.STATUS_RESERVED, inserted.getStatus());
+    }
+
+    @Test
+    void reserveWritesNothingWhenShortage() {
+        WorkOrder order = orderWithProcess(10);
+        order.setId(7L);
+        when(bomItemMapper.selectList(any())).thenReturn(List.of(bomItem("MT-001", 1)));
+        when(materialService.listByCodesForUpdate(any()))
+                .thenReturn(Map.of("MT-001", material("MT-001", "45#圆钢", 20)));
+        when(reservationMapper.selectList(any())).thenReturn(List.of(reservation(2L, "MT-001", 15)));
+
+        KitCheckResult result = kitCheckService.reserve(order);
+
+        assertFalse(result.passed());
+        verify(reservationMapper, never()).insert(any(MaterialReservation.class));
+    }
+
+    @Test
+    void consumeDeductsStockAndMarksReservationConsumed() {
+        WorkOrder order = orderWithProcess(10);
+        order.setId(7L);
+        MaterialReservation reservation = reservation(7L, "MT-001", 10);
+        when(reservationMapper.selectList(any())).thenReturn(List.of(reservation));
+
+        kitCheckService.consume(order);
+
+        verify(materialService).deductStock("MT-001", 10);
+        assertEquals(MaterialReservation.STATUS_CONSUMED, reservation.getStatus());
+        verify(reservationMapper).updateById(reservation);
+    }
+
+    private MaterialReservation reservation(long workOrderId, String matCode, int qty) {
+        MaterialReservation reservation = new MaterialReservation();
+        reservation.setWorkOrderId(workOrderId);
+        reservation.setMatCode(matCode);
+        reservation.setReservedQty(qty);
+        reservation.setStatus(MaterialReservation.STATUS_RESERVED);
+        return reservation;
     }
 }
