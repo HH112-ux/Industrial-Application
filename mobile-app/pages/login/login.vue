@@ -8,7 +8,6 @@
       <input v-model="form.username" class="input" placeholder="用户名" />
       <input v-model="form.password" class="input" password placeholder="密码" />
       <button class="btn" :loading="loading" @click="login">登 录</button>
-      <text class="hint">默认账号 admin / admin123</text>
     </view>
   </view>
 </template>
@@ -92,12 +91,5 @@ export default {
   border-radius: 12rpx;
   font-size: 32rpx;
   margin-top: 12rpx;
-}
-.hint {
-  display: block;
-  text-align: center;
-  color: #94a3b8;
-  font-size: 24rpx;
-  margin-top: 24rpx;
 }
 </style>

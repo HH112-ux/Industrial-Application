@@ -21,7 +21,6 @@
           登 录
         </el-button>
       </el-form>
-      <div class="hint mono">默认账号 admin / admin123</div>
     </div>
   </div>
 </template>
@@ -93,11 +92,5 @@ async function login() {
   font-size: 12px;
   color: var(--zhizao-muted);
   margin-top: 4px;
-}
-.hint {
-  text-align: center;
-  font-size: 12px;
-  color: var(--zhizao-muted);
-  margin-top: 18px;
 }
 </style>

@@ -39,6 +39,7 @@ services:
       DB_USERNAME: root
       DB_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root}
       JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      APP_BOOTSTRAP_ADMIN_PASSWORD: ${APP_BOOTSTRAP_ADMIN_PASSWORD:-}
       REDIS_HOST: redis
       REDIS_PORT: 6379
       MQTT_ENABLED: "true"
