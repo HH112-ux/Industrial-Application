@@ -261,6 +261,17 @@ npx --no -- commitlint --from HEAD~1 --to HEAD
 
 集成测试类 `WorkOrderConsistencyIntegrationTest` 使用 Testcontainers 启动 `mysql:8.4`，覆盖工单状态机合法/非法流转与乐观锁并发冲突。Docker 不可用时该类由 `@Testcontainers(disabledWithoutDocker = true)` 自动跳过，其余测试照常执行、构建仍然成功；首次运行需拉取镜像，本机约 60–90 秒，CI 约 1 分钟。
 
+本机使用 Colima 时，Testcontainers 不读取 colima 的 Docker context，且 virtiofs 不支持把 unix socket 挂载进 Ryuk 容器。跑集成测试需要显式指定 socket 并关闭 Ryuk：
+
+```bash
+cd zhizao-xietong
+DOCKER_HOST=unix://$HOME/.colima/default/docker.sock \
+TESTCONTAINERS_RYUK_DISABLED=true \
+mvn test
+```
+
+这是 Colima + virtiofs 的本地限制；CI 使用标准 Docker socket，不需要这两个变量。
+
 CI 配置见 `.github/workflows/ci.yml`，每次 push 与 pull request 执行四个任务：
 
 | 任务 | 内容 | 门禁 |
