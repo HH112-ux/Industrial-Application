@@ -9,12 +9,14 @@ import com.zhizao.common.BusinessMetrics;
 import com.zhizao.common.ForbiddenException;
 import com.zhizao.dto.QcRequest;
 import com.zhizao.dto.ReportRequest;
+import com.zhizao.entity.Device;
 import com.zhizao.entity.Process;
 import com.zhizao.entity.QualityRecord;
 import com.zhizao.entity.ScheduleEntry;
 import com.zhizao.entity.WorkOrder;
 import com.zhizao.entity.WorkOrderReport;
 import com.zhizao.entity.WorkOrderStatusHistory;
+import com.zhizao.mapper.DeviceMapper;
 import com.zhizao.mapper.PlanMapper;
 import com.zhizao.mapper.QualityRecordMapper;
 import com.zhizao.mapper.ScheduleEntryMapper;
@@ -68,6 +70,8 @@ class WorkOrderServiceTest {
     @Mock
     private ScheduleEntryMapper scheduleEntryMapper;
     @Mock
+    private DeviceMapper deviceMapper;
+    @Mock
     private KitCheckService kitCheckService;
     @Mock
     private ProcessService processService;
@@ -82,7 +86,7 @@ class WorkOrderServiceTest {
     void setUp() {
         workOrderService = new WorkOrderService(
                 workOrderMapper, workOrderReportMapper, qualityRecordMapper, planMapper,
-                statusHistoryMapper, scheduleEntryMapper, new WorkOrderStateMachine(), kitCheckService,
+                statusHistoryMapper, scheduleEntryMapper, deviceMapper, new WorkOrderStateMachine(), kitCheckService,
                 processService, codeGenerator, new DataScope(), businessMetrics);
     }
 
@@ -332,6 +336,38 @@ class WorkOrderServiceTest {
 
         assertThrows(BadRequestException.class,
                 () -> workOrderService.report(1L, new ReportRequest(10, 9, 1, null, "k".repeat(65)), "zhangsan"));
+        verify(workOrderReportMapper, never()).insert(any(WorkOrderReport.class));
+    }
+
+    @Test
+    void reportRejectsDeviceFromAnotherWorkshop() {
+        WorkOrder order = order("IN_PRODUCTION");
+        order.setWorkshop("一车间");
+        when(workOrderMapper.selectById(1L)).thenReturn(order);
+        Device device = new Device();
+        device.setId(9L);
+        device.setWorkshop("二车间");
+        when(deviceMapper.selectById(9L)).thenReturn(device);
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> workOrderService.report(1L, new ReportRequest(10, 10, 0, 9L, null), "zhangsan"));
+
+        assertTrue(error.getMessage().contains("不属于工单车间"));
+        verify(workOrderReportMapper, never()).insert(any(WorkOrderReport.class));
+    }
+
+    @Test
+    void reportRejectsOverflowBeyondIntRange() {
+        WorkOrder order = order("IN_PRODUCTION");
+        order.setQty(Integer.MAX_VALUE);
+        order.setQtyRework(10);
+        order.setQtyDone(Integer.MAX_VALUE - 5);
+        when(workOrderMapper.selectById(1L)).thenReturn(order);
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> workOrderService.report(1L, new ReportRequest(10, 10, 0, null, null), "zhangsan"));
+
+        assertTrue(error.getMessage().contains("系统上限"));
         verify(workOrderReportMapper, never()).insert(any(WorkOrderReport.class));
     }
 

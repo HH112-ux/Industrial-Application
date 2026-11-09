@@ -7,10 +7,12 @@ import com.zhizao.common.PageResult;
 import com.zhizao.entity.BomItem;
 import com.zhizao.entity.Process;
 import com.zhizao.entity.ProcessOperation;
+import com.zhizao.entity.WorkOrder;
 import com.zhizao.enums.ApprovalStatus;
 import com.zhizao.mapper.BomItemMapper;
 import com.zhizao.mapper.ProcessMapper;
 import com.zhizao.mapper.ProcessOperationMapper;
+import com.zhizao.mapper.WorkOrderMapper;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,13 +35,16 @@ public class ProcessService {
     private final ProcessMapper processMapper;
     private final BomItemMapper bomItemMapper;
     private final ProcessOperationMapper processOperationMapper;
+    private final WorkOrderMapper workOrderMapper;
     private final CodeGenerator codeGenerator;
 
     public ProcessService(ProcessMapper processMapper, BomItemMapper bomItemMapper,
-                          ProcessOperationMapper processOperationMapper, CodeGenerator codeGenerator) {
+                          ProcessOperationMapper processOperationMapper, WorkOrderMapper workOrderMapper,
+                          CodeGenerator codeGenerator) {
         this.processMapper = processMapper;
         this.bomItemMapper = bomItemMapper;
         this.processOperationMapper = processOperationMapper;
+        this.workOrderMapper = workOrderMapper;
         this.codeGenerator = codeGenerator;
     }
 
@@ -109,8 +114,23 @@ public class ProcessService {
         return getById(process.getId());
     }
 
+    /**
+     * 删除工艺版本：已发布版本不可删除，已被工单引用的版本也不可删除，
+     * 避免待开工工单开工时出现「工艺不存在」。
+     *
+     * @param id 工艺版本主键
+     * @throws BusinessException 版本已发布或已被工单引用时抛出
+     */
     public void delete(Long id) {
-        getById(id);
+        Process process = getById(id);
+        if (ApprovalStatus.PUBLISHED.name().equals(process.getApprovalStatus())) {
+            throw new BusinessException("已发布工艺不可删除，请新建版本后再下线");
+        }
+        Long referenced = workOrderMapper.selectCount(new LambdaQueryWrapper<WorkOrder>()
+                .eq(WorkOrder::getProcessId, id));
+        if (referenced != null && referenced > 0) {
+            throw new BusinessException("工艺已被 " + referenced + " 张工单引用，不可删除");
+        }
         processMapper.deleteById(id);
     }
 

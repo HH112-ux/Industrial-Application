@@ -32,6 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -126,6 +127,31 @@ class PlanServiceTest {
 
         assertThrows(BusinessException.class,
                 () -> planService.dispatch(1L, new DispatchRequest(null, null, null)));
+    }
+
+    @Test
+    void deleteRejectsPlanWithMountedWorkOrders() {
+        Plan plan = new Plan();
+        plan.setId(1L);
+        when(planMapper.selectById(1L)).thenReturn(plan);
+        when(workOrderMapper.selectCount(any())).thenReturn(2L);
+
+        BusinessException error = assertThrows(BusinessException.class, () -> planService.delete(1L));
+
+        assertTrue(error.getMessage().contains("2 张工单"));
+        verify(planMapper, never()).deleteById(1L);
+    }
+
+    @Test
+    void deleteRemovesPlanWithoutWorkOrders() {
+        Plan plan = new Plan();
+        plan.setId(1L);
+        when(planMapper.selectById(1L)).thenReturn(plan);
+        when(workOrderMapper.selectCount(any())).thenReturn(0L);
+
+        planService.delete(1L);
+
+        verify(planMapper).deleteById(1L);
     }
 
     @Test

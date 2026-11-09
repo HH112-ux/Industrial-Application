@@ -8,6 +8,7 @@ import com.zhizao.common.BusinessMetrics;
 import com.zhizao.common.PageResult;
 import com.zhizao.dto.QcRequest;
 import com.zhizao.dto.ReportRequest;
+import com.zhizao.entity.Device;
 import com.zhizao.entity.Plan;
 import com.zhizao.entity.Process;
 import com.zhizao.entity.QualityRecord;
@@ -19,6 +20,7 @@ import com.zhizao.enums.ApprovalStatus;
 import com.zhizao.enums.PlanStatus;
 import com.zhizao.enums.ScheduleStatus;
 import com.zhizao.enums.WorkOrderStatus;
+import com.zhizao.mapper.DeviceMapper;
 import com.zhizao.mapper.PlanMapper;
 import com.zhizao.mapper.QualityRecordMapper;
 import com.zhizao.mapper.ScheduleEntryMapper;
@@ -54,6 +56,7 @@ public class WorkOrderService {
     private final PlanMapper planMapper;
     private final WorkOrderStatusHistoryMapper statusHistoryMapper;
     private final ScheduleEntryMapper scheduleEntryMapper;
+    private final DeviceMapper deviceMapper;
     private final WorkOrderStateMachine stateMachine;
     private final KitCheckService kitCheckService;
     private final ProcessService processService;
@@ -70,6 +73,7 @@ public class WorkOrderService {
      * @param planMapper           计划数据访问
      * @param statusHistoryMapper  状态流转历史数据访问
      * @param scheduleEntryMapper  排程结果数据访问
+     * @param deviceMapper         设备数据访问
      * @param stateMachine         工单状态机
      * @param kitCheckService      齐套校验服务
      * @param processService       工艺服务
@@ -80,7 +84,8 @@ public class WorkOrderService {
     public WorkOrderService(WorkOrderMapper workOrderMapper, WorkOrderReportMapper workOrderReportMapper,
                             QualityRecordMapper qualityRecordMapper, PlanMapper planMapper,
                             WorkOrderStatusHistoryMapper statusHistoryMapper,
-                            ScheduleEntryMapper scheduleEntryMapper, WorkOrderStateMachine stateMachine,
+                            ScheduleEntryMapper scheduleEntryMapper, DeviceMapper deviceMapper,
+                            WorkOrderStateMachine stateMachine,
                             KitCheckService kitCheckService, ProcessService processService,
                             CodeGenerator codeGenerator, DataScope dataScope, BusinessMetrics businessMetrics) {
         this.workOrderMapper = workOrderMapper;
@@ -89,6 +94,7 @@ public class WorkOrderService {
         this.planMapper = planMapper;
         this.statusHistoryMapper = statusHistoryMapper;
         this.scheduleEntryMapper = scheduleEntryMapper;
+        this.deviceMapper = deviceMapper;
         this.stateMachine = stateMachine;
         this.kitCheckService = kitCheckService;
         this.processService = processService;
@@ -254,6 +260,8 @@ public class WorkOrderService {
             throw new BusinessException("仅「生产中」的工单可报工");
         }
         validateReportQty(order, req);
+        validateDevice(order, req.deviceId());
+        long nextDone = (long) qtyDone(order) + req.qty();
 
         WorkOrderReport report = new WorkOrderReport();
         report.setReportNo(codeGenerator.next("RP"));
@@ -275,7 +283,7 @@ public class WorkOrderService {
             throw e;
         }
 
-        order.setQtyDone(qtyDone(order) + req.qty());
+        order.setQtyDone((int) nextDone);
         order.setQtyQualified(qtyValue(order.getQtyQualified()) + req.qualifiedQty());
         order.setQtyDefect(qtyValue(order.getQtyDefect()) + req.defectQty());
         transitionWithHistory(order, WorkOrderStatus.PENDING_QC, operator,
@@ -325,7 +333,11 @@ public class WorkOrderService {
             kitCheckService.consume(order);
             maybeFinishPlan(order.getPlanId());
         } else {
-            order.setQtyRework(qtyValue(order.getQtyRework()) + lastReportQty(order.getId()));
+            long rework = (long) qtyValue(order.getQtyRework()) + lastReportQty(order.getId());
+            if (rework > Integer.MAX_VALUE) {
+                throw new BusinessException("可返工额度超出系统上限");
+            }
+            order.setQtyRework((int) rework);
             transitionWithHistory(order, WorkOrderStatus.IN_PRODUCTION, operator, remark);
         }
         return order;
@@ -376,13 +388,38 @@ public class WorkOrderService {
         if (req.qualifiedQty() < 0 || req.defectQty() < 0) {
             throw new BadRequestException("合格数量与不良数量不能为负数");
         }
-        if (req.qualifiedQty() + req.defectQty() != req.qty()) {
+        // 用 long 相加，防止两个接近 Integer.MAX_VALUE 的数量相加溢出后绕过合计校验。
+        if ((long) req.qualifiedQty() + req.defectQty() != req.qty().longValue()) {
             throw new BadRequestException("合格数量与不良数量之和必须等于报工数量");
         }
-        int limit = qtyValue(order.getQty()) + qtyValue(order.getQtyRework());
-        if (qtyDone(order) + req.qty() > limit) {
+        long limit = (long) qtyValue(order.getQty()) + qtyValue(order.getQtyRework());
+        long done = qtyDone(order);
+        if (done + req.qty() > limit) {
             throw new BusinessException(409, "累计报工数量超过工单数量与可返工额度，剩余可报 " +
-                    Math.max(0, limit - qtyDone(order)) + " 件");
+                    Math.max(0, limit - done) + " 件");
+        }
+        if (done + req.qty() > Integer.MAX_VALUE) {
+            throw new BusinessException("累计报工数量超出系统上限");
+        }
+    }
+
+    /**
+     * 校验报工设备归属：设备必须存在且属于工单所在车间，避免把报工挂到其他车间的设备上。
+     *
+     * @param order    工单
+     * @param deviceId 报工设备主键，可为空
+     * @throws BusinessException 设备不存在或不属于工单车间时抛出
+     */
+    private void validateDevice(WorkOrder order, Long deviceId) {
+        if (deviceId == null) {
+            return;
+        }
+        Device device = deviceMapper.selectById(deviceId);
+        if (device == null) {
+            throw new BusinessException("报工设备不存在");
+        }
+        if (!Objects.equals(order.getWorkshop(), device.getWorkshop())) {
+            throw new BusinessException("报工设备不属于工单车间，无法关联");
         }
     }
 
