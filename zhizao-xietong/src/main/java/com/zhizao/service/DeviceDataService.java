@@ -49,6 +49,7 @@ public class DeviceDataService {
     private final DeviceTelemetryMapper telemetryMapper;
     private final DeviceIdempotencyGuard idempotencyGuard;
     private final BusinessMetrics businessMetrics;
+    private final DeviceService deviceService;
     private final Random random = new Random();
 
     /** 最近一次设备网关上报，key=设备编号。 */
@@ -64,13 +65,16 @@ public class DeviceDataService {
      * @param telemetryMapper  遥测时序数据访问
      * @param idempotencyGuard 上报幂等守卫
      * @param businessMetrics  业务指标
+     * @param deviceService    设备查询服务，用于复用车间数据域校验
      */
     public DeviceDataService(DeviceMapper deviceMapper, DeviceTelemetryMapper telemetryMapper,
-                             DeviceIdempotencyGuard idempotencyGuard, BusinessMetrics businessMetrics) {
+                             DeviceIdempotencyGuard idempotencyGuard, BusinessMetrics businessMetrics,
+                             DeviceService deviceService) {
         this.deviceMapper = deviceMapper;
         this.telemetryMapper = telemetryMapper;
         this.idempotencyGuard = idempotencyGuard;
         this.businessMetrics = businessMetrics;
+        this.deviceService = deviceService;
     }
 
     /**
@@ -79,9 +83,10 @@ public class DeviceDataService {
      * @param deviceId 设备主键
      * @return 实时遥测，`source` 标识数据来源
      * @throws BusinessException 设备不存在时抛出
+     * @throws com.zhizao.common.ForbiddenException 设备不属于当前用户车间时抛出
      */
     public DeviceTelemetry getTelemetry(Long deviceId) {
-        Device device = deviceMapper.selectById(deviceId);
+        Device device = deviceService.getById(deviceId);
         if (device == null) {
             throw new BusinessException("设备不存在");
         }
@@ -108,9 +113,10 @@ public class DeviceDataService {
      * @return 升序排列的遥测采样
      * @throws BusinessException    设备不存在时抛出
      * @throws BadRequestException  起始时间晚于结束时间时抛出
+     * @throws com.zhizao.common.ForbiddenException 设备不属于当前用户车间时抛出
      */
     public List<DeviceTelemetryPoint> history(Long deviceId, LocalDateTime from, LocalDateTime to, Integer limit) {
-        Device device = deviceMapper.selectById(deviceId);
+        Device device = deviceService.getById(deviceId);
         if (device == null) {
             throw new BusinessException("设备不存在");
         }
