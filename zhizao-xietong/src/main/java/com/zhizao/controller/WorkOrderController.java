@@ -63,12 +63,12 @@ public class WorkOrderController {
 
     @PostMapping("/{id}/report")
     public Result<WorkOrder> report(@PathVariable Long id, @RequestBody ReportRequest request) {
-        return Result.ok(workOrderService.report(id, request));
+        return Result.ok(workOrderService.report(id, request, currentOperator()));
     }
 
     @PostMapping("/{id}/qc")
     public Result<WorkOrder> qc(@PathVariable Long id, @RequestBody QcRequest request) {
-        return Result.ok(workOrderService.qc(id, request));
+        return Result.ok(workOrderService.qc(id, request, currentOperator()));
     }
 
     /**

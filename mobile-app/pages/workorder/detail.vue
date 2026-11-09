@@ -68,8 +68,8 @@ export default {
       statusMap: workOrderStatusMap,
       reportVisible: false,
       qcVisible: false,
-      reportForm: { qty: 0, qualifiedQty: 0, defectQty: 0, operator: '', idempotencyKey: '' },
-      qcForm: { result: 'PASS', defectDesc: '', inspector: '' }
+      reportForm: { qty: 0, qualifiedQty: 0, defectQty: 0, idempotencyKey: '' },
+      qcForm: { result: 'PASS', defectDesc: '' }
     };
   },
   computed: {
@@ -134,7 +134,6 @@ export default {
         qty,
         qualifiedQty: qualified,
         defectQty: defect,
-        operator: this.reportForm.operator,
         idempotencyKey: this.reportForm.idempotencyKey
       });
       uni.showToast({ title: '已报工', icon: 'success' });

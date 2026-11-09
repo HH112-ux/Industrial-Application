@@ -75,7 +75,6 @@ export interface ReportRequest {
   qualifiedQty?: number;
   defectQty?: number;
   deviceId?: number;
-  operator?: string;
   idempotencyKey?: string;
 }
 
@@ -92,7 +91,6 @@ export interface WorkOrderHistory {
 export interface QcRequest {
   result: string;
   defectDesc?: string;
-  inspector?: string;
 }
 
 export const deviceApi = {
@@ -188,7 +186,7 @@ export const scheduleApi = {
 
 export const workOrderApi = {
   list: (params: Record<string, any>) => request.get<any, PageResult<WorkOrder>>('/work-orders', { params }),
-  start: (id: number, operator?: string) => request.post(`/work-orders/${id}/start`, null, { params: { operator: operator || 'system' } }),
+  start: (id: number) => request.post(`/work-orders/${id}/start`),
   report: (id: number, data: ReportRequest) => request.post(`/work-orders/${id}/report`, data),
   qc: (id: number, data: QcRequest) => request.post(`/work-orders/${id}/qc`, data),
   history: (id: number) => request.get<any, WorkOrderHistory[]>(`/work-orders/${id}/history`)

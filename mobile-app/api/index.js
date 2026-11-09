@@ -7,7 +7,7 @@ export const authApi = {
 export const workOrderApi = {
   list: (params) => request({ url: '/work-orders', method: 'GET', data: params }),
   get: (id) => request({ url: `/work-orders/${id}`, method: 'GET' }),
-  start: (id, operator) => request({ url: `/work-orders/${id}/start?operator=${operator || 'system'}`, method: 'POST' }),
+  start: (id) => request({ url: `/work-orders/${id}/start`, method: 'POST' }),
   report: (id, data) => request({ url: `/work-orders/${id}/report`, method: 'POST', data }),
   qc: (id, data) => request({ url: `/work-orders/${id}/qc`, method: 'POST', data })
 };

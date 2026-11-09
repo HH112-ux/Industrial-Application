@@ -249,7 +249,7 @@ class WorkOrderServiceTest {
         when(codeGenerator.next("RP")).thenReturn("RP-202609-0001");
         when(workOrderMapper.updateById(order)).thenReturn(1);
 
-        WorkOrder result = workOrderService.report(1L, new ReportRequest(10, 9, 1, null, "zhangsan", null));
+        WorkOrder result = workOrderService.report(1L, new ReportRequest(10, 9, 1, null, null), "zhangsan");
 
         assertEquals("PENDING_QC", result.getStatus());
         assertEquals(10, result.getQtyDone());
@@ -268,7 +268,7 @@ class WorkOrderServiceTest {
         when(workOrderMapper.selectById(1L)).thenReturn(order);
 
         assertThrows(BusinessException.class,
-                () -> workOrderService.report(1L, new ReportRequest(10, 9, 1, null, "zhangsan", null)));
+                () -> workOrderService.report(1L, new ReportRequest(10, 9, 1, null, null), "zhangsan"));
     }
 
     @Test
@@ -277,7 +277,7 @@ class WorkOrderServiceTest {
         when(workOrderMapper.selectById(1L)).thenReturn(order);
 
         assertThrows(BadRequestException.class,
-                () -> workOrderService.report(1L, new ReportRequest(0, 0, 0, null, "zhangsan", null)));
+                () -> workOrderService.report(1L, new ReportRequest(0, 0, 0, null, null), "zhangsan"));
         verify(workOrderReportMapper, never()).insert(any(WorkOrderReport.class));
         verify(statusHistoryMapper, never()).insert(any(WorkOrderStatusHistory.class));
     }
@@ -288,7 +288,7 @@ class WorkOrderServiceTest {
         when(workOrderMapper.selectById(1L)).thenReturn(order);
 
         assertThrows(BadRequestException.class,
-                () -> workOrderService.report(1L, new ReportRequest(10, 8, 1, null, "zhangsan", null)));
+                () -> workOrderService.report(1L, new ReportRequest(10, 8, 1, null, null), "zhangsan"));
         verify(workOrderReportMapper, never()).insert(any(WorkOrderReport.class));
     }
 
@@ -299,7 +299,7 @@ class WorkOrderServiceTest {
         when(workOrderMapper.selectById(1L)).thenReturn(order);
 
         BusinessException error = assertThrows(BusinessException.class,
-                () -> workOrderService.report(1L, new ReportRequest(5, 5, 0, null, "zhangsan", null)));
+                () -> workOrderService.report(1L, new ReportRequest(5, 5, 0, null, null), "zhangsan"));
 
         assertEquals(409, error.getCode());
         verify(workOrderReportMapper, never()).insert(any(WorkOrderReport.class));
@@ -313,10 +313,10 @@ class WorkOrderServiceTest {
         when(codeGenerator.next("RP")).thenReturn("RP-202609-0001");
         when(workOrderMapper.updateById(order)).thenReturn(1);
         when(workOrderReportMapper.selectCount(any())).thenReturn(0L, 1L);
-        ReportRequest req = new ReportRequest(10, 9, 1, null, "zhangsan", "7f0c1e9a-idem");
+        ReportRequest req = new ReportRequest(10, 9, 1, null, "7f0c1e9a-idem");
 
-        WorkOrder first = workOrderService.report(1L, req);
-        WorkOrder second = workOrderService.report(1L, req);
+        WorkOrder first = workOrderService.report(1L, req, "zhangsan");
+        WorkOrder second = workOrderService.report(1L, req, "zhangsan");
 
         assertEquals("PENDING_QC", second.getStatus());
         assertEquals(first.getQtyDone(), second.getQtyDone());
@@ -331,7 +331,7 @@ class WorkOrderServiceTest {
         when(workOrderMapper.selectById(1L)).thenReturn(order);
 
         assertThrows(BadRequestException.class,
-                () -> workOrderService.report(1L, new ReportRequest(10, 9, 1, null, "zhangsan", "k".repeat(65))));
+                () -> workOrderService.report(1L, new ReportRequest(10, 9, 1, null, "k".repeat(65)), "zhangsan"));
         verify(workOrderReportMapper, never()).insert(any(WorkOrderReport.class));
     }
 
@@ -343,7 +343,7 @@ class WorkOrderServiceTest {
         when(workOrderMapper.updateById(order)).thenReturn(1);
         when(workOrderMapper.selectCount(any())).thenReturn(1L);
 
-        WorkOrder result = workOrderService.qc(1L, new QcRequest("PASS", null, "lisi"));
+        WorkOrder result = workOrderService.qc(1L, new QcRequest("PASS", null), "lisi");
 
         assertEquals("FINISHED", result.getStatus());
         verify(qualityRecordMapper).insert(any(QualityRecord.class));
@@ -361,7 +361,7 @@ class WorkOrderServiceTest {
         when(codeGenerator.next("QC")).thenReturn("QC-202609-0001");
         when(workOrderMapper.updateById(order)).thenReturn(1);
 
-        WorkOrder result = workOrderService.qc(1L, new QcRequest("FAIL", "尺寸超差", "lisi"));
+        WorkOrder result = workOrderService.qc(1L, new QcRequest("FAIL", "尺寸超差"), "lisi");
 
         assertEquals("IN_PRODUCTION", result.getStatus());
         assertEquals("尺寸超差", capturedHistory().getRemark());
@@ -379,7 +379,7 @@ class WorkOrderServiceTest {
         report.setQty(10);
         when(workOrderReportMapper.selectOne(any())).thenReturn(report);
 
-        WorkOrder result = workOrderService.qc(1L, new QcRequest("FAIL", "尺寸超差", "lisi"));
+        WorkOrder result = workOrderService.qc(1L, new QcRequest("FAIL", "尺寸超差"), "lisi");
 
         assertEquals(10, result.getQtyRework(), "失败批次数量应转为可返工额度");
     }
@@ -394,7 +394,7 @@ class WorkOrderServiceTest {
         when(workOrderMapper.updateById(order)).thenReturn(1);
 
         WorkOrder result = workOrderService.report(1L,
-                new ReportRequest(10, 10, 0, null, "zhangsan", null));
+                new ReportRequest(10, 10, 0, null, null), "zhangsan");
 
         assertEquals("PENDING_QC", result.getStatus());
         assertEquals(20, result.getQtyDone());
@@ -407,7 +407,7 @@ class WorkOrderServiceTest {
         when(workOrderMapper.selectById(1L)).thenReturn(order);
 
         assertThrows(BusinessException.class,
-                () -> workOrderService.qc(1L, new QcRequest("OTHER", null, "lisi")));
+                () -> workOrderService.qc(1L, new QcRequest("OTHER", null), "lisi"));
 
         verify(qualityRecordMapper, never()).insert(any(QualityRecord.class));
         verify(statusHistoryMapper, never()).insert(any(WorkOrderStatusHistory.class));
