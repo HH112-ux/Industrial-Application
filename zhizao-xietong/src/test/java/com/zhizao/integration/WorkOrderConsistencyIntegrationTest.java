@@ -39,7 +39,8 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
  */
 @SpringBootTest(properties = {
         "JWT_SECRET=integration-test-secret-key-not-for-production",
-        "DB_PASSWORD=test"
+        "DB_PASSWORD=test",
+        "app.bootstrap.admin-password=integration-test-admin-pass"
 })
 @Testcontainers(disabledWithoutDocker = true)
 class WorkOrderConsistencyIntegrationTest {
