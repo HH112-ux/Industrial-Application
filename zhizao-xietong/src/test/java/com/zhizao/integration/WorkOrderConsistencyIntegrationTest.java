@@ -4,8 +4,10 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.zhizao.common.BusinessException;
 import com.zhizao.dto.QcRequest;
 import com.zhizao.dto.ReportRequest;
+import com.zhizao.entity.ScheduleEntry;
 import com.zhizao.entity.WorkOrder;
 import com.zhizao.entity.WorkOrderStatusHistory;
+import com.zhizao.mapper.ScheduleEntryMapper;
 import com.zhizao.mapper.WorkOrderMapper;
 import com.zhizao.mapper.WorkOrderStatusHistoryMapper;
 import com.zhizao.service.WorkOrderService;
@@ -55,6 +57,8 @@ class WorkOrderConsistencyIntegrationTest {
     private WorkOrderMapper workOrderMapper;
     @Autowired
     private WorkOrderStatusHistoryMapper historyMapper;
+    @Autowired
+    private ScheduleEntryMapper scheduleEntryMapper;
 
     /**
      * 插入一张指定状态的工单，工艺取种子数据中已发布的 1 号工艺。
@@ -81,6 +85,22 @@ class WorkOrderConsistencyIntegrationTest {
         order.setUpdatedAt(LocalDateTime.now());
         order.setDeleted(0);
         workOrderMapper.insert(order);
+        ScheduleEntry entry = new ScheduleEntry();
+        entry.setWorkOrderId(order.getId());
+        entry.setPlanId(1L);
+        entry.setOperationSeq(1);
+        entry.setOperationName("下料");
+        entry.setDeviceType("数控车床");
+        entry.setDeviceId(1L);
+        entry.setStartTime(LocalDateTime.now().minusHours(1));
+        entry.setEndTime(LocalDateTime.now().plusHours(1));
+        entry.setDurationHours(new java.math.BigDecimal("2"));
+        entry.setEstimated(0);
+        entry.setQueueRank(1);
+        entry.setRankBasis("集成测试");
+        entry.setStatus("SCHEDULED");
+        entry.setMessage("集成测试排程");
+        scheduleEntryMapper.insert(entry);
         return order.getId();
     }
 

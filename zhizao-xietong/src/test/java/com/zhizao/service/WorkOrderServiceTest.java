@@ -11,11 +11,13 @@ import com.zhizao.dto.QcRequest;
 import com.zhizao.dto.ReportRequest;
 import com.zhizao.entity.Process;
 import com.zhizao.entity.QualityRecord;
+import com.zhizao.entity.ScheduleEntry;
 import com.zhizao.entity.WorkOrder;
 import com.zhizao.entity.WorkOrderReport;
 import com.zhizao.entity.WorkOrderStatusHistory;
 import com.zhizao.mapper.PlanMapper;
 import com.zhizao.mapper.QualityRecordMapper;
+import com.zhizao.mapper.ScheduleEntryMapper;
 import com.zhizao.mapper.WorkOrderMapper;
 import com.zhizao.mapper.WorkOrderReportMapper;
 import com.zhizao.mapper.WorkOrderStatusHistoryMapper;
@@ -33,9 +35,11 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -62,6 +66,8 @@ class WorkOrderServiceTest {
     @Mock
     private WorkOrderStatusHistoryMapper statusHistoryMapper;
     @Mock
+    private ScheduleEntryMapper scheduleEntryMapper;
+    @Mock
     private KitCheckService kitCheckService;
     @Mock
     private ProcessService processService;
@@ -76,8 +82,8 @@ class WorkOrderServiceTest {
     void setUp() {
         workOrderService = new WorkOrderService(
                 workOrderMapper, workOrderReportMapper, qualityRecordMapper, planMapper,
-                statusHistoryMapper, new WorkOrderStateMachine(), kitCheckService, processService, codeGenerator,
-                new DataScope(), businessMetrics);
+                statusHistoryMapper, scheduleEntryMapper, new WorkOrderStateMachine(), kitCheckService,
+                processService, codeGenerator, new DataScope(), businessMetrics);
     }
 
     @AfterEach
@@ -116,11 +122,27 @@ class WorkOrderServiceTest {
         return captor.getValue();
     }
 
+    private ScheduleEntry schedule(LocalDateTime start, LocalDateTime end) {
+        ScheduleEntry entry = new ScheduleEntry();
+        entry.setId(11L);
+        entry.setWorkOrderId(1L);
+        entry.setDeviceId(9L);
+        entry.setStartTime(start);
+        entry.setEndTime(end);
+        entry.setStatus("SCHEDULED");
+        return entry;
+    }
+
+    private void givenScheduled(LocalDateTime start, LocalDateTime end) {
+        when(scheduleEntryMapper.selectList(any())).thenReturn(List.of(schedule(start, end)));
+    }
+
     @Test
     void startSuccess() {
         WorkOrder order = order("PENDING");
         when(workOrderMapper.selectById(1L)).thenReturn(order);
         when(processService.getById(2L)).thenReturn(publishedProcess());
+        givenScheduled(LocalDateTime.now().plusHours(1), LocalDateTime.now().plusHours(2));
         when(kitCheckService.reserve(order)).thenReturn(KitCheckResult.pass());
         when(workOrderMapper.updateById(order)).thenReturn(1);
 
@@ -135,6 +157,7 @@ class WorkOrderServiceTest {
         WorkOrder order = order("PENDING");
         when(workOrderMapper.selectById(1L)).thenReturn(order);
         when(processService.getById(2L)).thenReturn(publishedProcess());
+        givenScheduled(LocalDateTime.now().plusHours(1), LocalDateTime.now().plusHours(2));
         when(kitCheckService.reserve(order)).thenReturn(KitCheckResult.pass());
         when(workOrderMapper.updateById(order)).thenReturn(1);
 
@@ -153,6 +176,7 @@ class WorkOrderServiceTest {
         WorkOrder order = order("PENDING");
         when(workOrderMapper.selectById(1L)).thenReturn(order);
         when(processService.getById(2L)).thenReturn(publishedProcess());
+        givenScheduled(LocalDateTime.now().plusHours(1), LocalDateTime.now().plusHours(2));
         when(kitCheckService.reserve(order)).thenReturn(KitCheckResult.pass());
         when(workOrderMapper.updateById(order)).thenReturn(0);
 
@@ -179,10 +203,43 @@ class WorkOrderServiceTest {
         WorkOrder order = order("PENDING");
         when(workOrderMapper.selectById(1L)).thenReturn(order);
         when(processService.getById(2L)).thenReturn(publishedProcess());
+        givenScheduled(LocalDateTime.now().plusHours(1), LocalDateTime.now().plusHours(2));
         when(kitCheckService.reserve(order)).thenReturn(new KitCheckResult(false,
                 List.of(new KitCheckResult.ShortageItem("MT-001", "45#圆钢", 10, 5))));
 
         assertThrows(BusinessException.class, () -> workOrderService.start(1L, "zhangsan"));
+    }
+
+    @Test
+    void startRejectsWhenNotScheduled() {
+        WorkOrder order = order("PENDING");
+        when(workOrderMapper.selectById(1L)).thenReturn(order);
+        when(processService.getById(2L)).thenReturn(publishedProcess());
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> workOrderService.start(1L, "zhangsan"));
+
+        assertTrue(error.getMessage().contains("尚未排程"));
+        verify(kitCheckService, never()).reserve(any(WorkOrder.class));
+        verify(workOrderMapper, never()).updateById(any(WorkOrder.class));
+    }
+
+    @Test
+    void startShiftsStaleScheduleToNow() {
+        WorkOrder order = order("PENDING");
+        when(workOrderMapper.selectById(1L)).thenReturn(order);
+        when(processService.getById(2L)).thenReturn(publishedProcess());
+        ScheduleEntry stale = schedule(LocalDateTime.now().minusDays(30), LocalDateTime.now().minusDays(29));
+        when(scheduleEntryMapper.selectList(any())).thenReturn(List.of(stale));
+        when(kitCheckService.reserve(order)).thenReturn(KitCheckResult.pass());
+        when(workOrderMapper.updateById(order)).thenReturn(1);
+
+        LocalDateTime before = LocalDateTime.now().minusSeconds(1);
+        workOrderService.start(1L, "zhangsan");
+
+        assertFalse(stale.getStartTime().isBefore(before), "过期排程应顺延到实际开工时间");
+        assertTrue(stale.getMessage().contains("顺延"));
+        verify(scheduleEntryMapper).updateById(stale);
     }
 
     @Test

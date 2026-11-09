@@ -187,6 +187,7 @@ public class ProcessService {
             cloned.setOperationName(operation.getOperationName());
             cloned.setDeviceType(operation.getDeviceType());
             cloned.setEstHours(operation.getEstHours());
+            cloned.setSetupHours(operation.getSetupHours());
             processOperationMapper.insert(cloned);
         }
 

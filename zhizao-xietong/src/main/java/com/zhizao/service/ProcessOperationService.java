@@ -92,6 +92,9 @@ public class ProcessOperationService {
         if (operation.getSeq() == null || operation.getSeq() < 1) {
             throw new BusinessException("工序顺序必须从 1 开始");
         }
+        if (operation.getSetupHours() != null && operation.getSetupHours().signum() < 0) {
+            throw new BusinessException("换型工时不能为负数");
+        }
     }
 
     private void requireSeqAvailable(Long processId, Integer seq, Long excludeId) {

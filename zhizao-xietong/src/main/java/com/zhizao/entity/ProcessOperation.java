@@ -23,6 +23,7 @@ public class ProcessOperation {
     private String operationName;
     private String deviceType;
     private BigDecimal estHours;
+    private BigDecimal setupHours;
     private LocalDateTime createdAt;
     @TableLogic
     private Integer deleted;
@@ -39,6 +40,8 @@ public class ProcessOperation {
     public void setDeviceType(String deviceType) { this.deviceType = deviceType; }
     public BigDecimal getEstHours() { return estHours; }
     public void setEstHours(BigDecimal estHours) { this.estHours = estHours; }
+    public BigDecimal getSetupHours() { return setupHours; }
+    public void setSetupHours(BigDecimal setupHours) { this.setupHours = setupHours; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
     public Integer getDeleted() { return deleted; }

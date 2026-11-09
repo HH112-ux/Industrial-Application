@@ -11,14 +11,17 @@ import com.zhizao.dto.ReportRequest;
 import com.zhizao.entity.Plan;
 import com.zhizao.entity.Process;
 import com.zhizao.entity.QualityRecord;
+import com.zhizao.entity.ScheduleEntry;
 import com.zhizao.entity.WorkOrder;
 import com.zhizao.entity.WorkOrderReport;
 import com.zhizao.entity.WorkOrderStatusHistory;
 import com.zhizao.enums.ApprovalStatus;
 import com.zhizao.enums.PlanStatus;
+import com.zhizao.enums.ScheduleStatus;
 import com.zhizao.enums.WorkOrderStatus;
 import com.zhizao.mapper.PlanMapper;
 import com.zhizao.mapper.QualityRecordMapper;
+import com.zhizao.mapper.ScheduleEntryMapper;
 import com.zhizao.mapper.WorkOrderMapper;
 import com.zhizao.mapper.WorkOrderReportMapper;
 import com.zhizao.mapper.WorkOrderStatusHistoryMapper;
@@ -28,8 +31,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * 生产工单服务：负责开工、报工、质检三条执行链路，以及状态流转历史查询。
@@ -47,6 +53,7 @@ public class WorkOrderService {
     private final QualityRecordMapper qualityRecordMapper;
     private final PlanMapper planMapper;
     private final WorkOrderStatusHistoryMapper statusHistoryMapper;
+    private final ScheduleEntryMapper scheduleEntryMapper;
     private final WorkOrderStateMachine stateMachine;
     private final KitCheckService kitCheckService;
     private final ProcessService processService;
@@ -62,6 +69,7 @@ public class WorkOrderService {
      * @param qualityRecordMapper  质检数据访问
      * @param planMapper           计划数据访问
      * @param statusHistoryMapper  状态流转历史数据访问
+     * @param scheduleEntryMapper  排程结果数据访问
      * @param stateMachine         工单状态机
      * @param kitCheckService      齐套校验服务
      * @param processService       工艺服务
@@ -71,7 +79,8 @@ public class WorkOrderService {
      */
     public WorkOrderService(WorkOrderMapper workOrderMapper, WorkOrderReportMapper workOrderReportMapper,
                             QualityRecordMapper qualityRecordMapper, PlanMapper planMapper,
-                            WorkOrderStatusHistoryMapper statusHistoryMapper, WorkOrderStateMachine stateMachine,
+                            WorkOrderStatusHistoryMapper statusHistoryMapper,
+                            ScheduleEntryMapper scheduleEntryMapper, WorkOrderStateMachine stateMachine,
                             KitCheckService kitCheckService, ProcessService processService,
                             CodeGenerator codeGenerator, DataScope dataScope, BusinessMetrics businessMetrics) {
         this.workOrderMapper = workOrderMapper;
@@ -79,6 +88,7 @@ public class WorkOrderService {
         this.qualityRecordMapper = qualityRecordMapper;
         this.planMapper = planMapper;
         this.statusHistoryMapper = statusHistoryMapper;
+        this.scheduleEntryMapper = scheduleEntryMapper;
         this.stateMachine = stateMachine;
         this.kitCheckService = kitCheckService;
         this.processService = processService;
@@ -145,7 +155,10 @@ public class WorkOrderService {
     }
 
     /**
-     * 开工：工艺必须已发布 → 物料齐套校验并预占库存 → 状态机流转到「生产中」→ 写入状态历史。
+     * 开工：工艺已发布 → 排程记录存在 → 物料齐套校验并预占库存 → 状态机流转到「生产中」→ 写入状态历史。
+     *
+     * <p>开工前必须有排程记录，避免绕过排程直接占用设备；若排程窗口早于当前时间，
+     * 按实际开工时间整体顺延，使后续排产能看到这张工单对设备的占用。</p>
      *
      * <p>齐套按「库存 − 其他工单已预占」核算，校验通过后在同一事务内写入预占记录；
      * 后续状态流转失败会整体回滚，不会留下悬空预占。</p>
@@ -153,7 +166,7 @@ public class WorkOrderService {
      * @param id       工单主键
      * @param operator 操作人，取自登录令牌，为空时记为 system
      * @return 流转后的工单
-     * @throws BusinessException 工单未绑定工艺、工艺未发布、物料不齐套或并发冲突时抛出
+     * @throws BusinessException 工单未绑定工艺、工艺未发布、未排程、物料不齐套或并发冲突时抛出
      */
     @Transactional
     public WorkOrder start(Long id, String operator) {
@@ -165,6 +178,14 @@ public class WorkOrderService {
         if (!ApprovalStatus.PUBLISHED.name().equals(process.getApprovalStatus())) {
             throw new BusinessException("工艺未发布，无法开工");
         }
+        List<ScheduleEntry> schedule = scheduleEntryMapper.selectList(new LambdaQueryWrapper<ScheduleEntry>()
+                .eq(ScheduleEntry::getWorkOrderId, order.getId())
+                .eq(ScheduleEntry::getStatus, ScheduleStatus.SCHEDULED.name())
+                .orderByAsc(ScheduleEntry::getOperationSeq)
+                .orderByAsc(ScheduleEntry::getId));
+        if (schedule.isEmpty()) {
+            throw new BusinessException("工单尚未排程，请先运行排产后再开工");
+        }
         KitCheckResult kit = kitCheckService.reserve(order);
         if (!kit.passed()) {
             throw new BusinessException("物料不齐套，缺料：" +
@@ -172,7 +193,37 @@ public class WorkOrderService {
                             .reduce((a, b) -> a + "、" + b).orElse(""));
         }
         transitionWithHistory(order, WorkOrderStatus.IN_PRODUCTION, operator, "开工");
+        alignActualOccupation(schedule);
         return order;
+    }
+
+    /**
+     * 把早于当前时间的排程窗口整体顺延到实际开工时间，保持工序先后与时长不变。
+     *
+     * <p>排程结果只保留时间窗，不保留实际进度；开工时以「现在」作为第一道工序的实际开始，
+     * 让后续排产把这张在产工单继续视为设备占用，而不是把其他工单排到同一时段。</p>
+     *
+     * @param entries 工单已排程的工序记录
+     */
+    private void alignActualOccupation(List<ScheduleEntry> entries) {
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime firstStart = entries.stream().map(ScheduleEntry::getStartTime)
+                .filter(Objects::nonNull).min(Comparator.naturalOrder()).orElse(null);
+        if (firstStart == null || !firstStart.isBefore(now)) {
+            return;
+        }
+        Duration shift = Duration.between(firstStart, now);
+        for (ScheduleEntry entry : entries) {
+            if (entry.getStartTime() != null) {
+                entry.setStartTime(entry.getStartTime().plus(shift));
+            }
+            if (entry.getEndTime() != null) {
+                entry.setEndTime(entry.getEndTime().plus(shift));
+            }
+            String message = StringUtils.hasText(entry.getMessage()) ? entry.getMessage() + "；" : "";
+            entry.setMessage(message + "按实际开工时间顺延至当前时间");
+            scheduleEntryMapper.updateById(entry);
+        }
     }
 
     /**

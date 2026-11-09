@@ -232,6 +232,50 @@ class ScheduleServiceTest {
         assertEquals(first.getDurationHours(), second.getDurationHours());
     }
 
+    @Test
+    void startsNoEarlierThanRunTimeWhenPlanStartIsPast() {
+        LocalDate pastStart = LocalDate.now().minusDays(10);
+        LocalDate end = LocalDate.now().plusDays(2);
+        givenWorkOrders(order(101L, 1L, 5L, 1));
+        givenPlans(plan(1L, pastStart, end, "HIGH"));
+        givenOperations(operation(5L, 1, TYPE, "1"));
+        givenDevices(device(1L, TYPE, "RUNNING"));
+
+        LocalDateTime now = LocalDateTime.now();
+        ScheduleRunResult result = scheduleService.run();
+
+        ScheduleEntry entry = result.scheduled().get(0);
+        assertTrue(!entry.getStartTime().isBefore(now), "计划开始日已过时必须从运行时间起排");
+        assertTrue(entry.getMessage().contains("计划开始日"));
+        assertTrue(entry.getMessage().contains("已过"));
+    }
+
+    @Test
+    void addsSetupHoursWhenDeviceSwitchesProduct() {
+        WorkOrder first = order(101L, 1L, 5L, 1);
+        first.setProductCode("P-001");
+        WorkOrder second = order(102L, 1L, 5L, 1);
+        second.setProductCode("P-002");
+        givenWorkOrders(first, second);
+        givenPlans(plan(1L, DAY, DAY, "HIGH"));
+        ProcessOperation operation = operation(5L, 1, TYPE, "1");
+        operation.setSetupHours(new BigDecimal("1"));
+        givenOperations(operation);
+        givenDevices(device(1L, TYPE, "RUNNING"));
+
+        ScheduleRunResult result = scheduleService.run();
+
+        assertEquals(2, result.scheduledWorkOrders());
+        ScheduleEntry firstEntry = result.scheduled().get(0);
+        ScheduleEntry secondEntry = result.scheduled().get(1);
+        assertEquals(DAY.atTime(8, 0), firstEntry.getStartTime());
+        assertEquals(DAY.atTime(9, 0), firstEntry.getEndTime());
+        assertEquals(DAY.atTime(9, 0), secondEntry.getStartTime());
+        assertEquals(DAY.atTime(11, 0), secondEntry.getEndTime());
+        assertEquals(0, new BigDecimal("2.00").compareTo(secondEntry.getDurationHours()));
+        assertTrue(secondEntry.getMessage().contains("换型 1"));
+    }
+
     private ScheduleService newService(BigDecimal estimateFallbackHours) {
         return new ScheduleService(workOrderMapper, planMapper, processOperationMapper,
                 deviceMapper, scheduleEntryMapper, BigDecimal.valueOf(8), 8, estimateFallbackHours);
