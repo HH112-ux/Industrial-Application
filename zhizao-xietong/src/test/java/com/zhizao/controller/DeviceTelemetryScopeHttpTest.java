@@ -94,7 +94,7 @@ class DeviceTelemetryScopeHttpTest {
     @Test
     void telemetryHistoryOfDeviceInOtherWorkshopReturns403() throws Exception {
         authenticate();
-        when(deviceDataService.history(9L, null, null, null))
+        when(deviceDataService.historyResult(9L, null, null, null))
                 .thenThrow(new ForbiddenException("无权访问其他车间的数据"));
 
         mockMvc.perform(get("/api/devices/9/telemetry/history").header("Authorization", "Bearer token"))
