@@ -78,7 +78,8 @@
 
 ```bash
 cp .env.example .env
-# 编辑 .env，至少填写 DB_PASSWORD 与 JWT_SECRET（JWT_SECRET 至少 32 字节）
+# 本地启动：编辑 .env，至少填写 DB_PASSWORD 与 JWT_SECRET（JWT_SECRET 至少 32 字节）
+# docker compose：还必须填写 MYSQL_ROOT_PASSWORD 与 JWT_SECRET，未设置会直接启动失败
 ```
 
 ### 2. 创建数据库
