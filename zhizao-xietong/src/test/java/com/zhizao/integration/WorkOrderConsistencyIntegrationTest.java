@@ -203,17 +203,17 @@ class WorkOrderConsistencyIntegrationTest {
         Long id = createOrder("PENDING");
 
         workOrderService.start(id, "tester");
-        workOrderService.report(id, new ReportRequest(10, 10, 0, null, "tester", "rework-1"));
-        WorkOrder failed = workOrderService.qc(id, new QcRequest("FAIL", "尺寸超差", "qa"));
+        workOrderService.report(id, new ReportRequest(10, 10, 0, null, "rework-1"), "tester");
+        WorkOrder failed = workOrderService.qc(id, new QcRequest("FAIL", "尺寸超差"), "qa");
 
         assertEquals("IN_PRODUCTION", failed.getStatus());
         assertEquals(10, failed.getQtyRework());
 
         WorkOrder reReported = workOrderService.report(id,
-                new ReportRequest(10, 10, 0, null, "tester", "rework-2"));
+                new ReportRequest(10, 10, 0, null, "rework-2"), "tester");
         assertEquals("PENDING_QC", reReported.getStatus());
 
-        WorkOrder finished = workOrderService.qc(id, new QcRequest("PASS", null, "qa"));
+        WorkOrder finished = workOrderService.qc(id, new QcRequest("PASS", null), "qa");
 
         assertEquals("FINISHED", finished.getStatus());
         WorkOrder stored = workOrderMapper.selectById(id);

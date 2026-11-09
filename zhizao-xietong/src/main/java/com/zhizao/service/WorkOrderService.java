@@ -236,14 +236,15 @@ public class WorkOrderService {
      * 不校验状态、不写报工记录、不累加数量、不写历史。并发同键请求由唯一索引兜底，
      * 后到者同样按重复请求处理。</p>
      *
-     * @param id  工单主键
-     * @param req 报工请求，包含数量、合格数、不良数、设备、操作人与幂等键
+     * @param id       工单主键
+     * @param req      报工请求，包含数量、合格数、不良数、设备与幂等键
+     * @param operator 操作人，取自登录令牌
      * @return 流转后的工单；幂等重试时返回当前工单快照
      * @throws BadRequestException 报工数量非法或幂等键超长时抛出
      * @throws BusinessException   工单状态不允许、累计超限或并发冲突时抛出
      */
     @Transactional
-    public WorkOrder report(Long id, ReportRequest req) {
+    public WorkOrder report(Long id, ReportRequest req, String operator) {
         WorkOrder order = getById(id);
         String idempotencyKey = normalizeIdempotencyKey(req.idempotencyKey());
         if (idempotencyKey != null && reportExists(order.getId(), idempotencyKey)) {
@@ -261,7 +262,7 @@ public class WorkOrderService {
         report.setReportTime(LocalDateTime.now());
         report.setQty(req.qty());
         report.setDeviceId(req.deviceId());
-        report.setOperator(req.operator());
+        report.setOperator(operator);
         report.setQualifiedQty(req.qualifiedQty());
         report.setDefectQty(req.defectQty());
         try {
@@ -277,7 +278,7 @@ public class WorkOrderService {
         order.setQtyDone(qtyDone(order) + req.qty());
         order.setQtyQualified(qtyValue(order.getQtyQualified()) + req.qualifiedQty());
         order.setQtyDefect(qtyValue(order.getQtyDefect()) + req.defectQty());
-        transitionWithHistory(order, WorkOrderStatus.PENDING_QC, req.operator(),
+        transitionWithHistory(order, WorkOrderStatus.PENDING_QC, operator,
                 "报工 " + req.qty() + " 件");
         businessMetrics.workOrderReported();
         return order;
@@ -291,13 +292,14 @@ public class WorkOrderService {
      *
      * <p>结论不是 PASS 或 FAIL 时在落库前拒绝，不产生质检记录。</p>
      *
-     * @param id  工单主键
-     * @param req 质检请求，包含结论、不良描述与质检员
+     * @param id       工单主键
+     * @param req      质检请求，包含结论与不良描述
+     * @param operator 质检员，取自登录令牌
      * @return 流转后的工单
      * @throws BusinessException 工单状态不允许、结论非法或并发冲突时抛出
      */
     @Transactional
-    public WorkOrder qc(Long id, QcRequest req) {
+    public WorkOrder qc(Long id, QcRequest req, String operator) {
         WorkOrder order = getById(id);
         if (!WorkOrderStatus.PENDING_QC.name().equals(order.getStatus())) {
             throw new BusinessException("仅「待质检」的工单可质检");
@@ -311,7 +313,7 @@ public class WorkOrderService {
         QualityRecord record = new QualityRecord();
         record.setQualityNo(codeGenerator.next("QC"));
         record.setOrderId(order.getId());
-        record.setInspector(req.inspector());
+        record.setInspector(operator);
         record.setResult(req.result());
         record.setDefectDesc(req.defectDesc());
         record.setInspectTime(LocalDateTime.now());
@@ -319,12 +321,12 @@ public class WorkOrderService {
 
         String remark = StringUtils.hasText(req.defectDesc()) ? req.defectDesc() : "质检结论 " + req.result();
         if (pass) {
-            transitionWithHistory(order, WorkOrderStatus.FINISHED, req.inspector(), remark);
+            transitionWithHistory(order, WorkOrderStatus.FINISHED, operator, remark);
             kitCheckService.consume(order);
             maybeFinishPlan(order.getPlanId());
         } else {
             order.setQtyRework(qtyValue(order.getQtyRework()) + lastReportQty(order.getId()));
-            transitionWithHistory(order, WorkOrderStatus.IN_PRODUCTION, req.inspector(), remark);
+            transitionWithHistory(order, WorkOrderStatus.IN_PRODUCTION, operator, remark);
         }
         return order;
     }

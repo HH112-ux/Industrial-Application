@@ -49,7 +49,6 @@
         <el-form-item label="报工数量" required><el-input-number v-model="reportForm.qty" :min="1" style="width: 100%" /></el-form-item>
         <el-form-item label="合格数量"><el-input-number v-model="reportForm.qualifiedQty" :min="0" style="width: 100%" /></el-form-item>
         <el-form-item label="不良数量"><el-input-number v-model="reportForm.defectQty" :min="0" style="width: 100%" /></el-form-item>
-        <el-form-item label="操作工"><el-input v-model="reportForm.operator" placeholder="如 zhangsan" /></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="reportDialog.visible = false">取消</el-button>
@@ -86,7 +85,6 @@
           </el-radio-group>
         </el-form-item>
         <el-form-item label="不良描述"><el-input v-model="qcForm.defectDesc" type="textarea" /></el-form-item>
-        <el-form-item label="质检员"><el-input v-model="qcForm.inspector" placeholder="如 lisi" /></el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="qcDialog.visible = false">取消</el-button>
@@ -100,7 +98,6 @@
 import { onMounted, reactive, ref } from 'vue';
 import { workOrderApi, type WorkOrder, type WorkOrderHistory } from '@/api';
 import { workOrderStatusMap } from '@/utils/dict';
-import { getUser } from '@/api/request';
 import StatusTag from '@/components/StatusTag.vue';
 
 const loading = ref(false);
@@ -110,12 +107,12 @@ const query = reactive({ pageNum: 1, pageSize: 10, keyword: '', status: '' });
 
 const reportDialog = reactive({ visible: false, orderId: undefined as number | undefined });
 const reportForm = reactive({
-  qty: 1, qualifiedQty: 0, defectQty: 0, operator: '',
+  qty: 1, qualifiedQty: 0, defectQty: 0,
   idempotencyKey: ''
 });
 
 const qcDialog = reactive({ visible: false, orderId: undefined as number | undefined });
-const qcForm = reactive({ result: 'PASS', defectDesc: '', inspector: '' });
+const qcForm = reactive({ result: 'PASS', defectDesc: '' });
 
 const historyDialog = reactive({
   visible: false,
@@ -161,8 +158,7 @@ function reset() {
 }
 
 async function start(row: WorkOrder) {
-  const operator = getUser()?.username || 'system';
-  await workOrderApi.start(row.id!, operator);
+  await workOrderApi.start(row.id!);
   ElMessage.success('已开工');
   load();
 }
@@ -173,7 +169,6 @@ function openReport(row: WorkOrder) {
     qty: row.qty,
     qualifiedQty: row.qty,
     defectQty: 0,
-    operator: '',
     idempotencyKey: newIdempotencyKey()
   });
   reportDialog.visible = true;
@@ -199,7 +194,6 @@ async function submitReport() {
     qty,
     qualifiedQty: qualified,
     defectQty: defect,
-    operator: reportForm.operator,
     idempotencyKey: reportForm.idempotencyKey
   });
   ElMessage.success('已报工');
@@ -221,7 +215,7 @@ async function openHistory(row: WorkOrder) {
 
 function openQc(row: WorkOrder) {
   qcDialog.orderId = row.id;
-  Object.assign(qcForm, { result: 'PASS', defectDesc: '', inspector: '' });
+  Object.assign(qcForm, { result: 'PASS', defectDesc: '' });
   qcDialog.visible = true;
 }
 

@@ -188,9 +188,9 @@ class AiServiceTest {
         assertTrue(result.available());
         assertTrue(result.data().requiresConfirmation());
         assertTrue(result.data().warnings().contains("报工数量超过工单剩余数量 60"));
-        verify(workOrderService, never()).report(anyLong(), any());
+        verify(workOrderService, never()).report(anyLong(), any(), any());
         verify(workOrderService, never()).start(anyLong(), any());
-        verify(workOrderService, never()).qc(anyLong(), any());
+        verify(workOrderService, never()).qc(anyLong(), any(), any());
         verify(workOrderMapper, never()).updateById(any(WorkOrder.class));
         verify(workOrderMapper, never()).insert(any(WorkOrder.class));
     }
