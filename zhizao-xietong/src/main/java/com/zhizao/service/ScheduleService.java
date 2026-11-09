@@ -53,6 +53,10 @@ import static java.util.stream.Collectors.toMap;
  *   <li>工序标准工时属于单据数据，缺失时不排程并返回 {@code STANDARD_HOURS_MISSING}，
  *       不读取计划总工时、也不使用内置默认值；只有显式开启
  *       {@code schedule.estimate-fallback-hours} 才按估算工时排程并标记。</li>
+ *   <li>排程起点取「计划开始日 {@code day-start-hour}」与本次运行时间的较晚者，
+ *       计划开始日已过时按运行时间起排，并在排程说明里明确提示，不会把工单排到过去。</li>
+ *   <li>换型时间取自工序的 {@code setup_hours}：同一设备连续生产不同产品时额外累积一次换型工时，
+ *       计入占用时间窗与工序总工时。</li>
  * </ul>
  *
  * @author Caspian
@@ -130,7 +134,9 @@ public class ScheduleService {
                 .collect(groupingBy(device -> device.getDeviceType().trim(), LinkedHashMap::new,
                         java.util.stream.Collectors.toList()));
         availableByType.values().forEach(list -> list.sort(Comparator.comparing(Device::getId)));
-        Map<Long, List<Interval>> reservations = loadReservations();
+        Occupancy occupancy = loadOccupancy();
+        Map<Long, List<Interval>> reservations = occupancy.intervals();
+        Map<Long, String> lastProductByDevice = occupancy.lastProductByDevice();
 
         pending.sort(queueOrder(plans));
         List<ScheduleEntry> scheduled = new ArrayList<>();
@@ -142,12 +148,14 @@ public class ScheduleService {
             int queueRank = index + 1;
             String rankBasis = rankBasis(plan);
             Outcome outcome = scheduleOrder(order, plan, operations.get(order.getProcessId()),
-                    availableByType, deviceById, reservations, queueRank, rankBasis, runAt);
+                    availableByType, deviceById, reservations, lastProductByDevice,
+                    queueRank, rankBasis, runAt);
             if (outcome.conflict() != null) {
                 unscheduled.add(outcome.conflict());
             } else {
                 scheduled.addAll(outcome.entries());
                 reservations = outcome.reservations();
+                lastProductByDevice = outcome.lastProducts();
                 scheduledOrders++;
             }
         }
@@ -174,7 +182,8 @@ public class ScheduleService {
      */
     private Outcome scheduleOrder(WorkOrder order, Plan plan, List<ProcessOperation> operations,
                                   Map<String, List<Device>> availableByType, Map<Long, Device> deviceById,
-                                  Map<Long, List<Interval>> reservations, int queueRank,
+                                  Map<Long, List<Interval>> reservations,
+                                  Map<Long, String> lastProductByDevice, int queueRank,
                                   String rankBasis, LocalDateTime runAt) {
         if (plan == null) {
             return Outcome.conflict(conflict(order, null, null, queueRank, rankBasis,
@@ -198,8 +207,12 @@ public class ScheduleService {
         }
 
         Map<Long, List<Interval>> trial = copyReservations(reservations);
+        Map<Long, String> trialProducts = new HashMap<>(lastProductByDevice);
         List<ScheduleEntry> entries = new ArrayList<>();
-        LocalDateTime earliest = plan.getPlanStart().atStartOfDay().plusHours(dayStartHour);
+        LocalDateTime planStart = plan.getPlanStart().atStartOfDay().plusHours(dayStartHour);
+        String startNote = plan.getPlanStart().isBefore(runAt.toLocalDate())
+                ? "计划开始日 " + plan.getPlanStart() + " 已过，按运行时间起排" : null;
+        LocalDateTime earliest = planStart.isBefore(runAt) ? runAt : planStart;
         Long preferredDeviceId = order.getDeviceId() != null ? order.getDeviceId() : plan.getRequiredDeviceId();
 
         for (ProcessOperation operation : operations) {
@@ -228,7 +241,8 @@ public class ScheduleService {
             }
 
             Placement placement = place(candidates, preferredDeviceId, deviceType, earliest,
-                    plan.getPlanEnd(), trial, duration.hours());
+                    plan.getPlanEnd(), trial, duration.hours(), setupHours(operation),
+                    order.getProductCode(), trialProducts);
             if (placement == null) {
                 return Outcome.conflict(conflict(order, plan, operation, queueRank, rankBasis,
                         ScheduleConflict.CAPACITY_OVERLOAD, runAt,
@@ -236,6 +250,9 @@ public class ScheduleService {
             }
             addInterval(trial, placement.device().getId(),
                     new Interval(placement.start(), placement.end()));
+            if (StringUtils.hasText(order.getProductCode())) {
+                trialProducts.put(placement.device().getId(), order.getProductCode());
+            }
             earliest = placement.end();
 
             ScheduleEntry entry = baseEntry(order, plan, queueRank, rankBasis, runAt);
@@ -245,40 +262,74 @@ public class ScheduleService {
             entry.setDeviceId(placement.device().getId());
             entry.setStartTime(placement.start());
             entry.setEndTime(placement.end());
-            entry.setDurationHours(duration.hours());
+            entry.setDurationHours(duration.hours().add(placement.setupHours()));
             entry.setEstimated(duration.estimated() ? 1 : 0);
             entry.setStatus(ScheduleStatus.SCHEDULED.name());
-            entry.setMessage("设备类型「" + deviceType + "」第 " + queueRank + " 位落位，按"
+            String message = "设备类型「" + deviceType + "」第 " + queueRank + " 位落位，按"
                     + (duration.estimated() ? "估算工时 " : "标准工时 ")
-                    + duration.hours().toPlainString() + " 小时");
+                    + duration.hours().toPlainString() + " 小时";
+            if (placement.setupHours().signum() > 0) {
+                message += "，含换型 " + placement.setupHours().toPlainString() + " 小时";
+            }
+            if (startNote != null) {
+                message += "；" + startNote;
+            }
+            entry.setMessage(message);
             entries.add(entry);
         }
-        return Outcome.success(entries, trial);
+        return Outcome.success(entries, trial, trialProducts);
     }
 
     /**
      * 在指定设备类型中挑选完成时间最早的设备；同等完成时间取设备主键较小者。
+     * 若该设备上一件产品与本工单不同，额外计入一次换型工时。
      */
     private Placement place(List<Device> candidates, Long preferredDeviceId, String deviceType,
                             LocalDateTime earliest, LocalDate deadline,
-                            Map<Long, List<Interval>> reservations, BigDecimal hours) {
+                            Map<Long, List<Interval>> reservations, BigDecimal hours,
+                            BigDecimal setupHours, String productCode,
+                            Map<Long, String> lastProductByDevice) {
         List<Device> ordered = new ArrayList<>(candidates);
         ordered.sort(Comparator
                 .comparing((Device device) -> !device.getId().equals(preferredDeviceId))
                 .thenComparing(Device::getId));
         Placement best = null;
         for (Device device : ordered) {
+            BigDecimal extra = needsSetup(lastProductByDevice.get(device.getId()), productCode)
+                    ? setupHours : BigDecimal.ZERO;
             Placement candidate = simulate(device, earliest, deadline,
-                    reservations.getOrDefault(device.getId(), List.of()), hours);
+                    reservations.getOrDefault(device.getId(), List.of()), hours.add(extra));
             if (candidate == null) {
                 continue;
             }
+            candidate = new Placement(candidate.device(), candidate.start(), candidate.end(), extra);
             if (best == null || candidate.end().isBefore(best.end())
                     || (candidate.end().isEqual(best.end()) && candidate.device().getId() < best.device().getId())) {
                 best = candidate;
             }
         }
         return best;
+    }
+
+    /**
+     * 判断是否需要换型：设备上一件产品与本工单产品不同。
+     *
+     * @param lastProduct 设备上一个已排产品的编码，未知时为 null
+     * @param productCode 本工单产品编码
+     * @return 需要换型返回 true
+     */
+    private boolean needsSetup(String lastProduct, String productCode) {
+        return lastProduct != null && productCode != null && !lastProduct.equals(productCode);
+    }
+
+    /**
+     * 读取工序的换型工时，空值按 0 处理。
+     *
+     * @param operation 工序
+     * @return 换型工时
+     */
+    private BigDecimal setupHours(ProcessOperation operation) {
+        return operation.getSetupHours() == null ? BigDecimal.ZERO : operation.getSetupHours();
     }
 
     /**
@@ -323,7 +374,7 @@ public class ScheduleService {
                     remainingSeconds -= take;
                     scan = scan.plusSeconds(take);
                     if (remainingSeconds <= 0) {
-                        return new Placement(device, start, scan);
+                        return new Placement(device, start, scan, BigDecimal.ZERO);
                     }
                 }
                 if (interval.end().isAfter(scan)) {
@@ -342,7 +393,7 @@ public class ScheduleService {
                 remainingSeconds -= take;
                 scan = scan.plusSeconds(take);
                 if (remainingSeconds <= 0) {
-                    return new Placement(device, start, scan);
+                    return new Placement(device, start, scan, BigDecimal.ZERO);
                 }
             }
             cursor = nextDayStart(date);
@@ -422,23 +473,56 @@ public class ScheduleService {
     }
 
     /**
-     * 加载已占用产能：只取 SCHEDULED 结果。待排工单的旧结果已在调用前删除，
-     * 因此这里剩下的都是在产/待质检/已完工工单的记录。
+     * 加载已占用产能与各设备最近生产的产品。
+     *
+     * <p>只取 SCHEDULED 结果。待排工单的旧结果已在调用前删除，因此这里剩下的都是在产/待质检/已完工
+     * 工单的记录；开工时会把这些记录顺延到实际开工时间，因此在产工单能持续占用设备。</p>
+     *
+     * @return 设备时间窗与设备最近产品
      */
-    private Map<Long, List<Interval>> loadReservations() {
+    private Occupancy loadOccupancy() {
         List<ScheduleEntry> entries = scheduleEntryMapper.selectList(new LambdaQueryWrapper<ScheduleEntry>()
                 .eq(ScheduleEntry::getStatus, ScheduleStatus.SCHEDULED.name()));
         Map<Long, List<Interval>> reservations = new HashMap<>();
+        Map<Long, ScheduleEntry> latestByDevice = new HashMap<>();
         for (ScheduleEntry entry : entries) {
             if (entry.getDeviceId() == null || entry.getStartTime() == null || entry.getEndTime() == null) {
                 continue;
             }
             reservations.computeIfAbsent(entry.getDeviceId(), key -> new ArrayList<>())
                     .add(new Interval(entry.getStartTime(), entry.getEndTime()));
+            ScheduleEntry latest = latestByDevice.get(entry.getDeviceId());
+            if (latest == null || entry.getEndTime().isAfter(latest.getEndTime())) {
+                latestByDevice.put(entry.getDeviceId(), entry);
+            }
         }
         reservations.values().forEach(list ->
                 list.sort(Comparator.comparing(Interval::start)));
-        return reservations;
+        return new Occupancy(reservations, loadLastProducts(latestByDevice));
+    }
+
+    /**
+     * 查询各设备最近一次排产的产品编码，作为下一次落位判断是否需要换型的依据。
+     *
+     * @param latestByDevice 设备 ID 到该设备最晚结束的排程记录
+     * @return 设备 ID 到产品编码
+     */
+    private Map<Long, String> loadLastProducts(Map<Long, ScheduleEntry> latestByDevice) {
+        if (latestByDevice.isEmpty()) {
+            return new HashMap<>();
+        }
+        List<Long> orderIds = latestByDevice.values().stream()
+                .map(ScheduleEntry::getWorkOrderId).filter(Objects::nonNull).distinct().toList();
+        Map<Long, WorkOrder> orders = workOrderMapper.selectBatchIds(orderIds).stream()
+                .collect(toMap(WorkOrder::getId, order -> order, (a, b) -> a));
+        Map<Long, String> products = new HashMap<>();
+        latestByDevice.forEach((deviceId, entry) -> {
+            WorkOrder order = orders.get(entry.getWorkOrderId());
+            if (order != null && StringUtils.hasText(order.getProductCode())) {
+                products.put(deviceId, order.getProductCode());
+            }
+        });
+        return products;
     }
 
     private Comparator<WorkOrder> queueOrder(Map<Long, Plan> plans) {
@@ -514,21 +598,25 @@ public class ScheduleService {
     private record Interval(LocalDateTime start, LocalDateTime end) {
     }
 
-    private record Placement(Device device, LocalDateTime start, LocalDateTime end) {
+    private record Placement(Device device, LocalDateTime start, LocalDateTime end, BigDecimal setupHours) {
     }
 
     private record WorkDuration(BigDecimal hours, boolean estimated) {
     }
 
-    private record Outcome(List<ScheduleEntry> entries, ScheduleEntry conflict,
-                           Map<Long, List<Interval>> reservations) {
+    private record Occupancy(Map<Long, List<Interval>> intervals, Map<Long, String> lastProductByDevice) {
+    }
 
-        static Outcome success(List<ScheduleEntry> entries, Map<Long, List<Interval>> reservations) {
-            return new Outcome(entries, null, reservations);
+    private record Outcome(List<ScheduleEntry> entries, ScheduleEntry conflict,
+                           Map<Long, List<Interval>> reservations, Map<Long, String> lastProducts) {
+
+        static Outcome success(List<ScheduleEntry> entries, Map<Long, List<Interval>> reservations,
+                               Map<Long, String> lastProducts) {
+            return new Outcome(entries, null, reservations, lastProducts);
         }
 
         static Outcome conflict(ScheduleEntry conflict) {
-            return new Outcome(List.of(), conflict, Map.of());
+            return new Outcome(List.of(), conflict, Map.of(), Map.of());
         }
     }
 }
