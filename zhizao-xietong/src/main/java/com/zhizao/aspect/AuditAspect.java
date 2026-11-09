@@ -10,9 +10,14 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.aspectj.lang.ProceedingJoinPoint;
 import org.aspectj.lang.annotation.Around;
 import org.aspectj.lang.annotation.Aspect;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
@@ -32,15 +37,21 @@ import java.util.Set;
 @Component
 public class AuditAspect {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(AuditAspect.class);
+
     /** 请求体中的敏感字段，落库前统一脱敏。 */
     private static final Set<String> SENSITIVE_FIELDS = Set.of("password", "oldPassword", "newPassword", "token");
 
     private final AuditLogMapper auditLogMapper;
     private final ObjectMapper objectMapper;
+    private final TransactionTemplate auditTransaction;
 
-    public AuditAspect(AuditLogMapper auditLogMapper, ObjectMapper objectMapper) {
+    public AuditAspect(AuditLogMapper auditLogMapper, ObjectMapper objectMapper,
+                       PlatformTransactionManager transactionManager) {
         this.auditLogMapper = auditLogMapper;
         this.objectMapper = objectMapper;
+        this.auditTransaction = new TransactionTemplate(transactionManager);
+        this.auditTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
     @Around("execution(* com.zhizao.controller..*(..)) && !execution(* com.zhizao.controller.AuthController.*(..)) "
@@ -48,22 +59,47 @@ public class AuditAspect {
             + "|| @annotation(org.springframework.web.bind.annotation.PutMapping) "
             + "|| @annotation(org.springframework.web.bind.annotation.DeleteMapping))")
     public Object audit(ProceedingJoinPoint pjp) throws Throwable {
-        Object result = pjp.proceed();
+        AuditLog log = new AuditLog();
+        log.setUsername(currentUsername());
+        log.setMethod(requestMethod());
+        log.setUri(requestUri());
+        log.setOperation(pjp.getSignature().getDeclaringType().getSimpleName()
+                + "." + pjp.getSignature().getName());
+        log.setParams(serializeArgs(pjp.getArgs()));
+        log.setIp(clientIp());
+        log.setCreatedAt(LocalDateTime.now());
         try {
-            AuditLog log = new AuditLog();
-            log.setUsername(currentUsername());
-            log.setMethod(requestMethod());
-            log.setUri(requestUri());
-            log.setOperation(pjp.getSignature().getDeclaringType().getSimpleName()
-                    + "." + pjp.getSignature().getName());
-            log.setParams(serializeArgs(pjp.getArgs()));
-            log.setIp(clientIp());
-            log.setCreatedAt(LocalDateTime.now());
-            auditLogMapper.insert(log);
-        } catch (Exception ignored) {
-            // 审计失败不影响业务
+            Object result = pjp.proceed();
+            log.setSuccess(true);
+            persist(log);
+            return result;
+        } catch (Throwable e) {
+            log.setSuccess(false);
+            log.setErrorMessage(describeError(e));
+            persist(log);
+            throw e;
         }
-        return result;
+    }
+
+    /**
+     * 独立事务写入审计：业务事务回滚不影响审计，审计失败也不影响业务。
+     *
+     * @param log 审计记录
+     */
+    private void persist(AuditLog log) {
+        try {
+            auditTransaction.executeWithoutResult(status -> auditLogMapper.insert(log));
+        } catch (Exception e) {
+            LOGGER.warn("审计写入失败 uri={} operation={}", log.getUri(), log.getOperation(), e);
+        }
+    }
+
+    private String describeError(Throwable e) {
+        String message = e.getMessage();
+        String text = message == null || message.isBlank()
+                ? e.getClass().getSimpleName()
+                : e.getClass().getSimpleName() + ": " + message;
+        return text.length() > 255 ? text.substring(0, 255) : text;
     }
 
     private String currentUsername() {

@@ -1,9 +1,13 @@
 package com.zhizao.common;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.util.StringUtils;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -17,6 +21,11 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  */
 @RestControllerAdvice
 public class GlobalExceptionHandler {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(GlobalExceptionHandler.class);
+
+    /** 兜底异常对外提示，具体原因只进日志，避免泄露内部细节。 */
+    private static final String INTERNAL_ERROR_MESSAGE = "系统繁忙，请稍后重试";
 
     /**
      * 处理设备鉴权异常，按凭证无效或设备停用返回 401/403。
@@ -110,8 +119,20 @@ public class GlobalExceptionHandler {
         return Result.error(403, "无权限访问");
     }
 
+    /**
+     * 未预期异常兜底：返回 HTTP 500 与固定文案，原始异常只落日志并用 traceId 关联。
+     *
+     * @param e 未预期异常
+     * @return 带 HTTP 500 状态码的错误响应
+     */
     @ExceptionHandler(Exception.class)
-    public Result<Void> handleOther(Exception e) {
-        return Result.error("系统异常：" + e.getMessage());
+    public ResponseEntity<Result<Void>> handleOther(Exception e) {
+        String traceId = MDC.get(TraceIdFilter.MDC_KEY);
+        LOGGER.error("未处理异常 traceId={}", traceId, e);
+        String message = StringUtils.hasText(traceId)
+                ? INTERNAL_ERROR_MESSAGE + "（追踪号 " + traceId + "）"
+                : INTERNAL_ERROR_MESSAGE;
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                .body(Result.error(500, message));
     }
 }
