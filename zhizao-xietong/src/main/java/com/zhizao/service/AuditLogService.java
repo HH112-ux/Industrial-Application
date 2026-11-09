@@ -34,8 +34,8 @@ public class AuditLogService {
      *
      * @param pageNum  页码
      * @param pageSize 每页条数
-     * @param username 操作人模糊匹配，可为空
-     * @param uri      请求路径模糊匹配，可为空
+     * @param username 操作人前缀匹配，可为空
+     * @param uri      请求路径前缀匹配，可为空
      * @param from     起始日期（含），可为空
      * @param to       结束日期（含），可为空
      * @return 审计日志分页结果
@@ -44,8 +44,8 @@ public class AuditLogService {
                                      LocalDate from, LocalDate to) {
         Page<AuditLog> page = new Page<>(pageNum, pageSize);
         LambdaQueryWrapper<AuditLog> qw = new LambdaQueryWrapper<>();
-        qw.like(StringUtils.hasText(username), AuditLog::getUsername, username);
-        qw.like(StringUtils.hasText(uri), AuditLog::getUri, uri);
+        qw.likeRight(StringUtils.hasText(username), AuditLog::getUsername, username);
+        qw.likeRight(StringUtils.hasText(uri), AuditLog::getUri, uri);
         qw.ge(from != null, AuditLog::getCreatedAt, from != null ? from.atStartOfDay() : null);
         qw.lt(to != null, AuditLog::getCreatedAt, to != null ? to.plusDays(1).atStartOfDay() : null);
         qw.orderByDesc(AuditLog::getCreatedAt).orderByDesc(AuditLog::getId);

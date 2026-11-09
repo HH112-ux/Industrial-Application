@@ -44,8 +44,8 @@ class AuditLogServiceTest {
         assertTrue(sql.contains("username"));
         assertTrue(sql.contains("uri"));
         assertTrue(sql.contains("created_at"));
-        assertTrue(captor.getValue().getParamNameValuePairs().containsValue("%zhang%"));
-        assertTrue(captor.getValue().getParamNameValuePairs().containsValue("%/api/work-orders%"));
+        assertTrue(captor.getValue().getParamNameValuePairs().containsValue("zhang%"));
+        assertTrue(captor.getValue().getParamNameValuePairs().containsValue("/api/work-orders%"));
         assertTrue(captor.getValue().getParamNameValuePairs().containsValue(LocalDate.of(2026, 3, 1).atStartOfDay()));
         assertTrue(captor.getValue().getParamNameValuePairs().containsValue(LocalDate.of(2026, 3, 3).atStartOfDay()));
     }
