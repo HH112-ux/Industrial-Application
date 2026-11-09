@@ -7,6 +7,7 @@ import com.zhizao.common.ForbiddenException;
 import com.zhizao.dto.DeviceGatewayReport;
 import com.zhizao.dto.DeviceTelemetry;
 import com.zhizao.dto.DeviceTelemetryPoint;
+import com.zhizao.dto.TelemetryHistory;
 import com.zhizao.entity.Device;
 import com.zhizao.entity.DeviceTelemetryRecord;
 import com.zhizao.mapper.DeviceMapper;
@@ -276,6 +277,42 @@ class DeviceDataServiceTest {
         DeviceTelemetry t = deviceDataService.getTelemetry(1L);
 
         assertEquals("NONE", t.source());
-        assertEquals(0.0, t.temperature(), 0.01);
+        assertNull(t.temperature());
+        assertNull(t.rpm());
+        assertNull(t.current());
+        assertNull(t.oee());
+    }
+
+    @Test
+    void historyMarksTruncationWhenMorePointsExist() {
+        when(deviceService.getById(1L)).thenReturn(device());
+        when(telemetryMapper.selectCount(any())).thenReturn(200_000L);
+        DeviceTelemetryRecord record = new DeviceTelemetryRecord();
+        record.setReportedAt(LocalDateTime.of(2026, 11, 6, 10, 0));
+        record.setStatus("RUNNING");
+        when(telemetryMapper.selectList(any())).thenReturn(List.of(record));
+
+        TelemetryHistory history = deviceDataService.historyResult(1L, null, null, 1000);
+
+        assertEquals(200_000L, history.total());
+        assertEquals(true, history.truncated());
+        assertEquals(1, history.points().size());
+    }
+
+    @Test
+    void historyReturnsLatestPointsInAscendingOrder() {
+        when(deviceService.getById(1L)).thenReturn(device());
+        DeviceTelemetryRecord newer = new DeviceTelemetryRecord();
+        newer.setReportedAt(LocalDateTime.of(2026, 11, 6, 11, 0));
+        newer.setStatus("RUNNING");
+        DeviceTelemetryRecord older = new DeviceTelemetryRecord();
+        older.setReportedAt(LocalDateTime.of(2026, 11, 6, 10, 0));
+        older.setStatus("RUNNING");
+        when(telemetryMapper.selectList(any())).thenReturn(List.of(newer, older));
+
+        List<DeviceTelemetryPoint> points = deviceDataService.history(1L, null, null, 500);
+
+        assertEquals(LocalDateTime.of(2026, 11, 6, 10, 0), points.get(0).reportedAt());
+        assertEquals(LocalDateTime.of(2026, 11, 6, 11, 0), points.get(1).reportedAt());
     }
 }

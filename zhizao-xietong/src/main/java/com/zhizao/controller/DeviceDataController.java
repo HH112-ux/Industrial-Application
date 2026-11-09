@@ -5,7 +5,7 @@ import com.zhizao.common.BusinessException;
 import com.zhizao.common.Result;
 import com.zhizao.dto.DeviceGatewayReport;
 import com.zhizao.dto.DeviceTelemetry;
-import com.zhizao.dto.DeviceTelemetryPoint;
+import com.zhizao.dto.TelemetryHistory;
 import com.zhizao.gateway.MqttDeviceGateway;
 import com.zhizao.security.DeviceSignatureVerifier;
 import com.zhizao.service.DeviceDataService;
@@ -22,7 +22,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDateTime;
-import java.util.List;
 
 /**
  * 设备数据接入：提供实时遥测、遥测历史查询、设备上报与 MQTT 测试发布入口。
@@ -62,23 +61,23 @@ public class DeviceDataController {
     }
 
     /**
-     * 查询设备遥测历史，默认最近 24 小时，按上报时间升序，最多 1000 条。
+     * 查询设备遥测历史，默认最近 24 小时，按上报时间升序返回最近的点，最多 1000 条。
      *
      * @param id    设备主键
      * @param from  起始时间（ISO-8601），可为空
      * @param to    结束时间（ISO-8601），可为空
      * @param limit 返回条数上限，默认 500，超过 1000 按 1000 处理
-     * @return 遥测采样列表
+     * @return 遥测采样与是否截断的标记
      * @throws com.zhizao.common.BadRequestException 起始时间晚于结束时间时返回 400
      * @throws com.zhizao.common.BusinessException   设备不存在时抛出
      */
     @GetMapping("/devices/{id}/telemetry/history")
-    public Result<List<DeviceTelemetryPoint>> telemetryHistory(
+    public Result<TelemetryHistory> telemetryHistory(
             @PathVariable Long id,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime to,
             @RequestParam(required = false) Integer limit) {
-        return Result.ok(deviceDataService.history(id, from, to, limit));
+        return Result.ok(deviceDataService.historyResult(id, from, to, limit));
     }
 
     /**

@@ -1,6 +1,7 @@
 package com.zhizao.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.zhizao.common.BadRequestException;
 import com.zhizao.common.BusinessException;
@@ -8,6 +9,7 @@ import com.zhizao.common.BusinessMetrics;
 import com.zhizao.common.PageResult;
 import com.zhizao.dto.QcRequest;
 import com.zhizao.dto.ReportRequest;
+import com.zhizao.dto.WorkOrderStatusCount;
 import com.zhizao.entity.Device;
 import com.zhizao.entity.Plan;
 import com.zhizao.entity.Process;
@@ -37,6 +39,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -126,6 +129,24 @@ public class WorkOrderService {
         qw.orderByDesc(WorkOrder::getId);
         workOrderMapper.selectPage(page, qw);
         return PageResult.of(page.getTotal(), page.getRecords());
+    }
+
+    /**
+     * 按状态聚合工单数量，供看板饼图使用；非管理员只统计自己车间范围。
+     *
+     * @return 各状态工单数量，未出现的状态不会返回
+     */
+    public List<WorkOrderStatusCount> countByStatus() {
+        QueryWrapper<WorkOrder> qw = new QueryWrapper<>();
+        qw.select("status", "COUNT(*) AS cnt");
+        String workshop = dataScope.workshopFilter();
+        qw.eq(workshop != null, "workshop", workshop);
+        qw.groupBy("status");
+        List<Map<String, Object>> rows = workOrderMapper.selectMaps(qw);
+        return rows.stream()
+                .map(row -> new WorkOrderStatusCount(String.valueOf(row.get("status")),
+                        ((Number) row.get("cnt")).longValue()))
+                .toList();
     }
 
     /**

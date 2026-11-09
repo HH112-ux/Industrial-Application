@@ -4,6 +4,7 @@ import com.zhizao.common.PageResult;
 import com.zhizao.common.Result;
 import com.zhizao.dto.QcRequest;
 import com.zhizao.dto.ReportRequest;
+import com.zhizao.dto.WorkOrderStatusCount;
 import com.zhizao.entity.WorkOrder;
 import com.zhizao.entity.WorkOrderStatusHistory;
 import com.zhizao.service.WorkOrderService;
@@ -43,6 +44,16 @@ public class WorkOrderController {
                                               @RequestParam(required = false) String keyword,
                                               @RequestParam(required = false) String status) {
         return Result.ok(workOrderService.list(pageNum, pageSize, keyword, status));
+    }
+
+    /**
+     * 按状态聚合工单数量，供看板饼图使用。
+     *
+     * @return 各状态工单数量
+     */
+    @GetMapping("/stats/status")
+    public Result<List<WorkOrderStatusCount>> statusCounts() {
+        return Result.ok(workOrderService.countByStatus());
     }
 
     @GetMapping("/{id}")

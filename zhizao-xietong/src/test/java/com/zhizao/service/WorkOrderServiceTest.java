@@ -372,6 +372,20 @@ class WorkOrderServiceTest {
     }
 
     @Test
+    void countByStatusMapsAggregatedRows() {
+        java.util.Map<String, Object> row = new java.util.HashMap<>();
+        row.put("status", "IN_PRODUCTION");
+        row.put("cnt", 3L);
+        when(workOrderMapper.selectMaps(any())).thenReturn(List.of(row));
+
+        List<com.zhizao.dto.WorkOrderStatusCount> counts = workOrderService.countByStatus();
+
+        assertEquals(1, counts.size());
+        assertEquals("IN_PRODUCTION", counts.get(0).status());
+        assertEquals(3L, counts.get(0).count());
+    }
+
+    @Test
     void qcPassFinishesOrder() {
         WorkOrder order = order("PENDING_QC");
         when(workOrderMapper.selectById(1L)).thenReturn(order);
