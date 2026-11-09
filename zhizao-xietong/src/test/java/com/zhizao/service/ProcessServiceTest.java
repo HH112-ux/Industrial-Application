@@ -114,7 +114,7 @@ class ProcessServiceTest {
     void createVersionCopiesOperationsAndBomAsNewDraft() {
         Process source = process("PUBLISHED", 1);
         when(processMapper.selectById(1L)).thenReturn(source);
-        when(processMapper.selectList(any())).thenReturn(List.of(source));
+        when(processMapper.selectMaxVersionIncludingDeleted("PR-202611-0001")).thenReturn(1);
         doAnswer(invocation -> {
             Process copy = invocation.getArgument(0);
             copy.setId(2L);
@@ -157,7 +157,7 @@ class ProcessServiceTest {
     void createdVersionIsEditable() {
         Process source = process("PUBLISHED", 1);
         when(processMapper.selectById(1L)).thenReturn(source);
-        when(processMapper.selectList(any())).thenReturn(List.of(source));
+        when(processMapper.selectMaxVersionIncludingDeleted("PR-202611-0001")).thenReturn(1);
         doAnswer(invocation -> {
             Process copy = invocation.getArgument(0);
             copy.setId(2L);
@@ -170,5 +170,25 @@ class ProcessServiceTest {
         when(processMapper.selectById(2L)).thenReturn(copy);
 
         assertDoesNotThrow(() -> processService.requireEditable(2L));
+    }
+
+    @Test
+    void nextVersionSkipsSoftDeletedHighestVersion() {
+        Process source = process("PUBLISHED", 1);
+        when(processMapper.selectById(1L)).thenReturn(source);
+        // 2 号版本已被逻辑删除，但唯一键 (process_no, version) 仍占用 2。
+        when(processMapper.selectMaxVersionIncludingDeleted("PR-202611-0001")).thenReturn(2);
+        doAnswer(invocation -> {
+            Process copy = invocation.getArgument(0);
+            copy.setId(3L);
+            return 1;
+        }).when(processMapper).insert(any(Process.class));
+        when(processOperationMapper.selectList(any())).thenReturn(List.of());
+        when(bomItemMapper.selectList(any())).thenReturn(List.of());
+
+        Process copy = processService.createVersion(1L);
+
+        assertEquals(Integer.valueOf(3), copy.getVersion(), "逻辑删除的版本号不可复用");
+        assertEquals("PR-202611-0001", copy.getProcessNo());
     }
 }

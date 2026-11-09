@@ -18,7 +18,6 @@ import org.springframework.util.StringUtils;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Objects;
 
 /**
  * 工艺服务：负责版本化、审批流转与版本复制。
@@ -204,13 +203,8 @@ public class ProcessService {
     }
 
     private int nextVersion(Process source) {
-        List<Process> sameNo = processMapper.selectList(
-                new LambdaQueryWrapper<Process>().eq(Process::getProcessNo, source.getProcessNo()));
-        return sameNo.stream()
-                .map(Process::getVersion)
-                .filter(Objects::nonNull)
-                .max(Integer::compareTo)
-                .orElse(1) + 1;
+        Integer maxVersion = processMapper.selectMaxVersionIncludingDeleted(source.getProcessNo());
+        return maxVersion == null ? 1 : maxVersion + 1;
     }
 
     private long countOperations(Long processId) {
