@@ -2,6 +2,8 @@ package com.zhizao.integration;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.zhizao.common.BusinessException;
+import com.zhizao.dto.QcRequest;
+import com.zhizao.dto.ReportRequest;
 import com.zhizao.entity.WorkOrder;
 import com.zhizao.entity.WorkOrderStatusHistory;
 import com.zhizao.mapper.WorkOrderMapper;
@@ -173,5 +175,28 @@ class WorkOrderConsistencyIntegrationTest {
             return t;
         }
         throw new AssertionError("非法流转应被拒绝");
+    }
+
+    @Test
+    void fullReportThenQcFailureCanReworkAndFinish() {
+        Long id = createOrder("PENDING");
+
+        workOrderService.start(id, "tester");
+        workOrderService.report(id, new ReportRequest(10, 10, 0, null, "tester", "rework-1"));
+        WorkOrder failed = workOrderService.qc(id, new QcRequest("FAIL", "尺寸超差", "qa"));
+
+        assertEquals("IN_PRODUCTION", failed.getStatus());
+        assertEquals(10, failed.getQtyRework());
+
+        WorkOrder reReported = workOrderService.report(id,
+                new ReportRequest(10, 10, 0, null, "tester", "rework-2"));
+        assertEquals("PENDING_QC", reReported.getStatus());
+
+        WorkOrder finished = workOrderService.qc(id, new QcRequest("PASS", null, "qa"));
+
+        assertEquals("FINISHED", finished.getStatus());
+        WorkOrder stored = workOrderMapper.selectById(id);
+        assertEquals(20, stored.getQtyDone(), "累计报工数保留返工批次");
+        assertEquals(10, stored.getQtyRework());
     }
 }

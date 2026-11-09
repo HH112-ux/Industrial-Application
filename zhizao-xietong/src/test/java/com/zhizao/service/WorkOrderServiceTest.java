@@ -310,6 +310,40 @@ class WorkOrderServiceTest {
     }
 
     @Test
+    void qcFailReleasesLastReportQuantityAsRework() {
+        WorkOrder order = order("PENDING_QC");
+        order.setQtyDone(10);
+        when(workOrderMapper.selectById(1L)).thenReturn(order);
+        when(codeGenerator.next("QC")).thenReturn("QC-202609-0001");
+        when(workOrderMapper.updateById(order)).thenReturn(1);
+        WorkOrderReport report = new WorkOrderReport();
+        report.setOrderId(1L);
+        report.setQty(10);
+        when(workOrderReportMapper.selectOne(any())).thenReturn(report);
+
+        WorkOrder result = workOrderService.qc(1L, new QcRequest("FAIL", "尺寸超差", "lisi"));
+
+        assertEquals(10, result.getQtyRework(), "失败批次数量应转为可返工额度");
+    }
+
+    @Test
+    void reportAllowsReworkQuantityAfterQcFailure() {
+        WorkOrder order = order("IN_PRODUCTION");
+        order.setQtyDone(10);
+        order.setQtyRework(10);
+        when(workOrderMapper.selectById(1L)).thenReturn(order);
+        when(codeGenerator.next("RP")).thenReturn("RP-202609-0002");
+        when(workOrderMapper.updateById(order)).thenReturn(1);
+
+        WorkOrder result = workOrderService.report(1L,
+                new ReportRequest(10, 10, 0, null, "zhangsan", null));
+
+        assertEquals("PENDING_QC", result.getStatus());
+        assertEquals(20, result.getQtyDone());
+        assertEquals(10, result.getQtyRework());
+    }
+
+    @Test
     void qcInvalidResultWritesNoRecord() {
         WorkOrder order = order("PENDING_QC");
         when(workOrderMapper.selectById(1L)).thenReturn(order);
