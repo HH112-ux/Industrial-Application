@@ -176,7 +176,7 @@ public class WorkOrderService {
      * 报工：幂等判重 → 校验报工数量与累计上限 → 写入报工记录 → 累加工单数量 → 转「待质检」→ 写入状态历史。
      *
      * <p>数量本身不合法（为空、非正数、合格数与不良数之和不等于报工数）返回 HTTP 400；
-     * 累计报工超过工单数量属于业务拒绝，返回业务码 409。任一校验失败都不写报工记录。</p>
+     * 累计报工超过「工单数量 + 可返工额度」属于业务拒绝，返回业务码 409。任一校验失败都不写报工记录。</p>
      *
      * <p>带幂等键的请求在同一工单内只生效一次：重复请求直接返回当前工单快照，
      * 不校验状态、不写报工记录、不累加数量、不写历史。并发同键请求由唯一索引兜底，
@@ -232,6 +232,9 @@ public class WorkOrderService {
     /**
      * 质检：先校验结论合法性 → 写入质检记录 → PASS 转「已完工」、FAIL 退回「生产中」→ 写入状态历史。
      *
+     * <p>FAIL 时按本批次报工数量释放可返工额度，使被退回的数量可以重新报工，
+     * 避免满额报工后质检失败导致工单永久卡在「生产中」。</p>
+     *
      * <p>结论不是 PASS 或 FAIL 时在落库前拒绝，不产生质检记录。</p>
      *
      * @param id  工单主键
@@ -265,6 +268,7 @@ public class WorkOrderService {
             transitionWithHistory(order, WorkOrderStatus.FINISHED, req.inspector(), remark);
             maybeFinishPlan(order.getPlanId());
         } else {
+            order.setQtyRework(qtyValue(order.getQtyRework()) + lastReportQty(order.getId()));
             transitionWithHistory(order, WorkOrderStatus.IN_PRODUCTION, req.inspector(), remark);
         }
         return order;
@@ -297,12 +301,13 @@ public class WorkOrderService {
     }
 
     /**
-     * 校验报工数量：非空、正数、合格数与不良数之和等于报工数、累计不超过工单数量。
+     * 校验报工数量：非空、正数、合格数与不良数之和等于报工数、
+     * 累计不超过「工单数量 + 可返工额度」。
      *
-     * @param order 当前工单，用于读取已报数量与工单数量
+     * @param order 当前工单，用于读取已报数量、工单数量与可返工额度
      * @param req   报工请求
      * @throws BadRequestException 数量字段缺失、非正数或合计不一致时抛出
-     * @throws BusinessException   累计报工超过工单数量时抛出
+     * @throws BusinessException   累计报工超过上限时抛出
      */
     private void validateReportQty(WorkOrder order, ReportRequest req) {
         if (req.qty() == null || req.qualifiedQty() == null || req.defectQty() == null) {
@@ -317,11 +322,25 @@ public class WorkOrderService {
         if (req.qualifiedQty() + req.defectQty() != req.qty()) {
             throw new BadRequestException("合格数量与不良数量之和必须等于报工数量");
         }
-        int limit = qtyValue(order.getQty());
+        int limit = qtyValue(order.getQty()) + qtyValue(order.getQtyRework());
         if (qtyDone(order) + req.qty() > limit) {
-            throw new BusinessException(409, "累计报工数量超过工单数量，剩余可报 " +
+            throw new BusinessException(409, "累计报工数量超过工单数量与可返工额度，剩余可报 " +
                     Math.max(0, limit - qtyDone(order)) + " 件");
         }
+    }
+
+    /**
+     * 读取最近一次报工的数量，用于质检失败时释放同等的返工额度。
+     *
+     * @param orderId 工单主键
+     * @return 最近一次报工数量，无报工记录时返回 0
+     */
+    private int lastReportQty(Long orderId) {
+        WorkOrderReport last = workOrderReportMapper.selectOne(new LambdaQueryWrapper<WorkOrderReport>()
+                .eq(WorkOrderReport::getOrderId, orderId)
+                .orderByDesc(WorkOrderReport::getId)
+                .last("LIMIT 1"));
+        return last == null ? 0 : qtyValue(last.getQty());
     }
 
     /**

@@ -28,6 +28,7 @@ public class WorkOrder {
     private Integer qtyDone;
     private Integer qtyQualified;
     private Integer qtyDefect;
+    private Integer qtyRework;
     private String batch;
     private String workshop;
     private Long deviceId;
@@ -59,6 +60,8 @@ public class WorkOrder {
     public void setQtyQualified(Integer qtyQualified) { this.qtyQualified = qtyQualified; }
     public Integer getQtyDefect() { return qtyDefect; }
     public void setQtyDefect(Integer qtyDefect) { this.qtyDefect = qtyDefect; }
+    public Integer getQtyRework() { return qtyRework; }
+    public void setQtyRework(Integer qtyRework) { this.qtyRework = qtyRework; }
     public String getBatch() { return batch; }
     public void setBatch(String batch) { this.batch = batch; }
     public String getWorkshop() { return workshop; }
