@@ -16,6 +16,12 @@
         </el-table-column>
         <el-table-column prop="productName" label="产品" min-width="130" />
         <el-table-column prop="qty" label="数量" width="80" />
+        <el-table-column label="报工进度" width="170">
+          <template #default="{ row }">
+            <el-progress :percentage="progressPercent(row)" :stroke-width="8" />
+            <span class="progress-text">累计 {{ row.qtyDone || 0 }} / 计划 {{ row.qty }}</span>
+          </template>
+        </el-table-column>
         <el-table-column prop="batch" label="批次" width="90" />
         <el-table-column prop="workshop" label="车间" width="90" />
         <el-table-column label="状态" width="90">
@@ -126,6 +132,16 @@ function formatTime(value?: string): string {
   return value ? value.replace('T', ' ').slice(0, 19) : '';
 }
 
+// 报工累计口径在返工场景会超过计划数量，进度条封顶 100%，绝对数另行展示。
+function progressPercent(row: WorkOrder): number {
+  const planned = Number(row.qty) || 0;
+  const done = Number(row.qtyDone) || 0;
+  if (planned <= 0) {
+    return done > 0 ? 100 : 0;
+  }
+  return Math.min(100, Math.round((done / planned) * 100));
+}
+
 async function load() {
   loading.value = true;
   try {
@@ -220,6 +236,12 @@ onMounted(load);
 </script>
 
 <style scoped>
+.progress-text {
+  display: block;
+  margin-top: 4px;
+  color: var(--zhizao-muted);
+  font-size: 12px;
+}
 .history-order {
   color: var(--zhizao-muted);
   font-size: 13px;

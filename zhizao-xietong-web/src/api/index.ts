@@ -61,6 +61,8 @@ export interface WorkOrder {
   productCode: string;
   productName: string;
   qty: number;
+  qtyDone?: number;
+  qtyRework?: number;
   batch: string;
   workshop: string;
   deviceId?: number;
