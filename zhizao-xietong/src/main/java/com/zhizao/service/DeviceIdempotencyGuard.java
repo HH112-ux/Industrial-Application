@@ -10,8 +10,9 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * 设备上报幂等守卫：在进程内记录已处理的幂等键，重复上报直接短路。
  *
- * <p>当前实现有界且带过期时间，重启后清空；S2 引入 `eq_telemetry.ingest_key` 唯一索引后，
- * 持久化去重由数据库承担，本组件保留为接入层的快速短路。</p>
+ * <p>当前实现有界且带过期时间，重启后清空；S2 引入 `eq_telemetry` 的
+ * `(device_id, ingest_key)` 唯一索引后，持久化去重由数据库承担，本组件保留为接入层的快速短路。
+ * 内存键与数据库唯一键保持一致，均按「设备 + 幂等键」隔离，避免不同设备的同号消息互相覆盖。</p>
  *
  * @author Caspian
  */
