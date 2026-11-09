@@ -8,6 +8,7 @@ import com.zhizao.security.DeviceSignatureVerifier;
 import com.zhizao.service.DeviceDataService;
 import jakarta.annotation.PreDestroy;
 import org.eclipse.paho.client.mqttv3.IMqttDeliveryToken;
+import org.eclipse.paho.client.mqttv3.IMqttToken;
 import org.eclipse.paho.client.mqttv3.MqttCallbackExtended;
 import org.eclipse.paho.client.mqttv3.MqttClient;
 import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
@@ -30,9 +31,10 @@ import java.util.concurrent.TimeUnit;
 /**
  * 真实设备网关：订阅 MQTT 主题接收设备上报，解析后更新设备状态与遥测。
  *
- * <p>重连策略：持久会话（cleanSession=false）保留订阅；连接丢失后由 Paho 自动重连，
- * 重连成功回调内再次订阅；首次连接失败按指数退避重试，最长间隔 60 秒。
- * 多实例部署时 `mqtt.client-id` 必须每实例唯一，否则会互相顶掉会话。</p>
+ * <p>重连策略：只保留手动指数退避重连（Paho 自动重连已关闭），避免两条重连路径
+ * 各建一个同 clientId 的客户端互相踢下线。持久会话（cleanSession=false）下若
+ * CONNACK 返回 sessionPresent=false，连接后显式重新订阅；替换客户端前先关闭旧实例。</p>
+ * <p>多实例部署时 `mqtt.client-id` 必须每实例唯一，否则会互相顶掉会话。</p>
  *
  * @author Caspian
  */
@@ -95,17 +97,22 @@ public class MqttDeviceGateway implements MqttCallbackExtended {
     }
 
     /**
-     * 建立连接。首次失败按指数退避重试，不设总次数上限。
+     * 建立连接。失败按指数退避重试，不设总次数上限。
+     *
+     * <p>先把新客户端赋值给 {@link #client} 再发起连接：Paho 会在 connect 调用内部
+     * 回调 {@link #connectComplete}，若此时字段仍为 null，订阅会被静默丢弃。</p>
      */
     void connect() {
         if (!running) {
             return;
         }
         try {
-            MqttClient newClient = new MqttClient(brokerUrl, clientId, new MemoryPersistence());
+            closeQuietly(client);
+            client = null;
+            MqttClient newClient = createClient();
             MqttConnectOptions options = new MqttConnectOptions();
             options.setCleanSession(false);
-            options.setAutomaticReconnect(true);
+            options.setAutomaticReconnect(false);
             options.setConnectionTimeout(10);
             options.setKeepAliveInterval(30);
             if (StringUtils.hasText(username)) {
@@ -113,10 +120,16 @@ public class MqttDeviceGateway implements MqttCallbackExtended {
                 options.setPassword(password.toCharArray());
             }
             newClient.setCallback(this);
-            newClient.connect(options);
             client = newClient;
+            IMqttToken token = newClient.connectWithResult(options);
             reconnectAttempt = 0;
-            log.info("MQTT 网关已连接 {}，clientId={}", brokerUrl, clientId);
+            boolean sessionPresent = token.getSessionPresent();
+            log.info("MQTT 网关已连接 {}，clientId={}，sessionPresent={}", brokerUrl, clientId, sessionPresent);
+            if (sessionPresent) {
+                log.info("MQTT 复用 Broker 保留的会话，订阅继续有效");
+            } else {
+                subscribe(newClient);
+            }
         } catch (Exception e) {
             log.warn("MQTT 连接失败（第 {} 次）：{}", reconnectAttempt + 1, e.getMessage());
             scheduleReconnect();
@@ -124,43 +137,83 @@ public class MqttDeviceGateway implements MqttCallbackExtended {
     }
 
     /**
-     * 连接完成回调：无论首次连接还是重连都重新订阅，避免持久会话未保留时丢订阅。
+     * 创建 MQTT 客户端，供测试替换。
      *
-     * @param reconnect true 表示本次是自动重连
+     * @return 新的 MQTT 客户端
+     * @throws org.eclipse.paho.client.mqttv3.MqttException 客户端初始化失败时抛出
+     */
+    MqttClient createClient() throws org.eclipse.paho.client.mqttv3.MqttException {
+        return new MqttClient(brokerUrl, clientId, new MemoryPersistence());
+    }
+
+    /**
+     * 关闭客户端并忽略异常，用于替换客户端与停机场景。
+     *
+     * @param current 待关闭的客户端，可为空
+     */
+    private void closeQuietly(MqttClient current) {
+        if (current == null) {
+            return;
+        }
+        try {
+            current.disconnectForcibly(0, 0);
+        } catch (Exception ignored) {
+            // 连接已断开时忽略
+        }
+        try {
+            current.close(true);
+        } catch (Exception ignored) {
+            // 客户端已关闭时忽略
+        }
+    }
+
+    /**
+     * 连接完成回调：由 Paho 在 connect 内部触发，此时 {@link #client} 已赋值。
+     *
+     * <p>订阅统一在 {@link #connect()} 拿到 CONNACK 的 sessionPresent 后执行，
+     * 这里只记录日志，避免首次连接时订阅两次。</p>
+     *
+     * @param reconnect true 表示本次是重连
      * @param serverURI Broker 地址
      */
     @Override
     public void connectComplete(boolean reconnect, String serverURI) {
         reconnectAttempt = 0;
         log.info("MQTT {} 成功：{}", reconnect ? "重连" : "连接", serverURI);
-        subscribe();
     }
 
     /**
-     * 订阅设备上报主题；订阅失败时触发重连。
+     * 订阅设备上报主题。
+     *
+     * @param current 目标客户端
+     * @return 订阅成功返回 true；客户端未就绪时返回 false 并安排重连
      */
-    private void subscribe() {
-        MqttClient current = client;
+    boolean subscribe(MqttClient current) {
         if (current == null || !current.isConnected()) {
-            return;
+            log.warn("MQTT 客户端未就绪，订阅未执行，将安排重连");
+            scheduleReconnect();
+            return false;
         }
         try {
             current.subscribe(topic, qos);
             log.info("MQTT 已订阅 {}（QoS {}）", topic, qos);
+            return true;
         } catch (Exception e) {
             log.warn("MQTT 订阅失败：{}", e.getMessage());
             scheduleReconnect();
+            return false;
         }
     }
 
     /**
-     * 连接断开回调：交由 Paho 自动重连，这里只记录日志。
+     * 连接断开回调：关闭 Paho 自动重连后由本类统一安排指数退避重连。
      *
      * @param cause 断开原因，可能为空
      */
     @Override
     public void connectionLost(Throwable cause) {
-        log.warn("MQTT 连接断开，Paho 将自动重连：{}", cause == null ? "unknown" : cause.getMessage());
+        log.warn("MQTT 连接断开，将按退避策略重连：{}", cause == null ? "unknown" : cause.getMessage());
+        scheduleReconnect();
     }
 
     /**
@@ -223,7 +276,7 @@ public class MqttDeviceGateway implements MqttCallbackExtended {
     /**
      * 安排下一次重连，间隔按指数退避增长。
      */
-    private void scheduleReconnect() {
+    void scheduleReconnect() {
         if (!running) {
             return;
         }
@@ -272,13 +325,7 @@ public class MqttDeviceGateway implements MqttCallbackExtended {
     public void stop() {
         running = false;
         scheduler.shutdownNow();
-        MqttClient current = client;
-        if (current != null) {
-            try {
-                current.disconnect();
-            } catch (Exception ignored) {
-                // 关闭阶段忽略断开异常
-            }
-        }
+        closeQuietly(client);
+        client = null;
     }
 }
