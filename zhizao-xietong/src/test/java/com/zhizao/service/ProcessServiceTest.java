@@ -7,6 +7,7 @@ import com.zhizao.entity.ProcessOperation;
 import com.zhizao.mapper.BomItemMapper;
 import com.zhizao.mapper.ProcessMapper;
 import com.zhizao.mapper.ProcessOperationMapper;
+import com.zhizao.mapper.WorkOrderMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -38,6 +39,8 @@ class ProcessServiceTest {
     @Mock
     private ProcessOperationMapper processOperationMapper;
     @Mock
+    private WorkOrderMapper workOrderMapper;
+    @Mock
     private CodeGenerator codeGenerator;
 
     @InjectMocks
@@ -51,6 +54,37 @@ class ProcessServiceTest {
         process.setProcessName("轴类加工工艺");
         process.setApprovalStatus(status);
         return process;
+    }
+
+    @Test
+    void deleteRejectsPublishedProcess() {
+        when(processMapper.selectById(1L)).thenReturn(process("PUBLISHED", 1));
+
+        BusinessException error = assertThrows(BusinessException.class, () -> processService.delete(1L));
+
+        assertTrue(error.getMessage().contains("已发布"));
+        verify(processMapper, never()).deleteById(1L);
+    }
+
+    @Test
+    void deleteRejectsProcessReferencedByWorkOrders() {
+        when(processMapper.selectById(1L)).thenReturn(process("DRAFT", 2));
+        when(workOrderMapper.selectCount(any())).thenReturn(1L);
+
+        BusinessException error = assertThrows(BusinessException.class, () -> processService.delete(1L));
+
+        assertTrue(error.getMessage().contains("1 张工单"));
+        verify(processMapper, never()).deleteById(1L);
+    }
+
+    @Test
+    void deleteRemovesUnreferencedDraft() {
+        when(processMapper.selectById(1L)).thenReturn(process("DRAFT", 2));
+        when(workOrderMapper.selectCount(any())).thenReturn(0L);
+
+        processService.delete(1L);
+
+        verify(processMapper).deleteById(1L);
     }
 
     @Test

@@ -113,8 +113,19 @@ public class PlanService {
         return getById(plan.getId());
     }
 
+    /**
+     * 删除计划：计划下仍挂有工单时拒绝删除，避免工单失去所属计划。
+     *
+     * @param id 计划主键
+     * @throws BusinessException 计划下仍有工单时抛出
+     */
     public void delete(Long id) {
         getById(id);
+        Long mounted = workOrderMapper.selectCount(new LambdaQueryWrapper<WorkOrder>()
+                .eq(WorkOrder::getPlanId, id));
+        if (mounted != null && mounted > 0) {
+            throw new BusinessException("计划下仍有 " + mounted + " 张工单，请先处理工单后再删除");
+        }
         planMapper.deleteById(id);
     }
 
