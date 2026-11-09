@@ -75,6 +75,18 @@ jobs:
   backend:
     name: Backend tests
     runs-on: ubuntu-latest
+    services:
+      # 集成测试会触发 @CacheEvict，应用默认走 Redis；本地由 docker-compose 提供，
+      # CI 需要同样的服务，否则 ProcessVersionIntegrationTest 会因连接失败报错。
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     defaults:
       run:
         working-directory: zhizao-xietong
