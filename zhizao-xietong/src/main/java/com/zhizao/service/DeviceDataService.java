@@ -201,7 +201,7 @@ public class DeviceDataService {
         try {
             telemetryMapper.insert(record);
         } catch (DuplicateKeyException e) {
-            log.info("设备上报幂等键已存在，跳过时序写入：deviceNo={}，ingestKey={}",
+            log.warn("设备上报幂等键已存在，跳过时序写入：deviceNo={}，ingestKey={}",
                     report.deviceNo(), ingestKey);
         } catch (RuntimeException e) {
             log.warn("设备遥测写入失败，已忽略：deviceNo={}，原因={}", report.deviceNo(), e.getMessage());

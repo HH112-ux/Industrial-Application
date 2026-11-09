@@ -27,6 +27,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -111,6 +112,31 @@ class DeviceDataServiceTest {
 
         verify(deviceMapper, never()).updateById(any(Device.class));
         verify(telemetryMapper, never()).insert(any(DeviceTelemetryRecord.class));
+    }
+
+    @Test
+    void sameIngestKeyFromDifferentDevicesIsPersistedForBoth() {
+        Device first = device();
+        Device second = device();
+        second.setId(2L);
+        second.setDeviceNo("EQ-202609-0002");
+        when(deviceMapper.selectOne(any())).thenReturn(first, second);
+
+        deviceDataService.handleGatewayReport(
+                new DeviceGatewayReport("EQ-202609-0001", "RUNNING", 45.0, 1500.0, 8.5,
+                        null, null, null, null, "k-shared"), "k-shared", "HTTP");
+        deviceDataService.handleGatewayReport(
+                new DeviceGatewayReport("EQ-202609-0002", "RUNNING", 46.0, 1600.0, 9.0,
+                        null, null, null, null, "k-shared"), "k-shared", "HTTP");
+
+        verify(idempotencyGuard).acquire("EQ-202609-0001:k-shared");
+        verify(idempotencyGuard).acquire("EQ-202609-0002:k-shared");
+        ArgumentCaptor<DeviceTelemetryRecord> captor = ArgumentCaptor.forClass(DeviceTelemetryRecord.class);
+        verify(telemetryMapper, times(2)).insert(captor.capture());
+        assertEquals(List.of(1L, 2L), captor.getAllValues().stream()
+                .map(DeviceTelemetryRecord::getDeviceId).toList());
+        assertEquals(List.of("k-shared", "k-shared"), captor.getAllValues().stream()
+                .map(DeviceTelemetryRecord::getIngestKey).toList());
     }
 
     @Test
