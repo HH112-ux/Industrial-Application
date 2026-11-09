@@ -14,6 +14,17 @@
       </view>
     </view>
 
+    <view class="card progress">
+      <view class="progress-head">
+        <text class="k">报工进度</text>
+        <text class="v">{{ progressPercent }}%</text>
+      </view>
+      <view class="progress-bar">
+        <view class="progress-fill" :style="{ width: progressPercent + '%' }" />
+      </view>
+      <text class="progress-text">累计 {{ order.qtyDone || 0 }} / 计划 {{ order.qty }}</text>
+    </view>
+
     <view class="actions">
       <button v-if="order.status === 'PENDING'" class="btn" @click="start">开工</button>
       <button v-if="order.status === 'IN_PRODUCTION'" class="btn" @click="openReport">报工</button>
@@ -24,7 +35,7 @@
     <view v-if="reportVisible" class="mask" @click="reportVisible = false">
       <view class="sheet" @click.stop>
         <text class="sheet-title">报工</text>
-        <text class="hint">计划 {{ order.qty }}，已报 {{ order.qtyDone || 0 }}，剩余 {{ remainingQty }}；合格 + 不良必须等于报工数量</text>
+        <text class="hint">累计 {{ order.qtyDone || 0 }} / 计划 {{ order.qty }}，剩余 {{ remainingQty }}；合格 + 不良必须等于报工数量</text>
         <input v-model="reportForm.qty" type="number" class="input" placeholder="报工数量" />
         <input v-model="reportForm.qualifiedQty" type="number" class="input" placeholder="合格数量" />
         <input v-model="reportForm.defectQty" type="number" class="input" placeholder="不良数量" />
@@ -62,8 +73,19 @@ export default {
     };
   },
   computed: {
+    // 报工累计口径在返工场景会超过计划数量，进度条封顶 100%，绝对数另行展示。
+    progressPercent() {
+      const planned = Number(this.order.qty) || 0;
+      const done = Number(this.order.qtyDone) || 0;
+      if (planned <= 0) {
+        return done > 0 ? 100 : 0;
+      }
+      return Math.min(100, Math.round((done / planned) * 100));
+    },
     remainingQty() {
-      return Math.max((this.order.qty || 0) - (this.order.qtyDone || 0), 0);
+      // 质检失败后释放可返工额度，剩余量按「计划 + 可返工」计算。
+      const limit = (this.order.qty || 0) + (this.order.qtyRework || 0);
+      return Math.max(limit - (this.order.qtyDone || 0), 0);
     }
   },
   onLoad(options) {
@@ -154,6 +176,41 @@ export default {
   color: #182538;
   font-size: 28rpx;
   font-weight: 600;
+}
+.progress {
+  margin-top: 24rpx;
+}
+.progress-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14rpx;
+}
+.progress-head .k {
+  color: #5b6b82;
+  font-size: 28rpx;
+}
+.progress-head .v {
+  color: #1d5fd6;
+  font-size: 28rpx;
+  font-weight: 700;
+}
+.progress-bar {
+  height: 14rpx;
+  border-radius: 999rpx;
+  background: #e3e8f0;
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  border-radius: 999rpx;
+  background: #1d5fd6;
+}
+.progress-text {
+  display: block;
+  margin-top: 10rpx;
+  color: #5b6b82;
+  font-size: 24rpx;
 }
 .actions {
   margin-top: 32rpx;
