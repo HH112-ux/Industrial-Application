@@ -9,7 +9,8 @@
 
     <div class="page-card">
       <div class="card-title">生产工单状态分布</div>
-      <div ref="chartRef" style="height: 340px"></div>
+      <div v-if="chartEmpty" class="chart-empty">暂无工单数据</div>
+      <div v-show="!chartEmpty" ref="chartRef" style="height: 340px"></div>
     </div>
   </div>
 </template>
@@ -29,6 +30,7 @@ const kpis = reactive([
 ]);
 
 const chartRef = ref<HTMLElement>();
+const chartEmpty = ref(false);
 let chart: echarts.ECharts | null = null;
 
 async function loadCounts() {
@@ -47,15 +49,16 @@ async function loadCounts() {
 }
 
 async function loadChart() {
-  const res = await workOrderApi.list({ pageNum: 1, pageSize: 100 });
-  const counts: Record<string, number> = {};
-  res.records.forEach((o) => {
-    counts[o.status!] = (counts[o.status!] || 0) + 1;
-  });
-  const data = Object.keys(counts).map((k) => ({
-    name: workOrderStatusMap[k]?.label || k,
-    value: counts[k]
-  }));
+  const counts = await workOrderApi.statusCounts();
+  const data = counts
+    .filter((c) => c.count > 0)
+    .map((c) => ({ name: workOrderStatusMap[c.status]?.label || c.status, value: c.count }));
+  chartEmpty.value = data.length === 0;
+  if (!data.length) {
+    chart?.dispose();
+    chart = null;
+    return;
+  }
 
   chart = echarts.init(chartRef.value!);
   chart.setOption({
@@ -70,7 +73,7 @@ async function loadChart() {
         avoidLabelOverlap: true,
         itemStyle: { borderColor: '#fff', borderWidth: 2 },
         label: { formatter: '{b}: {c}' },
-        data: data.length ? data : [{ name: '暂无数据', value: 1 }]
+        data
       }
     ]
   });
@@ -81,8 +84,8 @@ function onResize() {
 }
 
 onMounted(() => {
-  loadCounts();
-  loadChart();
+  loadCounts().catch(() => ElMessage.error('看板统计加载失败'));
+  loadChart().catch(() => ElMessage.error('工单状态分布加载失败'));
   window.addEventListener('resize', onResize);
 });
 
@@ -126,5 +129,13 @@ onBeforeUnmount(() => {
   font-weight: 700;
   font-size: 15px;
   margin-bottom: 8px;
+}
+.chart-empty {
+  height: 340px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--zhizao-muted);
+  font-size: 14px;
 }
 </style>

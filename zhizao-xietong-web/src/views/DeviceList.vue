@@ -52,13 +52,15 @@
       width="92%" style="max-width: 760px" @closed="closeTelemetry">
       <div v-if="telemetry" class="telemetry">
         <div class="t-item"><span>设备状态</span><b>{{ deviceStatusMap[telemetry.status]?.label || telemetry.status }}</b></div>
-        <div class="t-item"><span>数据来源</span><b>{{ telemetry.source || '-' }}</b></div>
-        <div class="t-item"><span>温度</span><b>{{ telemetry.temperature }} ℃</b></div>
-        <div class="t-item"><span>转速</span><b>{{ telemetry.rpm }} rpm</b></div>
-        <div class="t-item"><span>电流</span><b>{{ telemetry.current }} A</b></div>
-        <div class="t-item"><span>OEE</span><b>{{ telemetry.oee }}%</b></div>
+        <div class="t-item"><span>数据来源</span><b>{{ telemetry.source === 'NONE' ? '无数据（设备未上报）' : telemetry.source || '-' }}</b></div>
+        <div class="t-item"><span>温度</span><b>{{ telemetry.temperature == null ? '无数据' : `${telemetry.temperature} ℃` }}</b></div>
+        <div class="t-item"><span>转速</span><b>{{ telemetry.rpm == null ? '无数据' : `${telemetry.rpm} rpm` }}</b></div>
+        <div class="t-item"><span>电流</span><b>{{ telemetry.current == null ? '无数据' : `${telemetry.current} A` }}</b></div>
+        <div class="t-item"><span>OEE</span><b>{{ telemetry.oee == null ? '无数据' : `${telemetry.oee}%` }}</b></div>
       </div>
+      <div v-else-if="telemetryError" class="telemetry-empty">{{ telemetryError }}</div>
       <div v-else class="telemetry-empty">暂无实时数据</div>
+      <div v-if="telemetryError && telemetry" class="telemetry-empty">{{ telemetryError }}</div>
 
       <div class="history-head">
         <span class="history-title">遥测历史</span>
@@ -68,7 +70,11 @@
           <el-radio-button value="7d">近 7 天</el-radio-button>
         </el-radio-group>
       </div>
-      <div v-if="historyLoading" class="telemetry-empty">加载中…</div>
+      <div v-if="historyTruncated" class="history-hint">
+        仅显示最近 {{ historyPoints.length }} 点（区间共 {{ historyTotal }} 点），请缩小区间查看更早数据
+      </div>
+      <div v-if="historyError" class="telemetry-empty">{{ historyError }}</div>
+      <div v-else-if="historyLoading" class="telemetry-empty">加载中…</div>
       <div v-else-if="!historyPoints.length" class="telemetry-empty">
         所选时间范围内没有遥测记录（设备未上报，或已超出 90 天保留期）
       </div>
@@ -114,17 +120,22 @@ const rows = ref<Device[]>([]);
 const total = ref(0);
 const query = reactive({ pageNum: 1, pageSize: 10, keyword: '', status: '' });
 
+let listSeq = 0;
 const dialog = reactive({ visible: false, isEdit: false });
 const form = reactive<Device>({ deviceName: '', deviceType: '加工设备', manufacturer: '', model: '', serialNo: '', status: 'STOPPED' });
 
 async function load() {
+  const seq = ++listSeq;
   loading.value = true;
   try {
     const res = await deviceApi.list(query);
+    if (seq !== listSeq) return;
     rows.value = res.records;
     total.value = res.total;
+  } catch {
+    if (seq === listSeq) ElMessage.error('设备列表加载失败');
   } finally {
-    loading.value = false;
+    if (seq === listSeq) loading.value = false;
   }
 }
 
@@ -180,17 +191,27 @@ onMounted(load);
 
 const telemetryDialog = reactive({ visible: false, device: null as Device | null });
 const telemetry = ref<DeviceTelemetry | null>(null);
+const telemetryError = ref('');
 let telemetryTimer: number | undefined;
 
 const historyRange = ref<'1h' | '24h' | '7d'>('24h');
 const historyPoints = ref<DeviceTelemetryPoint[]>([]);
 const historyLoading = ref(false);
+const historyError = ref('');
+const historyTotal = ref(0);
+const historyTruncated = ref(false);
+let historySeq = 0;
 const historyChartRef = ref<HTMLElement>();
 let historyChart: echarts.ECharts | null = null;
 
 async function loadTelemetry() {
   if (!telemetryDialog.device?.id) return;
-  telemetry.value = await deviceDataApi.telemetry(telemetryDialog.device.id);
+  try {
+    telemetry.value = await deviceDataApi.telemetry(telemetryDialog.device.id);
+    telemetryError.value = '';
+  } catch {
+    telemetryError.value = '实时数据获取失败，稍后自动重试';
+  }
 }
 
 function localIso(date: Date): string {
@@ -214,17 +235,30 @@ function rangeStart(range: '1h' | '24h' | '7d'): Date {
 async function loadHistory() {
   const id = telemetryDialog.device?.id;
   if (!id) return;
+  const seq = ++historySeq;
   historyLoading.value = true;
+  historyError.value = '';
   try {
-    historyPoints.value = await deviceDataApi.history(id, {
+    const data = await deviceDataApi.history(id, {
       from: localIso(rangeStart(historyRange.value)),
       to: localIso(new Date()),
       limit: 1000
     });
+    if (seq !== historySeq || !telemetryDialog.visible) return;
+    historyPoints.value = data.points;
+    historyTotal.value = data.total;
+    historyTruncated.value = data.truncated;
     await nextTick();
     renderHistory();
+  } catch {
+    if (seq !== historySeq) return;
+    historyPoints.value = [];
+    historyTruncated.value = false;
+    historyError.value = '遥测历史加载失败，请稍后重试';
+    historyChart?.dispose();
+    historyChart = null;
   } finally {
-    historyLoading.value = false;
+    if (seq === historySeq) historyLoading.value = false;
   }
 }
 
@@ -263,7 +297,12 @@ function openTelemetry(row: Device) {
   telemetryDialog.device = row;
   telemetryDialog.visible = true;
   telemetry.value = null;
+  telemetryError.value = '';
   historyPoints.value = [];
+  historyError.value = '';
+  historyTotal.value = 0;
+  historyTruncated.value = false;
+  historySeq++;
   historyChart?.dispose();
   historyChart = null;
   loadTelemetry();
@@ -273,6 +312,7 @@ function openTelemetry(row: Device) {
 
 function closeTelemetry() {
   telemetryDialog.visible = false;
+  historySeq++;
   if (telemetryTimer) {
     window.clearInterval(telemetryTimer);
     telemetryTimer = undefined;
@@ -329,6 +369,11 @@ onBeforeUnmount(() => {
 .history-title {
   font-weight: 700;
   font-size: 14px;
+}
+.history-hint {
+  color: var(--zhizao-muted);
+  font-size: 12px;
+  padding: 0 0 8px;
 }
 .history-chart {
   width: 100%;
