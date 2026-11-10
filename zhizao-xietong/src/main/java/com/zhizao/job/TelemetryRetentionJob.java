@@ -22,6 +22,12 @@ public class TelemetryRetentionJob {
 
     private static final Logger log = LoggerFactory.getLogger(TelemetryRetentionJob.class);
 
+    /** 单批删除行数，避免一次大事务长时间锁表。 */
+    private static final int BATCH_SIZE = 5000;
+
+    /** 单次任务最多执行的批次数，防止异常数据导致无限循环。 */
+    private static final int MAX_BATCHES = 200;
+
     private final DeviceTelemetryMapper telemetryMapper;
 
     @Value("${device.telemetry.retention-days:90}")
@@ -52,13 +58,21 @@ public class TelemetryRetentionJob {
      */
     public int cleanup(Clock clock) {
         LocalDateTime cutoff = cutoff(clock);
-        int deleted = telemetryMapper.delete(
-                new LambdaQueryWrapper<DeviceTelemetryRecord>()
-                        .lt(DeviceTelemetryRecord::getReportedAt, cutoff));
-        if (deleted > 0) {
-            log.info("已清理 {} 条早于 {} 的设备遥测", deleted, cutoff);
+        int total = 0;
+        for (int batch = 0; batch < MAX_BATCHES; batch++) {
+            int deleted = telemetryMapper.delete(
+                    new LambdaQueryWrapper<DeviceTelemetryRecord>()
+                            .lt(DeviceTelemetryRecord::getReportedAt, cutoff)
+                            .last("LIMIT " + BATCH_SIZE));
+            total += deleted;
+            if (deleted < BATCH_SIZE) {
+                break;
+            }
         }
-        return deleted;
+        if (total > 0) {
+            log.info("已清理 {} 条早于 {} 的设备遥测", total, cutoff);
+        }
+        return total;
     }
 
     /**

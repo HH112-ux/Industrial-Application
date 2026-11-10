@@ -28,6 +28,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.times;
@@ -43,7 +44,8 @@ import static org.mockito.Mockito.when;
 @MockitoSettings(strictness = Strictness.LENIENT)
 class ScheduleServiceTest {
 
-    private static final LocalDate DAY = LocalDate.of(2026, 11, 10);
+    /** 用未来日期，避免用例在「计划开始日已过」时因运行时钟不同而失败。 */
+    private static final LocalDate DAY = LocalDate.now().plusDays(1);
     private static final String TYPE = "加工设备";
 
     @Mock
@@ -83,7 +85,7 @@ class ScheduleServiceTest {
         assertEquals(DAY.atTime(16, 0), entry.getEndTime());
         assertEquals(0, new BigDecimal("8.00").compareTo(entry.getDurationHours()));
         assertEquals(1, entry.getQueueRank());
-        assertTrue(entry.getRankBasis().contains("交期 2026-11-10"));
+        assertTrue(entry.getRankBasis().contains("交期 " + DAY));
         assertEquals("STANDARD", entry.getHoursSource());
         assertNull(entry.getConflictCode());
     }
@@ -274,6 +276,16 @@ class ScheduleServiceTest {
         assertEquals(DAY.atTime(11, 0), secondEntry.getEndTime());
         assertEquals(0, new BigDecimal("2.00").compareTo(secondEntry.getDurationHours()));
         assertTrue(secondEntry.getMessage().contains("换型 1"));
+    }
+
+    @Test
+    void rejectsInvalidScheduleConfig() {
+        assertThrows(IllegalArgumentException.class, () -> new ScheduleService(
+                workOrderMapper, planMapper, processOperationMapper, deviceMapper, scheduleEntryMapper,
+                BigDecimal.valueOf(8), 24, BigDecimal.ZERO));
+        assertThrows(IllegalArgumentException.class, () -> new ScheduleService(
+                workOrderMapper, planMapper, processOperationMapper, deviceMapper, scheduleEntryMapper,
+                BigDecimal.ZERO, 8, BigDecimal.ZERO));
     }
 
     private ScheduleService newService(BigDecimal estimateFallbackHours) {

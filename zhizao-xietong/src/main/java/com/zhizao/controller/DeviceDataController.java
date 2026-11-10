@@ -12,6 +12,7 @@ import com.zhizao.service.DeviceDataService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -108,7 +109,8 @@ public class DeviceDataController {
         return Result.ok();
     }
 
-    /** 演示：通过 MQTT 发布一条测试上报（需启用 MQTT 网关）。 */
+    /** 演示：通过 MQTT 发布一条测试上报（需启用 MQTT 网关，仅管理员可用）。 */
+    @PreAuthorize("hasRole('ADMIN')")
     @PostMapping("/integration/mqtt/publish")
     public Result<Void> publishMqtt(@RequestBody DeviceGatewayReport report) {
         MqttDeviceGateway gateway = mqttGateway.getIfAvailable();

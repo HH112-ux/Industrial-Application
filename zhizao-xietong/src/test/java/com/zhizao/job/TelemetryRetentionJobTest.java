@@ -14,6 +14,7 @@ import java.time.ZoneOffset;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -44,5 +45,15 @@ class TelemetryRetentionJobTest {
 
         assertEquals(3, job.cleanup(clock));
         verify(telemetryMapper).delete(any());
+    }
+
+    @Test
+    void cleanupDeletesInBatchesUntilBelowBatchSize() {
+        TelemetryRetentionJob job = new TelemetryRetentionJob(telemetryMapper);
+        Clock clock = Clock.fixed(Instant.parse("2026-11-06T00:00:00Z"), ZoneOffset.UTC);
+        when(telemetryMapper.delete(any())).thenReturn(5000, 1);
+
+        assertEquals(5001, job.cleanup(clock));
+        verify(telemetryMapper, times(2)).delete(any());
     }
 }

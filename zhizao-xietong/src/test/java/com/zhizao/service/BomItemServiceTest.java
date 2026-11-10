@@ -72,6 +72,20 @@ class BomItemServiceTest {
     }
 
     @Test
+    void createRejectsNonPositiveQty() {
+        when(processService.requireEditable(1L)).thenReturn(new Process());
+        when(materialService.getByCode("MT-001")).thenReturn(material("MT-001"));
+        BomItem item = item("MT-001");
+        item.setRequiredQty(0);
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> bomItemService.create(1L, item));
+
+        assertEquals("BOM 用量必须大于 0", error.getMessage());
+        verify(bomItemMapper, never()).insert(any(BomItem.class));
+    }
+
+    @Test
     void createRejectsPublishedProcess() {
         when(processService.requireEditable(1L))
                 .thenThrow(new BusinessException("已发布工艺不可编辑，请新建版本"));

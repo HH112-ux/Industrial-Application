@@ -101,7 +101,11 @@ export default {
     },
     openReport() {
       if (!this.reportForm.idempotencyKey) {
-        this.reportForm.idempotencyKey = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+        const cacheKey = `report-idem-${this.id}`;
+        const saved = uni.getStorageSync(cacheKey);
+        this.reportForm.idempotencyKey = saved
+          || `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+        uni.setStorageSync(cacheKey, this.reportForm.idempotencyKey);
       }
       this.reportVisible = true;
     },
@@ -137,6 +141,7 @@ export default {
         idempotencyKey: this.reportForm.idempotencyKey
       });
       uni.showToast({ title: '已报工', icon: 'success' });
+      uni.removeStorageSync(`report-idem-${this.id}`);
       this.reportForm.idempotencyKey = '';
       this.reportVisible = false;
       this.load();
