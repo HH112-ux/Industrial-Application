@@ -39,7 +39,7 @@ erDiagram
 | `mt_material` | `Material` | `MaterialMapper` | 物料与库存 | `uk_mat_code`，`kit_status` 索引 |
 | `pr_process` | `Process` | `ProcessMapper` | 工艺主数据，一行即一个版本 | `uk_process_no`、`uk_process_no_version (process_no, version)` |
 | `pr_process_operation` | `ProcessOperation` | `ProcessOperationMapper` | 工艺版本的工序路线 | `process_id` 普通索引，`(process_id, seq)` 由服务层保证不重复 |
-| `pr_bom` | `BomItem` | `BomItemMapper` | 工艺物料清单，按 `process_id` 归属版本 | 仅 `process_id` 普通索引；`version` 列已废弃，见 §2.2 |
+| `pr_bom` | `BomItem` | `BomItemMapper` | 工艺物料清单，按 `process_id` 归属版本 | 仅 `process_id` 普通索引 |
 | `po_plan` | `Plan` | `PlanMapper` | 生产计划 | `uk_plan_order_no`，状态索引，`workshop` 索引 |
 | `po_schedule_entry` | `ScheduleEntry` | `ScheduleEntryMapper` | 有限产能排程结果与冲突原因 | `work_order_id`、`(device_id, start_time)`、`status` 索引；派生数据，无逻辑删除 |
 | `wo_work_order` | `WorkOrder` | `WorkOrderMapper` | 生产工单 | `uk_order_no`，`plan_id`/`status` 索引；`process_version` 记录开工时锁定的工艺版本 |
@@ -66,7 +66,7 @@ V14 另创建 5 个只读视图：`v_work_order_summary`、`v_device_status`、`
 | `wo_report` | `qty`、`qualified_qty`、`defect_qty` | 均可为空或任意整数 | 无正数校验、无累计上限、无幂等键 |
 | `wo_quality` | `result` | 字符串 `PASS/FAIL` | 质检记录先落库再校验结论，非法值依赖事务回滚 |
 | `pr_process` | `device_mat_req` | 逗号分隔的描述字符串 | 工序结构已由 `pr_process_operation` 承接，该字段保留为辅助描述 |
-| `pr_bom` | `version` | V3 增加，S4 起废弃 | 已无业务含义，保留列与存量数据；新逻辑只按 `process_id` 读写 |
+| `pr_bom` | `version` | V3 增加，S4 起废弃 | V21 已删除该列；版本只按 `process_id` 关联工艺版本行 |
 | `eq_device` | `status` | 由 MQTT 或手工接口修改 | S1 已补 `last_seen_at`；S6 已补 `workshop` 作为数据域 |
 | `sys_user` | `role` | `ADMIN/USER` | S6 已补 `enabled`、`token_version`、`workshop_scope`，逐请求查库即时生效 |
 | `sys_audit_log` | `params` | 截断到 1000 字符 | S6 已补查询索引；结果状态、耗时、链路标识留待 S7 |
@@ -221,15 +221,15 @@ V9 为存量工艺回填一条「默认工序」（`seq = 1`），保证迁移�
 
 | 变更 | 设计意图 |
 |---|---|
-| **废弃 `version` 列** | A 方案下版本由 `pr_process` 行（`process_id`）表达，BOM 不再自带版本；该列保留不删以兼容存量数据，新逻辑不读不写。见下方「废弃字段」说明 |
+| **删除 `version` 列** | A 方案下版本由 `pr_process` 行（`process_id`）表达，BOM 不再自带版本；V21 已删除该列，见下方「已删除字段」说明 |
 | 新增 `unit VARCHAR(16)` | 计量单位，避免「1 个」与「1 千克」混用 |
 | 新增 `scrap_rate DECIMAL(5,4) DEFAULT 0` | 损耗率，齐套计算口径可解释 |
 
-**废弃字段：`pr_bom.version`（S4 起）**
+**已删除字段：`pr_bom.version`（V21）**
 
 - 原因：S4 采用 A 方案，工艺版本以 `pr_process` 同一 `process_no` 的多行表达。BOM 通过 `process_id` 定位到具体版本行，`version` 列不再承担版本区分职责。
-- 处理：列保留、存量数据保留；新逻辑（`BomItemService`、`KitCheckService`、`ProcessService.createVersion`）一律按 `process_id` 读写，不再以 `version` 取数或过滤。
-- 风险控制：不直接删列，避免历史数据不可追溯；后续若确认无外部依赖，再单独发起删除迁移。
+- 处理：V21 迁移删除该列，实体字段同步移除；`BomItemService`、`KitCheckService`、`ProcessService.createVersion` 一律按 `process_id` 读写。
+- 说明：删除前已确认代码与接口均不再读取该列，前端传入的 `version` 字段会被忽略。
 
 #### `wo_work_order`
 

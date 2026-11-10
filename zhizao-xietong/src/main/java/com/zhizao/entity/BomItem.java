@@ -18,13 +18,6 @@ public class BomItem {
     @TableId(type = IdType.AUTO)
     private Long id;
     private Long processId;
-    /**
-     * 历史遗留字段：BOM 版本已由工艺版本行表达，新逻辑不再按此列读写。
-     *
-     * @deprecated 使用 {@code processId} 定位工艺版本，保留该列仅为兼容存量数据。
-     */
-    @Deprecated
-    private Integer version = 1;
     private String matCode;
     private Integer requiredQty;
     private LocalDateTime createdAt;
@@ -35,8 +28,6 @@ public class BomItem {
     public void setId(Long id) { this.id = id; }
     public Long getProcessId() { return processId; }
     public void setProcessId(Long processId) { this.processId = processId; }
-    public Integer getVersion() { return version; }
-    public void setVersion(Integer version) { this.version = version; }
     public String getMatCode() { return matCode; }
     public void setMatCode(String matCode) { this.matCode = matCode; }
     public Integer getRequiredQty() { return requiredQty; }

@@ -96,6 +96,15 @@ public class ScheduleService {
         this.processOperationMapper = processOperationMapper;
         this.deviceMapper = deviceMapper;
         this.scheduleEntryMapper = scheduleEntryMapper;
+        if (dailyHours == null || dailyHours.signum() <= 0) {
+            throw new IllegalArgumentException("schedule.daily-hours 必须大于 0");
+        }
+        if (dayStartHour < 0 || dayStartHour > 23) {
+            throw new IllegalArgumentException("schedule.day-start-hour 必须在 0-23 之间");
+        }
+        if (estimateFallbackHours == null || estimateFallbackHours.signum() < 0) {
+            throw new IllegalArgumentException("schedule.estimate-fallback-hours 不能为负数");
+        }
         this.dailyHours = dailyHours;
         this.dayStartHour = dayStartHour;
         this.estimateFallbackHours = estimateFallbackHours;

@@ -137,12 +137,16 @@ function openAssign(row: UserAccount) {
 }
 
 async function submitAssign() {
-  if (!assignDialog.workshopScope.trim()) {
-    ElMessage.warning('请填写车间');
-    return;
-  }
-  await userApi.assignWorkshop(assignDialog.id, assignDialog.workshopScope.trim());
-  ElMessage.success('已分配车间');
+  const scope = assignDialog.workshopScope.trim();
+  await ElMessageBox.confirm(
+    scope
+      ? `将 ${assignDialog.username} 的车间数据域改为「${scope}」？`
+      : `撤销 ${assignDialog.username} 的车间分配？该用户将看不到任何车间数据。`,
+    '确认分配',
+    { type: 'warning' }
+  );
+  await userApi.assignWorkshop(assignDialog.id, scope);
+  ElMessage.success(scope ? '已分配车间' : '已撤销车间分配，该用户将看不到车间数据');
   assignDialog.visible = false;
   load();
 }

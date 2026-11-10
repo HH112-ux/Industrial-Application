@@ -12,6 +12,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -92,11 +93,14 @@ class UserServiceTest {
     }
 
     @Test
-    void assigningBlankWorkshopIsRejected() {
+    void assigningBlankWorkshopClearsScope() {
         when(userMapper.selectById(1L)).thenReturn(user());
 
-        assertThrows(BusinessException.class, () -> userService.assignWorkshop(1L, "  "));
-        verify(userMapper, never()).updateById(org.mockito.ArgumentMatchers.<SysUser>any());
+        userService.assignWorkshop(1L, "  ");
+
+        ArgumentCaptor<SysUser> captor = ArgumentCaptor.forClass(SysUser.class);
+        verify(userMapper).updateById(captor.capture());
+        assertNull(captor.getValue().getWorkshopScope());
     }
 
     @Test

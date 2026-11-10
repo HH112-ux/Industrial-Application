@@ -12,9 +12,8 @@ import java.util.Objects;
 /**
  * 工艺物料清单（BOM）服务。
  *
- * <p>BOM 直接挂在工艺版本行（{@code processId}）下，不再按 version 列区分版本；
- * 工艺改版时由 {@link ProcessService#createVersion(Long)} 复制到新的工艺版本行。
- * 历史 version 列仅保留存量数据，新逻辑不读取。</p>
+ * <p>BOM 直接挂在工艺版本行（{@code processId}）下，工艺改版时由
+ * {@link ProcessService#createVersion(Long)} 复制到新的工艺版本行。</p>
  *
  * @author Caspian
  */
@@ -56,9 +55,7 @@ public class BomItemService {
         requireMaterialAvailable(processId, item.getMatCode(), null);
         item.setId(null);
         item.setProcessId(processId);
-        if (item.getRequiredQty() == null || item.getRequiredQty() <= 0) {
-            item.setRequiredQty(1);
-        }
+        item.setRequiredQty(requireQty(item.getRequiredQty()));
         bomItemMapper.insert(item);
         return item;
     }
@@ -77,8 +74,7 @@ public class BomItemService {
         validateMaterial(item.getMatCode());
         requireMaterialAvailable(processId, item.getMatCode(), id);
         existing.setMatCode(item.getMatCode());
-        existing.setRequiredQty(item.getRequiredQty() == null || item.getRequiredQty() <= 0
-                ? 1 : item.getRequiredQty());
+        existing.setRequiredQty(requireQty(item.getRequiredQty()));
         bomItemMapper.updateById(existing);
         return existing;
     }
@@ -111,6 +107,13 @@ public class BomItemService {
         if (count != null && count > 0) {
             throw new BusinessException("该物料已在 BOM 中：" + matCode);
         }
+    }
+
+    private int requireQty(Integer qty) {
+        if (qty == null || qty <= 0) {
+            throw new BusinessException("BOM 用量必须大于 0");
+        }
+        return qty;
     }
 
     private void validateMaterial(String matCode) {
