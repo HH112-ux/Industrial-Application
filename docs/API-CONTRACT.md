@@ -97,7 +97,7 @@
 |---|---|---|---|---|---|---|
 | 3 | GET | `/api/devices` | 登录 | 设备分页 | 保留 | 增加 `workshop` 过滤 |
 | 4 | GET | `/api/devices/{id}` | 登录 | 设备详情 | 保留 | 返回 `lastSeenAt`、`online` |
-| 5 | POST | `/api/devices` | ADMIN | 新增设备 | 保留 | 写入 `workshop`、`protocol` |
+| 5 | POST | `/api/devices` | ADMIN | 新增设备 | 保留 | 写入 `workshop`、`protocol`；`workshop` 必填，不再缺省「一车间」 |
 | 6 | PUT | `/api/devices/{id}` | ADMIN | 更新设备 | 保留 | 编号仍不可改 |
 | 7 | DELETE | `/api/devices/{id}` | ADMIN | 逻辑删除 | 保留 | 有未完工工单时拒绝 |
 | 8 | POST | `/api/devices/{id}/status` | ADMIN | 手工改状态 | 改行为 | 状态机校验：`SCRAPPED` 不可回退 |
@@ -152,10 +152,10 @@
 |---|---|---|---|---|---|---|
 | 31 | GET | `/api/plans` | 登录 | 计划分页 | 保留 | 增加 `workshop` 过滤 |
 | 32 | GET | `/api/plans/{id}` | 登录 | 计划详情 | 保留 | 返回关联工单摘要 |
-| 33 | POST | `/api/plans` | ADMIN | 新建计划 | 保留 | 校验 `planEnd >= planStart`、数量大于 0 |
+| 33 | POST | `/api/plans` | ADMIN | 新建计划 | 保留 | 校验 `planEnd >= planStart`、数量大于 0；`workshop` 必填，不再缺省「一车间」 |
 | 34 | PUT | `/api/plans/{id}` | ADMIN | 更新计划 | 改行为 | 已下达计划不可改数量与日期 |
 | 35 | DELETE | `/api/plans/{id}` | ADMIN | 删除计划 | 保留 | 有工单时拒绝 |
-| 36 | POST | `/api/plans/{id}/dispatch` | ADMIN | 下达工单 | 已落地 | S5 改为 JSON 请求体，必填 `processId` 且必须为已发布工艺；`deviceId` 为空时取计划所需设备；`workshop` 为空时缺省「一车间」 |
+| 36 | POST | `/api/plans/{id}/dispatch` | ADMIN | 下达工单 | 已落地 | S5 改为 JSON 请求体，必填 `processId` 且必须为已发布工艺；`deviceId` 为空时取计划所需设备；`workshop` 为空时取计划所属车间 |
 
 ### 2.8 生产工单
 
@@ -313,7 +313,7 @@ deviceNo|status|temperature|rpm|current|timestamp|nonce
 }
 ```
 
-`processId` 必填且必须为已发布工艺，否则按 §1.1.1 返回 **HTTP 200 + 业务码**，`message` 为「下达工单必须指定已发布工艺」；`deviceId` 可为空，为空时取计划上的 `requiredDeviceId`；`workshop` 为空时缺省「一车间」。不再自动挑选「第一个已发布工艺」，避免多工艺产品下错版本。`[代码实证]`
+`processId` 必填且必须为已发布工艺，否则按 §1.1.1 返回 **HTTP 200 + 业务码**，`message` 为「下达工单必须指定已发布工艺」；`deviceId` 可为空，为空时取计划上的 `requiredDeviceId`；`workshop` 为空时取计划所属车间，计划也未配置车间时返回「工单必须指定车间」。不再自动挑选「第一个已发布工艺」，避免多工艺产品下错版本。`[代码实证]`
 
 ### 4.4 时序查询
 

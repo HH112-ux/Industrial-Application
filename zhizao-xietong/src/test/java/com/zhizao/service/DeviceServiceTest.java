@@ -3,6 +3,7 @@ package com.zhizao.service;
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
+import com.zhizao.common.BusinessException;
 import com.zhizao.common.ForbiddenException;
 import com.zhizao.entity.Device;
 import com.zhizao.mapper.DeviceMapper;
@@ -25,6 +26,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -89,6 +91,30 @@ class DeviceServiceTest {
         when(deviceMapper.selectById(1L)).thenReturn(device);
 
         assertEquals("二车间", deviceService().getById(1L).getWorkshop());
+    }
+
+    @Test
+    void createRejectsMissingWorkshop() {
+        when(codeGenerator.next("EQ")).thenReturn("EQ-202611-0001");
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> deviceService().create(new Device()));
+
+        assertEquals("设备必须指定车间", error.getMessage());
+        verify(deviceMapper, never()).insert(any(Device.class));
+    }
+
+    @Test
+    void createTrimsProvidedWorkshop() {
+        when(codeGenerator.next("EQ")).thenReturn("EQ-202611-0001");
+        Device device = new Device();
+        device.setDeviceName("数控车床");
+        device.setWorkshop("  三车间  ");
+
+        Device saved = deviceService().create(device);
+
+        assertEquals("三车间", saved.getWorkshop());
+        verify(deviceMapper).insert(device);
     }
 
     @Test

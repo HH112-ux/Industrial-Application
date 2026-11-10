@@ -130,6 +130,69 @@ class PlanServiceTest {
     }
 
     @Test
+    void createRejectsMissingWorkshop() {
+        Plan plan = new Plan();
+        plan.setProductCode("P-001");
+        when(codeGenerator.next("PO")).thenReturn("PO-202611-0001");
+
+        BusinessException error = assertThrows(BusinessException.class, () -> planService.create(plan));
+
+        assertEquals("计划必须指定车间", error.getMessage());
+        verify(planMapper, never()).insert(any(Plan.class));
+    }
+
+    @Test
+    void createTrimsProvidedWorkshop() {
+        Plan plan = new Plan();
+        plan.setWorkshop("  二车间  ");
+        when(codeGenerator.next("PO")).thenReturn("PO-202611-0001");
+
+        Plan saved = planService.create(plan);
+
+        assertEquals("二车间", saved.getWorkshop());
+        verify(planMapper).insert(plan);
+    }
+
+    @Test
+    void dispatchFallsBackToPlanWorkshop() {
+        Plan plan = new Plan();
+        plan.setId(1L);
+        plan.setStatus("PENDING_SCHEDULE");
+        plan.setWorkshop("二车间");
+        plan.setPlanQty(5);
+        when(planMapper.selectById(1L)).thenReturn(plan);
+        when(codeGenerator.next("WO")).thenReturn("WO-202611-0001");
+
+        Process process = new Process();
+        process.setId(5L);
+        process.setApprovalStatus("PUBLISHED");
+        when(processMapper.selectById(5L)).thenReturn(process);
+
+        WorkOrder order = planService.dispatch(1L, new DispatchRequest(5L, null, null));
+
+        assertEquals("二车间", order.getWorkshop());
+    }
+
+    @Test
+    void dispatchRejectsWhenNoWorkshopAvailable() {
+        Plan plan = new Plan();
+        plan.setId(1L);
+        plan.setStatus("PENDING_SCHEDULE");
+        when(planMapper.selectById(1L)).thenReturn(plan);
+
+        Process process = new Process();
+        process.setId(5L);
+        process.setApprovalStatus("PUBLISHED");
+        when(processMapper.selectById(5L)).thenReturn(process);
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> planService.dispatch(1L, new DispatchRequest(5L, null, "  ")));
+
+        assertEquals("工单必须指定车间", error.getMessage());
+        verify(workOrderMapper, never()).insert(any(WorkOrder.class));
+    }
+
+    @Test
     void deleteRejectsPlanWithMountedWorkOrders() {
         Plan plan = new Plan();
         plan.setId(1L);
