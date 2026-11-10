@@ -27,7 +27,8 @@
 
     <view class="actions">
       <button v-if="order.status === 'PENDING'" class="btn" @click="start">开工</button>
-      <button v-if="order.status === 'IN_PRODUCTION'" class="btn" @click="openReport">报工</button>
+      <button v-if="order.status === 'IN_PRODUCTION'" class="btn" :disabled="remainingQty <= 0" @click="openReport">报工</button>
+      <text v-if="order.status === 'IN_PRODUCTION' && remainingQty <= 0" class="action-hint">已报满，无可报数量</text>
       <button v-if="order.status === 'PENDING_QC'" class="btn" @click="qcVisible = true">质检</button>
       <button v-if="order.status === 'FINISHED'" class="btn done" disabled>已完工</button>
     </view>
@@ -100,6 +101,10 @@ export default {
       this.reportForm.defectQty = 0;
     },
     openReport() {
+      if (this.remainingQty <= 0) {
+        uni.showToast({ title: '已报满，无可报数量', icon: 'none' });
+        return;
+      }
       if (!this.reportForm.idempotencyKey) {
         const cacheKey = `report-idem-${this.id}`;
         const saved = uni.getStorageSync(cacheKey);
@@ -231,6 +236,11 @@ export default {
 .btn.done {
   background: #e2e8f0;
   color: #94a3b8;
+}
+.action-hint {
+  color: #94a3b8;
+  font-size: 26rpx;
+  text-align: center;
 }
 .mask {
   position: fixed;
