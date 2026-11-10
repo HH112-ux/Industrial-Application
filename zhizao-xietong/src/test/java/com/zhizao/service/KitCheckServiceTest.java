@@ -23,6 +23,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
@@ -74,23 +75,26 @@ class KitCheckServiceTest {
     }
 
     @Test
-    void passWhenNoProcess() {
+    void rejectWhenNoProcess() {
         WorkOrder order = new WorkOrder();
         order.setProcessId(null);
 
         KitCheckResult result = kitCheckService.check(order);
 
-        assertTrue(result.passed());
+        assertFalse(result.passed());
         assertTrue(result.shortages().isEmpty());
+        assertTrue(result.error().contains("未配置 BOM"));
     }
 
     @Test
-    void passWhenEmptyBom() {
+    void rejectWhenEmptyBom() {
         when(bomItemMapper.selectList(any())).thenReturn(List.of());
 
         KitCheckResult result = kitCheckService.check(orderWithProcess(10));
 
-        assertTrue(result.passed());
+        assertFalse(result.passed(), "未配置 BOM 不能被判为齐套通过");
+        assertTrue(result.shortages().isEmpty());
+        assertTrue(result.error().contains("未配置 BOM"));
     }
 
     @Test
@@ -100,8 +104,9 @@ class KitCheckServiceTest {
 
         KitCheckResult result = kitCheckService.check(orderWithProcess(10));
 
-        assertTrue(result.passed());
+        assertTrue(result.passed(), "有 BOM 且库存充足应判为齐套");
         assertTrue(result.shortages().isEmpty());
+        assertNull(result.error());
     }
 
     @Test
@@ -216,6 +221,20 @@ class KitCheckServiceTest {
         assertEquals("MT-001", inserted.getMatCode());
         assertEquals(20, inserted.getReservedQty());
         assertEquals(MaterialReservation.STATUS_RESERVED, inserted.getStatus());
+    }
+
+    @Test
+    void reserveRejectsWhenNoBom() {
+        WorkOrder order = orderWithProcess(10);
+        order.setId(7L);
+        when(bomItemMapper.selectList(any())).thenReturn(List.of());
+
+        KitCheckResult result = kitCheckService.reserve(order);
+
+        assertFalse(result.passed());
+        assertTrue(result.error().contains("未配置 BOM"));
+        verify(materialService, never()).listByCodesForUpdate(any());
+        verify(reservationMapper, never()).insert(any(MaterialReservation.class));
     }
 
     @Test

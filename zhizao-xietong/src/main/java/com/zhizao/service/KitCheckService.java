@@ -44,13 +44,16 @@ public class KitCheckService {
     /**
      * 校验工单所需物料是否齐套，只读，不产生预占。
      *
-     * @param order 工单，processId 为空或 BOM 为空时直接通过
-     * @return 齐套结果与缺料明细
+     * <p>工单未绑定工艺或 BOM 为空时视为「未配置 BOM」，返回失败并给出明确原因，
+     * 不能当作齐套通过。</p>
+     *
+     * @param order 工单
+     * @return 齐套结果、缺料明细或未配置 BOM 的失败原因
      */
     public KitCheckResult check(WorkOrder order) {
         Map<String, Integer> needs = requiredByCode(order);
         if (needs.isEmpty()) {
-            return KitCheckResult.pass();
+            return KitCheckResult.missingBom();
         }
         Map<String, Material> materialMap = materialService.listByCodes(new ArrayList<>(needs.keySet()));
         return evaluate(order, needs, materialMap);
@@ -60,7 +63,7 @@ public class KitCheckService {
      * 开工预占：校验可用量通过后，按 BOM 需求写入预占记录。
      *
      * <p>物料行在事务内加锁，串行化同一物料的可用量核算，避免并发开工同时通过校验。
-     * 同一工单重复预占时按物料编码幂等跳过。</p>
+     * 同一工单重复预占时按物料编码幂等跳过。未配置 BOM 时直接失败，不写入任何预占。</p>
      *
      * @param order 工单
      * @return 齐套结果；未通过时不写入任何预占记录
@@ -68,7 +71,7 @@ public class KitCheckService {
     public KitCheckResult reserve(WorkOrder order) {
         Map<String, Integer> needs = requiredByCode(order);
         if (needs.isEmpty()) {
-            return KitCheckResult.pass();
+            return KitCheckResult.missingBom();
         }
         Map<String, Material> materialMap = materialService.listByCodesForUpdate(new ArrayList<>(needs.keySet()));
         KitCheckResult result = evaluate(order, needs, materialMap);
@@ -162,7 +165,7 @@ public class KitCheckService {
                 shortages.add(new KitCheckResult.ShortageItem(matCode, matName, need, available));
             }
         }
-        return new KitCheckResult(shortages.isEmpty(), shortages);
+        return new KitCheckResult(shortages.isEmpty(), shortages, null);
     }
 
     /**

@@ -100,7 +100,7 @@ class BusinessMetricsTest {
         when(workOrderMapper.selectList(any())).thenReturn(List.of(passed, shortage));
         when(kitCheckService.check(passed)).thenReturn(KitCheckResult.pass());
         when(kitCheckService.check(shortage)).thenReturn(
-                new KitCheckResult(false, List.of(new KitCheckResult.ShortageItem("M1", "钢板", 5, 1))));
+                new KitCheckResult(false, List.of(new KitCheckResult.ShortageItem("M1", "钢板", 5, 1)), null));
 
         double rate = registry.get("zhizao.materials.kit_rate").gauge().value();
 

@@ -209,9 +209,24 @@ class WorkOrderServiceTest {
         when(processService.getById(2L)).thenReturn(publishedProcess());
         givenScheduled(LocalDateTime.now().plusHours(1), LocalDateTime.now().plusHours(2));
         when(kitCheckService.reserve(order)).thenReturn(new KitCheckResult(false,
-                List.of(new KitCheckResult.ShortageItem("MT-001", "45#圆钢", 10, 5))));
+                List.of(new KitCheckResult.ShortageItem("MT-001", "45#圆钢", 10, 5)), null));
 
         assertThrows(BusinessException.class, () -> workOrderService.start(1L, "zhangsan"));
+    }
+
+    @Test
+    void startFailWithMissingBomMessage() {
+        WorkOrder order = order("PENDING");
+        when(workOrderMapper.selectById(1L)).thenReturn(order);
+        when(processService.getById(2L)).thenReturn(publishedProcess());
+        givenScheduled(LocalDateTime.now().plusHours(1), LocalDateTime.now().plusHours(2));
+        when(kitCheckService.reserve(order)).thenReturn(KitCheckResult.missingBom());
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> workOrderService.start(1L, "zhangsan"));
+
+        assertTrue(error.getMessage().contains("未配置 BOM"));
+        verify(workOrderMapper, never()).updateById(any(WorkOrder.class));
     }
 
     @Test
