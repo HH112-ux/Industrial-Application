@@ -276,7 +276,12 @@ public class WorkOrderService {
     }
 
     /**
-     * 报工：幂等判重 → 校验报工数量与累计上限 → 写入报工记录 → 累加工单数量 → 转「待质检」→ 写入状态历史。
+     * 报工：幂等判重 → 校验报工数量与累计上限 → 写入报工记录 → 累加工单数量 →
+     * （报满时）转「待质检」→ 写入状态历史。
+     *
+     * <p>支持多次累计：每次报工都留在「生产中」并累加数量，只有剩余可报数量为 0
+     * （累计达到「工单数量 + 可返工额度」）时才在同一事务内转「待质检」。
+     * 报满前不可送检，质检不可跳过，PASS 才完工。</p>
      *
      * <p>数量本身不合法（为空、非正数、合格数与不良数之和不等于报工数）返回 HTTP 400；
      * 累计报工超过「工单数量 + 可返工额度」属于业务拒绝，返回业务码 409。任一校验失败都不写报工记录。</p>
@@ -285,10 +290,14 @@ public class WorkOrderService {
      * 不校验状态、不写报工记录、不累加数量、不写历史。并发同键请求由唯一索引兜底，
      * 后到者同样按重复请求处理。</p>
      *
+     * <p>并发报工由乐观锁裁决：两个请求同时读到同一版本时，只有一个能更新成功；
+     * 另一个命中 0 行并按业务码 409 返回，其报工记录与历史随事务回滚，
+     * 因此不会出现重复累计或两次「待质检」转移。</p>
+     *
      * @param id       工单主键
      * @param req      报工请求，包含数量、合格数、不良数、设备与幂等键
      * @param operator 操作人，取自登录令牌
-     * @return 流转后的工单；幂等重试时返回当前工单快照
+     * @return 累加或流转后的工单；幂等重试时返回当前工单快照
      * @throws BadRequestException 报工数量非法或幂等键超长时抛出
      * @throws BusinessException   工单状态不允许、累计超限或并发冲突时抛出
      */
@@ -304,6 +313,7 @@ public class WorkOrderService {
         }
         validateReportQty(order, req);
         validateDevice(order, req.deviceId());
+        long limit = (long) qtyValue(order.getQty()) + qtyValue(order.getQtyRework());
         long nextDone = (long) qtyDone(order) + req.qty();
 
         WorkOrderReport report = new WorkOrderReport();
@@ -329,8 +339,13 @@ public class WorkOrderService {
         order.setQtyDone((int) nextDone);
         order.setQtyQualified(qtyValue(order.getQtyQualified()) + req.qualifiedQty());
         order.setQtyDefect(qtyValue(order.getQtyDefect()) + req.defectQty());
-        transitionWithHistory(order, WorkOrderStatus.PENDING_QC, operator,
-                "报工 " + req.qty() + " 件");
+        String remark = "报工 " + req.qty() + " 件（累计 " + nextDone + "/" + limit + "）";
+        if (nextDone == limit) {
+            transitionWithHistory(order, WorkOrderStatus.PENDING_QC, operator,
+                    remark + "，报满转待质检");
+        } else {
+            accumulateWithHistory(order, operator, remark);
+        }
         businessMetrics.workOrderReported();
         return order;
     }
@@ -338,8 +353,9 @@ public class WorkOrderService {
     /**
      * 质检：先校验结论合法性 → 写入质检记录 → PASS 转「已完工」、FAIL 退回「生产中」→ 写入状态历史。
      *
-     * <p>FAIL 时按本批次报工数量释放可返工额度，使被退回的数量可以重新报工，
-     * 避免满额报工后质检失败导致工单永久卡在「生产中」。</p>
+     * <p>FAIL 时按本轮全部有效报工数量释放可返工额度，使被退回的批次可以重新报工，
+     * 避免满额报工后质检失败导致工单永久卡在「生产中」。本轮指上一次质检之后、
+     * 当前生产阶段内的全部报工；释放后剩余可报数量回到计划数量，不会超过计划数。</p>
      *
      * <p>结论不是 PASS 或 FAIL 时在落库前拒绝，不产生质检记录。</p>
      *
@@ -376,7 +392,7 @@ public class WorkOrderService {
             kitCheckService.consume(order);
             maybeFinishPlan(order.getPlanId());
         } else {
-            long rework = (long) qtyValue(order.getQtyRework()) + lastReportQty(order.getId());
+            long rework = (long) qtyValue(order.getQtyRework()) + unreleasedReportQty(order);
             if (rework > Integer.MAX_VALUE) {
                 throw new BusinessException("可返工额度超出系统上限");
             }
@@ -402,10 +418,43 @@ public class WorkOrderService {
         if (updated == 0) {
             throw new BusinessException(409, "工单已被其他操作更新，请刷新后重试");
         }
+        insertHistory(order.getId(), from, target.name(), operator, remark);
+    }
+
+    /**
+     * 部分报工：状态不变，仅累加数量并写一条历史。
+     *
+     * <p>与状态流转共用乐观锁路径：更新命中 0 行说明工单已被并发请求改动，
+     * 按业务码 409 返回并回滚本次报工与历史，避免并发请求重复累计。</p>
+     *
+     * @param order    待累加工单
+     * @param operator 操作人，为空时记为 system
+     * @param remark   历史备注
+     * @throws BusinessException 乐观锁冲突时抛出
+     */
+    private void accumulateWithHistory(WorkOrder order, String operator, String remark) {
+        order.setUpdatedAt(LocalDateTime.now());
+        int updated = workOrderMapper.updateById(order);
+        if (updated == 0) {
+            throw new BusinessException(409, "工单已被其他操作更新，请刷新后重试");
+        }
+        insertHistory(order.getId(), order.getStatus(), order.getStatus(), operator, remark);
+    }
+
+    /**
+     * 写入一条状态流转历史，只追加不修改。
+     *
+     * @param orderId   工单主键
+     * @param from      流转前状态
+     * @param to        流转后状态
+     * @param operator  操作人，为空时记为 system
+     * @param remark    备注
+     */
+    private void insertHistory(Long orderId, String from, String to, String operator, String remark) {
         WorkOrderStatusHistory history = new WorkOrderStatusHistory();
-        history.setOrderId(order.getId());
+        history.setOrderId(orderId);
         history.setFromStatus(from);
-        history.setToStatus(target.name());
+        history.setToStatus(to);
         history.setOperator(StringUtils.hasText(operator) ? operator : "system");
         history.setRemark(remark);
         history.setCreatedAt(LocalDateTime.now());
@@ -467,17 +516,18 @@ public class WorkOrderService {
     }
 
     /**
-     * 读取最近一次报工的数量，用于质检失败时释放同等的返工额度。
+     * 计算本轮尚未释放的报工数量，用于质检失败时转为可返工额度。
      *
-     * @param orderId 工单主键
-     * @return 最近一次报工数量，无报工记录时返回 0
+     * <p>「本轮」指上一次质检（PASS 或 FAIL）之后、当前生产阶段内的全部有效报工。
+     * 每次报工增加 {@code qtyDone}，每次质检 FAIL 把本轮数量加入 {@code qtyRework}，
+     * 因此两者之差始终等于本轮尚未释放的报工数：单次报工时与报工数量相等，
+     * 多次累计时等于本轮各次报工之和，同一批报工释放后差值归零，不会被重复释放。</p>
+     *
+     * @param order 当前「待质检」工单
+     * @return 本轮尚未释放的报工数量
      */
-    private int lastReportQty(Long orderId) {
-        WorkOrderReport last = workOrderReportMapper.selectOne(new LambdaQueryWrapper<WorkOrderReport>()
-                .eq(WorkOrderReport::getOrderId, orderId)
-                .orderByDesc(WorkOrderReport::getId)
-                .last("LIMIT 1"));
-        return last == null ? 0 : qtyValue(last.getQty());
+    private int unreleasedReportQty(WorkOrder order) {
+        return qtyDone(order) - qtyValue(order.getQtyRework());
     }
 
     /**

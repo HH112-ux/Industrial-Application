@@ -300,6 +300,52 @@ class WorkOrderServiceTest {
     }
 
     @Test
+    void partialReportStaysInProductionAndAccumulates() {
+        WorkOrder order = order("IN_PRODUCTION");
+        when(workOrderMapper.selectById(1L)).thenReturn(order);
+        when(codeGenerator.next("RP")).thenReturn("RP-202609-0001");
+        when(workOrderMapper.updateById(order)).thenReturn(1);
+
+        WorkOrder result = workOrderService.report(1L, new ReportRequest(4, 4, 0, null, null), "zhangsan");
+
+        assertEquals("IN_PRODUCTION", result.getStatus(), "未报满时保持生产中，允许继续报工");
+        assertEquals(4, result.getQtyDone());
+        WorkOrderStatusHistory history = capturedHistory();
+        assertEquals("IN_PRODUCTION", history.getFromStatus());
+        assertEquals("IN_PRODUCTION", history.getToStatus());
+        assertTrue(history.getRemark().contains("累计 4/10"));
+    }
+
+    @Test
+    void reportFillingRemainingQuantityTransitionsToPendingQc() {
+        WorkOrder order = order("IN_PRODUCTION");
+        order.setQtyDone(4);
+        when(workOrderMapper.selectById(1L)).thenReturn(order);
+        when(codeGenerator.next("RP")).thenReturn("RP-202609-0002");
+        when(workOrderMapper.updateById(order)).thenReturn(1);
+
+        WorkOrder result = workOrderService.report(1L, new ReportRequest(6, 6, 0, null, null), "zhangsan");
+
+        assertEquals("PENDING_QC", result.getStatus());
+        assertEquals(10, result.getQtyDone());
+        assertEquals("PENDING_QC", capturedHistory().getToStatus());
+    }
+
+    @Test
+    void partialReportConflictReturns409WithoutHistory() {
+        WorkOrder order = order("IN_PRODUCTION");
+        when(workOrderMapper.selectById(1L)).thenReturn(order);
+        when(codeGenerator.next("RP")).thenReturn("RP-202609-0003");
+        when(workOrderMapper.updateById(order)).thenReturn(0);
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> workOrderService.report(1L, new ReportRequest(4, 4, 0, null, null), "zhangsan"));
+
+        assertEquals(409, error.getCode());
+        verify(statusHistoryMapper, never()).insert(any(WorkOrderStatusHistory.class));
+    }
+
+    @Test
     void reportFailWhenWrongStatus() {
         WorkOrder order = order("PENDING");
         when(workOrderMapper.selectById(1L)).thenReturn(order);
@@ -451,20 +497,50 @@ class WorkOrderServiceTest {
     }
 
     @Test
-    void qcFailReleasesLastReportQuantityAsRework() {
+    void qcFailReleasesWholeCurrentBatchAsRework() {
         WorkOrder order = order("PENDING_QC");
         order.setQtyDone(10);
         when(workOrderMapper.selectById(1L)).thenReturn(order);
         when(codeGenerator.next("QC")).thenReturn("QC-202609-0001");
         when(workOrderMapper.updateById(order)).thenReturn(1);
-        WorkOrderReport report = new WorkOrderReport();
-        report.setOrderId(1L);
-        report.setQty(10);
-        when(workOrderReportMapper.selectOne(any())).thenReturn(report);
 
         WorkOrder result = workOrderService.qc(1L, new QcRequest("FAIL", "尺寸超差"), "lisi");
 
-        assertEquals(10, result.getQtyRework(), "失败批次数量应转为可返工额度");
+        assertEquals(10, result.getQtyRework(), "本轮全部报工数应转为可返工额度");
+        int remaining = result.getQty() + result.getQtyRework() - result.getQtyDone();
+        assertEquals(result.getQty(), remaining, "释放后剩余可报数应回到计划数量");
+    }
+
+    @Test
+    void qcFailReleasesOnlyUnreleasedPartOfCurrentBatch() {
+        WorkOrder order = order("PENDING_QC");
+        order.setQtyDone(10);
+        order.setQtyRework(4);
+        when(workOrderMapper.selectById(1L)).thenReturn(order);
+        when(codeGenerator.next("QC")).thenReturn("QC-202609-0001");
+        when(workOrderMapper.updateById(order)).thenReturn(1);
+
+        WorkOrder result = workOrderService.qc(1L, new QcRequest("FAIL", "尺寸超差"), "lisi");
+
+        assertEquals(10, result.getQtyRework(), "只释放本轮尚未释放的 6 件，不能把历史返工额度再加一遍");
+        int remaining = result.getQty() + result.getQtyRework() - result.getQtyDone();
+        assertTrue(remaining <= result.getQty(), "剩余可报数不能超过计划数量");
+    }
+
+    @Test
+    void qcFailCannotReleaseSameBatchTwice() {
+        WorkOrder order = order("PENDING_QC");
+        order.setQtyDone(10);
+        when(workOrderMapper.selectById(1L)).thenReturn(order);
+        when(codeGenerator.next("QC")).thenReturn("QC-202609-0001");
+        when(workOrderMapper.updateById(order)).thenReturn(1);
+
+        WorkOrder failed = workOrderService.qc(1L, new QcRequest("FAIL", "尺寸超差"), "lisi");
+        assertThrows(BusinessException.class,
+                () -> workOrderService.qc(1L, new QcRequest("FAIL", "尺寸超差"), "lisi"));
+
+        assertEquals(10, failed.getQtyRework(), "同一批报工不能被释放两次");
+        verify(qualityRecordMapper, times(1)).insert(any(QualityRecord.class));
     }
 
     @Test

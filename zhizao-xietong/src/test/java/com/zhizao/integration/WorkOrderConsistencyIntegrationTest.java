@@ -6,9 +6,11 @@ import com.zhizao.dto.QcRequest;
 import com.zhizao.dto.ReportRequest;
 import com.zhizao.entity.ScheduleEntry;
 import com.zhizao.entity.WorkOrder;
+import com.zhizao.entity.WorkOrderReport;
 import com.zhizao.entity.WorkOrderStatusHistory;
 import com.zhizao.mapper.ScheduleEntryMapper;
 import com.zhizao.mapper.WorkOrderMapper;
+import com.zhizao.mapper.WorkOrderReportMapper;
 import com.zhizao.mapper.WorkOrderStatusHistoryMapper;
 import com.zhizao.service.WorkOrderService;
 import org.junit.jupiter.api.Test;
@@ -30,6 +32,7 @@ import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * 工单一致性的薄集成测试：真实 MySQL 上验证状态流转与乐观锁并发保护。
@@ -59,6 +62,8 @@ class WorkOrderConsistencyIntegrationTest {
     private WorkOrderStatusHistoryMapper historyMapper;
     @Autowired
     private ScheduleEntryMapper scheduleEntryMapper;
+    @Autowired
+    private WorkOrderReportMapper workOrderReportMapper;
 
     /**
      * 插入一张指定状态的工单，工艺取种子数据中已发布的 1 号工艺。
@@ -222,5 +227,99 @@ class WorkOrderConsistencyIntegrationTest {
         WorkOrder stored = workOrderMapper.selectById(id);
         assertEquals(20, stored.getQtyDone(), "累计报工数保留返工批次");
         assertEquals(10, stored.getQtyRework());
+    }
+
+    @Test
+    void partialReportsAccumulateUntilFullThenQcFailReleasesWholeBatch() {
+        Long id = createOrder("PENDING");
+        workOrderService.start(id, "tester");
+
+        WorkOrder first = workOrderService.report(id,
+                new ReportRequest(4, 4, 0, null, "cumulative-1"), "tester");
+        assertEquals("IN_PRODUCTION", first.getStatus(), "未报满不得离开生产中");
+        assertEquals(4, first.getQtyDone());
+
+        WorkOrder second = workOrderService.report(id,
+                new ReportRequest(6, 6, 0, null, "cumulative-2"), "tester");
+        assertEquals("PENDING_QC", second.getStatus(), "报满才转待质检");
+        assertEquals(10, second.getQtyDone());
+
+        WorkOrder failed = workOrderService.qc(id, new QcRequest("FAIL", "尺寸超差"), "qa");
+        assertEquals("IN_PRODUCTION", failed.getStatus());
+        assertEquals(10, failed.getQtyRework(), "返工额度应等于本轮两批报工之和");
+
+        WorkOrder stored = workOrderMapper.selectById(id);
+        int remaining = stored.getQty() + stored.getQtyRework() - stored.getQtyDone();
+        assertEquals(stored.getQty(), remaining, "释放后剩余可报数不得大于计划数量");
+        assertEquals(2, reportCount(id));
+        assertEquals(4, historyCount(id), "开工、两次报工、一次质检各一条历史");
+    }
+
+    @Test
+    void concurrentReportsCannotDoubleCountOrTransitionTwice() throws Exception {
+        Long id = createOrder("PENDING");
+        workOrderService.start(id, "tester");
+
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch gate = new CountDownLatch(1);
+        List<Future<Throwable>> futures = new ArrayList<>();
+        try {
+            for (int i = 0; i < 2; i++) {
+                String key = "concurrent-" + i;
+                futures.add(pool.submit(() -> {
+                    ready.countDown();
+                    gate.await(5, TimeUnit.SECONDS);
+                    try {
+                        workOrderService.report(id, new ReportRequest(10, 10, 0, null, key), "tester");
+                        return null;
+                    } catch (Throwable t) {
+                        return t;
+                    }
+                }));
+            }
+            ready.await(5, TimeUnit.SECONDS);
+            gate.countDown();
+            int success = 0;
+            int failure = 0;
+            for (Future<Throwable> future : futures) {
+                Throwable error = future.get(10, TimeUnit.SECONDS);
+                if (error == null) {
+                    success++;
+                } else {
+                    failure++;
+                    assertInstanceOf(BusinessException.class, error);
+                    int code = ((BusinessException) error).getCode();
+                    assertTrue(code == 409 || error.getMessage().contains("仅「生产中」的工单可报工"),
+                            "失败方应命中乐观锁冲突 409，或在首个请求提交后命中状态守卫");
+                }
+            }
+            assertEquals(1, success, "同时报满只能有一个请求成功");
+            assertEquals(1, failure);
+        } finally {
+            pool.shutdownNow();
+        }
+
+        WorkOrder stored = workOrderMapper.selectById(id);
+        assertEquals("PENDING_QC", stored.getStatus());
+        assertEquals(10, stored.getQtyDone(), "并发报工不得重复累计");
+        assertEquals(1, reportCount(id), "失败请求的报工记录必须随事务回滚");
+        assertEquals(2, historyCount(id), "开工与报满各一条历史，不得写两遍转移");
+        long transitions = historyMapper.selectCount(new LambdaQueryWrapper<WorkOrderStatusHistory>()
+                .eq(WorkOrderStatusHistory::getOrderId, id)
+                .eq(WorkOrderStatusHistory::getToStatus, "PENDING_QC"));
+        assertEquals(1, transitions, "转待质检只能发生一次");
+        assertTrue(stored.getQtyDone() <= stored.getQty() + stored.getQtyRework());
+    }
+
+    /**
+     * 统计工单的报工记录数。
+     *
+     * @param orderId 工单主键
+     * @return 报工记录数
+     */
+    private long reportCount(Long orderId) {
+        return workOrderReportMapper.selectCount(new LambdaQueryWrapper<WorkOrderReport>()
+                .eq(WorkOrderReport::getOrderId, orderId));
     }
 }
