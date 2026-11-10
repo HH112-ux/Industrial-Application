@@ -26,6 +26,8 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -83,6 +85,7 @@ class BusinessMetricsTest {
     @Test
     void kitRateIsUndefinedWithoutPendingOrders() {
         when(workOrderMapper.selectList(any())).thenReturn(List.of());
+        metrics.refreshKitRate();
 
         double rate = registry.get("zhizao.materials.kit_rate").gauge().value();
 
@@ -101,10 +104,23 @@ class BusinessMetricsTest {
         when(kitCheckService.check(passed)).thenReturn(KitCheckResult.pass());
         when(kitCheckService.check(shortage)).thenReturn(
                 new KitCheckResult(false, List.of(new KitCheckResult.ShortageItem("M1", "钢板", 5, 1)), null));
+        metrics.refreshKitRate();
 
         double rate = registry.get("zhizao.materials.kit_rate").gauge().value();
 
         assertEquals(0.5, rate, 0.0001);
+    }
+
+    @Test
+    void kitRateGaugeReadsCacheWithoutQueryingOnEveryScrape() {
+        when(workOrderMapper.selectList(any())).thenReturn(List.of());
+        metrics.refreshKitRate();
+
+        for (int i = 0; i < 5; i++) {
+            registry.get("zhizao.materials.kit_rate").gauge().value();
+        }
+
+        verify(workOrderMapper, times(1)).selectList(any());
     }
 
     @Test
@@ -127,6 +143,7 @@ class BusinessMetricsTest {
         when(deviceMapper.selectCount(any())).thenReturn(0L);
         when(workOrderMapper.selectList(any())).thenReturn(List.of());
         when(statusHistoryMapper.selectList(any())).thenReturn(List.of());
+        metrics.refreshKitRate();
 
         MetricsOverview overview = metrics.overview();
 

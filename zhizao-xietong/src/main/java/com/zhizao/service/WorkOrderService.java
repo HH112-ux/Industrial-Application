@@ -213,7 +213,7 @@ public class WorkOrderService {
         if (schedule.isEmpty()) {
             throw new BusinessException("工单尚未排程，请先运行排产后再开工");
         }
-        KitCheckResult kit = kitCheckService.reserve(order);
+        KitCheckResult kit = reserveSafely(order);
         if (!kit.passed()) {
             if (kit.error() != null) {
                 throw new BusinessException(kit.error());
@@ -225,6 +225,25 @@ public class WorkOrderService {
         transitionWithHistory(order, WorkOrderStatus.IN_PRODUCTION, operator, "开工");
         alignActualOccupation(schedule);
         return order;
+    }
+
+    /**
+     * 执行开工预占；同一工单并发开工时唯一键 {@code uk_work_order_mat} 冲突按并发冲突处理。
+     *
+     * <p>预占记录以 {@code (work_order_id, mat_code)} 唯一，两个请求同时通过齐套校验时会有一个
+     * 插入失败。该失败与乐观锁冲突语义一致——工单已被其他请求推进，返回业务码 409 让客户端刷新，
+     * 不能落到全局兜底变成 500。</p>
+     *
+     * @param order 工单
+     * @return 齐套结果
+     * @throws BusinessException 唯一键冲突时抛出，业务码 409
+     */
+    private KitCheckResult reserveSafely(WorkOrder order) {
+        try {
+            return kitCheckService.reserve(order);
+        } catch (DuplicateKeyException e) {
+            throw new BusinessException(409, "工单已被其他操作更新，请刷新后重试");
+        }
     }
 
     /**

@@ -152,7 +152,7 @@ public class KitCheckService {
      */
     private KitCheckResult evaluate(WorkOrder order, Map<String, Integer> needs,
                                     Map<String, Material> materialMap) {
-        Map<String, Integer> reserved = loadReserved(order);
+        Map<String, Integer> reserved = loadReserved(order, needs.keySet());
         List<KitCheckResult.ShortageItem> shortages = new ArrayList<>();
         for (Map.Entry<String, Integer> entry : needs.entrySet()) {
             String matCode = entry.getKey();
@@ -171,12 +171,17 @@ public class KitCheckService {
     /**
      * 读取其他工单已预占的物料数量，排除当前工单自身的预占。
      *
-     * @param order 工单
+     * <p>只查本次 BOM 涉及的物料编码，命中 {@code idx_mat_status (mat_code, status)}，
+     * 避免把全表预占记录读进内存再逐条丢弃；结果集中仍按工单 ID 排除自身。</p>
+     *
+     * @param order    工单
+     * @param matCodes 本次需求涉及的物料编码，非空
      * @return 物料编码到已预占数量
      */
-    private Map<String, Integer> loadReserved(WorkOrder order) {
+    private Map<String, Integer> loadReserved(WorkOrder order, Set<String> matCodes) {
         List<MaterialReservation> reservations = reservationMapper.selectList(
                 new LambdaQueryWrapper<MaterialReservation>()
+                        .in(MaterialReservation::getMatCode, matCodes)
                         .eq(MaterialReservation::getStatus, MaterialReservation.STATUS_RESERVED)
                         .ne(order.getId() != null, MaterialReservation::getWorkOrderId, order.getId()));
         Map<String, Integer> reserved = new LinkedHashMap<>();

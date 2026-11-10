@@ -1,6 +1,7 @@
 package com.zhizao.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.zhizao.common.BadRequestException;
 import com.zhizao.common.BusinessException;
 import com.zhizao.common.ForbiddenException;
 import com.zhizao.common.UnauthorizedException;
@@ -94,13 +95,17 @@ public class AuthService {
      *
      * @param username 当前登录用户名
      * @param req      改密请求
-     * @throws BusinessException 用户不存在、原密码错误或新密码为空时抛出
+     * @throws BadRequestException 原密码为空时抛出，返回 HTTP 400
+     * @throws BusinessException   用户不存在、原密码错误或新密码为空时抛出
      */
     @Transactional
     public void changePassword(String username, PasswordChangeRequest req) {
         SysUser user = findByUsername(username);
         if (user == null) {
             throw new BusinessException("用户不存在");
+        }
+        if (!StringUtils.hasText(req.oldPassword())) {
+            throw new BadRequestException("原密码不能为空");
         }
         if (!passwordEncoder.matches(req.oldPassword(), user.getPassword())) {
             throw new BusinessException("原密码错误");

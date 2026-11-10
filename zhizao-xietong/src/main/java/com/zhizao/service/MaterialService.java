@@ -80,19 +80,40 @@ public class MaterialService {
     }
 
     /**
-     * 扣减物料库存，库存不足时按 0 封底；同时清空物料缓存，避免读到扣减前的数量。
+     * 扣减物料库存；库存不足或库存未维护时显式失败，不做静默封底。
+     *
+     * <p>用「库存 ≥ 扣减量」作为更新条件，把判断与扣减压在同一条 SQL 里，避免先查后改的竞争。
+     * 更新 0 行时回查物料区分三种情况：物料不存在、{@code stock_qty} 为 NULL（视为未维护库存，
+     * 拒绝扣减而不是算出 NULL）、库存不足。失败会中断调用方事务（完工质检），不会留下
+     * 「已完工但库存未扣」的半成品状态。</p>
      *
      * @param matCode 物料编码
      * @param qty     扣减数量，非正数时忽略
+     * @throws BusinessException 物料不存在、库存未维护或库存不足时抛出
      */
     @CacheEvict(cacheNames = "material", allEntries = true)
     public void deductStock(String matCode, int qty) {
         if (qty <= 0) {
             return;
         }
-        materialMapper.update(null, new LambdaUpdateWrapper<Material>()
+        int updated = materialMapper.update(null, new LambdaUpdateWrapper<Material>()
                 .eq(Material::getMatCode, matCode)
-                .setSql("stock_qty = GREATEST(stock_qty - " + qty + ", 0)"));
+                .isNotNull(Material::getStockQty)
+                .ge(Material::getStockQty, qty)
+                .setSql("stock_qty = stock_qty - " + qty));
+        if (updated > 0) {
+            return;
+        }
+        Material material = materialMapper.selectOne(
+                new LambdaQueryWrapper<Material>().eq(Material::getMatCode, matCode));
+        if (material == null) {
+            throw new BusinessException("物料 " + matCode + " 不存在，无法扣减库存");
+        }
+        if (material.getStockQty() == null) {
+            throw new BusinessException("物料 " + matCode + " 的库存数量未维护（NULL），拒绝扣减");
+        }
+        throw new BusinessException("物料 " + matCode + " 库存不足：当前 " + material.getStockQty()
+                + "，需扣减 " + qty);
     }
 
     @CacheEvict(cacheNames = "material", allEntries = true)

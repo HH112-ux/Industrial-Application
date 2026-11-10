@@ -1,6 +1,7 @@
 package com.zhizao.service;
 
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.zhizao.entity.BomItem;
@@ -264,6 +265,20 @@ class KitCheckServiceTest {
         verify(materialService).deductStock("MT-001", 10);
         assertEquals(MaterialReservation.STATUS_CONSUMED, reservation.getStatus());
         verify(reservationMapper).updateById(reservation);
+    }
+
+    @Test
+    void reservedLookupIsRestrictedToNeededMaterialCodes() {
+        when(bomItemMapper.selectList(any())).thenReturn(List.of(bomItem("MT-001", 1)));
+        when(materialService.listByCodes(any())).thenReturn(Map.of("MT-001", material("MT-001", "45#圆钢", 20)));
+
+        kitCheckService.check(orderWithProcess(10));
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Wrapper<MaterialReservation>> captor = ArgumentCaptor.forClass(Wrapper.class);
+        verify(reservationMapper).selectList(captor.capture());
+        assertTrue(captor.getValue().getSqlSegment().contains("mat_code"),
+                "预占查询必须按物料编码过滤，不能全表扫描后再丢弃");
     }
 
     private MaterialReservation reservation(long workOrderId, String matCode, int qty) {
