@@ -299,7 +299,7 @@ V9 为存量工艺回填一条「默认工序」（`seq = 1`），保证迁移�
 | `V8__report_idempotency.sql` | `wo_report.idempotency_key` + 唯一索引 `uk_order_idem (order_id, idempotency_key)`（S3 补，已落地）；键由客户端生成，NULL 不参与去重 | 必须晚于 `V7` |
 | `V9__process_operation.sql` | 新建 `pr_process_operation`；`pr_process` 增加 `version` 与 `uk_process_no_version`；`wo_work_order` 增加 `process_version`；存量工艺回填「默认工序」并回填工单版本（S4 已落地） | 必须晚于 `V7` |
 | `V10__schedule_entry.sql` | 新建 `po_schedule_entry`，保存排程时间窗、队列位置与冲突业务码（S5 已落地） | 必须晚于 `V9` |
-| `V11__identity_scope.sql` | `sys_user` 增加 `enabled`、`token_version`、`workshop_scope`；`eq_device`、`po_plan` 增加 `workshop` 与索引（S6 已落地） | 无 |
+| `V11__identity_scope.sql` | `sys_user` 增加 `enabled`、`token_version`、`workshop_scope`；`eq_device`、`po_plan` 增加 `workshop` 与索引（S6 已落地）；两表 `workshop` 的默认值「一车间」由 `V22` 移除，存量数据不变 | 无 |
 | `V12__audit_enhance.sql` | 审计查询索引 `idx_audit_user_time`、`idx_audit_uri`（S6 已落地） | 无 |
 | `V13__user_scope_reset.sql` | 将非管理员的 `workshop_scope` 重置为 `NULL`，纠正 V11 无依据的「一车间」回填，落实 deny-by-default（S6 已落地） | `V11` |
 | `V14__ai_sidecar.sql` | `ai_suggestion_log`、`ai_query_audit` 与 5 个只读视图；不保存 prompt 原文与密钥（S8 已落地） | `V8`、`V11` |
