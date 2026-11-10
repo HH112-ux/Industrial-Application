@@ -215,6 +215,9 @@ public class WorkOrderService {
         }
         KitCheckResult kit = kitCheckService.reserve(order);
         if (!kit.passed()) {
+            if (kit.error() != null) {
+                throw new BusinessException(kit.error());
+            }
             throw new BusinessException("物料不齐套，缺料：" +
                     kit.shortages().stream().map(KitCheckResult.ShortageItem::matName)
                             .reduce((a, b) -> a + "、" + b).orElse(""));
