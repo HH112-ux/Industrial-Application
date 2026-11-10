@@ -303,5 +303,26 @@ V9 为存量工艺回填一条「默认工序」（`seq = 1`），保证迁移�
 | `V12__audit_enhance.sql` | 审计查询索引 `idx_audit_user_time`、`idx_audit_uri`（S6 已落地） | 无 |
 | `V13__user_scope_reset.sql` | 将非管理员的 `workshop_scope` 重置为 `NULL`，纠正 V11 无依据的「一车间」回填，落实 deny-by-default（S6 已落地） | `V11` |
 | `V14__ai_sidecar.sql` | `ai_suggestion_log`、`ai_query_audit` 与 5 个只读视图；不保存 prompt 原文与密钥（S8 已落地） | `V8`、`V11` |
+| `V17__telemetry_device_ingest_key.sql` | 唯一键由 `uk_ingest_key` 改为 `uk_device_ingest_key (device_id, ingest_key)`，按设备隔离自增 messageId；前置 self-join DELETE 为防御性清理（S2 已落地） | 必须晚于 `V6` |
 
 每个迁移可单独回滚到上一版本；结构变更与回填放在同一迁移时，回填必须幂等并在 PR 中单独说明。生产环境执行前先备份。`[工程判断]`
+
+### 3.1 V17 清理语句执行计划（实测）
+
+2026-11-10 在 MySQL 8.4 上按 V6 结构（含单列 `uk_ingest_key`）建表，灌入 20 万行后执行
+`EXPLAIN DELETE t1 FROM eq_telemetry t1 JOIN eq_telemetry t2 ON ...`，实际输出：
+
+```text
+t1: type=ALL,    key=NULL,          rows≈199157, Extra=Using where
+t2: type=eq_ref, key=uk_ingest_key, rows=1,       Extra=Using where
+```
+
+结论：
+
+1. `t1` 确实全表扫描；`t2` 每行按唯一键回查 1 行，整体 O(n) 而不是 O(n²)。
+2. 20 万行实测 DELETE 耗时约 0.46s（含容器与客户端开销）；单列唯一键下正常数据不会命中，
+   实际删除 0 行。
+3. V17 执行时遥测刚上线（S2），数据量远低于 20 万，一次性扫描可接受，因此不改写：
+   修改历史迁移会破坏 Flyway 校验和。
+4. 若未来该表达到千万级且确需再去重，应新增分批清理迁移（按主键区间 `LIMIT`），
+   不要在 V17 上原地修改。

@@ -107,8 +107,9 @@ cd zhizao-xietong && mvn spring-boot:run
 首次启动时 `DataInitializer` 会创建管理员账号 `admin`：
 
 - 初始口令通过环境变量 `APP_BOOTSTRAP_ADMIN_PASSWORD` 注入；
-- 未配置时启动日志会打印一次性随机口令，请登录后立即修改；
-- 演示账号 `zhangsan` 仅在 `dev` profile 下创建，口令来自 `DEMO_INIT_PASSWORD`。
+- 非 `dev` 环境未配置时启动直接失败；`dev` 环境未配置时启动日志会打印一次性随机口令，请登录后立即修改；
+- 演示账号 `zhangsan` 仅在 `dev` profile 下创建，口令来自 `DEMO_INIT_PASSWORD`；
+- 演示账号的车间范围来自 `DEMO_INIT_WORKSHOP`，留空则不预设车间（该账号看不到车间业务数据）。
 
 ### 4. 启动管理端
 

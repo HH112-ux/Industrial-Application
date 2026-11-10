@@ -22,7 +22,8 @@ import java.security.SecureRandom;
  * {@code dev} profile 未配置时生成一次性安全随机口令并在启动日志中打印一次；
  * 其他环境未配置时直接启动失败，绝不静默生成口令或回退到硬编码弱口令。
  * 演示账号仅在 {@code dev} profile 下创建，口令来自 {@code DEMO_INIT_PASSWORD}，
- * 未配置时同样生成随机口令。</p>
+ * 车间范围来自 {@code DEMO_INIT_WORKSHOP}；未配置时不预设车间，该账号按 deny-by-default
+ * 看不到任何车间业务数据，需要演示时显式配置。</p>
  *
  * @author Caspian
  */
@@ -45,6 +46,9 @@ public class DataInitializer implements CommandLineRunner {
     @Value("${app.bootstrap.demo-password:}")
     private String demoPassword;
 
+    @Value("${app.bootstrap.demo-workshop:}")
+    private String demoWorkshop;
+
     public DataInitializer(SysUserMapper userMapper, PasswordEncoder passwordEncoder, Environment environment) {
         this.userMapper = userMapper;
         this.passwordEncoder = passwordEncoder;
@@ -57,7 +61,8 @@ public class DataInitializer implements CommandLineRunner {
         ensureUser("admin", "系统管理员", "ADMIN", null,
                 "app.bootstrap.admin-password（环境变量 APP_BOOTSTRAP_ADMIN_PASSWORD）", adminPassword, devProfile);
         if (devProfile) {
-            ensureUser("zhangsan", "张三", "USER", "一车间",
+            String workshop = StringUtils.hasText(demoWorkshop) ? demoWorkshop.trim() : null;
+            ensureUser("zhangsan", "张三", "USER", workshop,
                     "app.bootstrap.demo-password（环境变量 DEMO_INIT_PASSWORD）", demoPassword, true);
         }
     }
