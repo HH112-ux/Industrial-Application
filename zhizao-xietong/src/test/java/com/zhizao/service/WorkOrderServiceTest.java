@@ -36,6 +36,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.dao.DuplicateKeyException;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -188,6 +189,23 @@ class WorkOrderServiceTest {
                 () -> workOrderService.start(1L, "zhangsan"));
 
         assertEquals(409, error.getCode());
+        verify(statusHistoryMapper, never()).insert(any(WorkOrderStatusHistory.class));
+    }
+
+    @Test
+    void startMapsDuplicateReservationKeyToBusinessConflict() {
+        WorkOrder order = order("PENDING");
+        when(workOrderMapper.selectById(1L)).thenReturn(order);
+        when(processService.getById(2L)).thenReturn(publishedProcess());
+        givenScheduled(LocalDateTime.now().plusHours(1), LocalDateTime.now().plusHours(2));
+        when(kitCheckService.reserve(order))
+                .thenThrow(new DuplicateKeyException("Duplicate entry '1-MT-001' for key 'uk_work_order_mat'"));
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> workOrderService.start(1L, "zhangsan"));
+
+        assertEquals(409, error.getCode());
+        verify(workOrderMapper, never()).updateById(any(WorkOrder.class));
         verify(statusHistoryMapper, never()).insert(any(WorkOrderStatusHistory.class));
     }
 

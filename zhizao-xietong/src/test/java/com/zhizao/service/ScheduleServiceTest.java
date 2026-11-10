@@ -26,11 +26,13 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -215,6 +217,24 @@ class ScheduleServiceTest {
         assertEquals(DAY.atTime(16, 0), existing.getEndTime());
         assertTrue(result.scheduled().stream().noneMatch(item -> Long.valueOf(201L).equals(item.getWorkOrderId())));
         verify(scheduleEntryMapper, times(1)).delete(any());
+    }
+
+    @Test
+    void skipsOrderBatchQueryWhenOccupancyHasNoWorkOrderIds() {
+        ScheduleEntry orphan = new ScheduleEntry();
+        orphan.setDeviceId(1L);
+        orphan.setStartTime(DAY.atTime(8, 0));
+        orphan.setEndTime(DAY.atTime(9, 0));
+        orphan.setStatus(ScheduleStatus.SCHEDULED.name());
+        when(scheduleEntryMapper.selectList(any())).thenReturn(List.of(orphan));
+
+        givenWorkOrders(order(101L, 1L, 5L, 8));
+        givenPlans(plan(1L, DAY, DAY.plusDays(1), "HIGH"));
+        givenOperations(operation(5L, 1, TYPE, "1"));
+        givenDevices(device(1L, TYPE, "RUNNING"));
+
+        assertDoesNotThrow(() -> scheduleService.run());
+        verify(workOrderMapper, never()).selectBatchIds(any());
     }
 
     @Test

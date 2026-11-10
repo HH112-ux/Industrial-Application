@@ -522,6 +522,9 @@ public class ScheduleService {
         }
         List<Long> orderIds = latestByDevice.values().stream()
                 .map(ScheduleEntry::getWorkOrderId).filter(Objects::nonNull).distinct().toList();
+        if (orderIds.isEmpty()) {
+            return new HashMap<>();
+        }
         Map<Long, WorkOrder> orders = workOrderMapper.selectBatchIds(orderIds).stream()
                 .collect(toMap(WorkOrder::getId, order -> order, (a, b) -> a));
         Map<Long, String> products = new HashMap<>();

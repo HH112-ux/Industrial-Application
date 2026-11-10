@@ -170,6 +170,9 @@ class WorkOrderConsistencyIntegrationTest {
                     success++;
                 } else {
                     failure++;
+                    assertInstanceOf(BusinessException.class, error, "失败方应是业务冲突，而不是未捕获的唯一键异常");
+                    assertEquals(409, ((BusinessException) error).getCode(),
+                            "并发开工失败（含 uk_work_order_mat 冲突）必须映射为业务码 409");
                 }
             }
             assertEquals(1, success, "并发开工只能有一个成功");

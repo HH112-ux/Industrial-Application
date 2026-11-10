@@ -1,5 +1,6 @@
 package com.zhizao.service;
 
+import com.zhizao.common.BadRequestException;
 import com.zhizao.common.BusinessException;
 import com.zhizao.common.ForbiddenException;
 import com.zhizao.common.UnauthorizedException;
@@ -136,6 +137,14 @@ class AuthServiceTest {
         verify(userMapper).updateById(captor.capture());
         assertEquals("encoded-new", captor.getValue().getPassword());
         assertEquals(Integer.valueOf(3), captor.getValue().getTokenVersion());
+    }
+
+    @Test
+    void changePasswordRejectsBlankOldPasswordAsBadRequest() {
+        when(userMapper.selectOne(any())).thenReturn(user(1, 2));
+
+        assertThrows(BadRequestException.class,
+                () -> authService.changePassword("admin", new PasswordChangeRequest(" ", "new-pass")));
     }
 
     @Test

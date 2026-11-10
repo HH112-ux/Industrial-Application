@@ -15,18 +15,21 @@ import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 /**
  * 业务指标：向 actuator 暴露设备在线、遥测上报、报工与现场执行指标。
  *
- * <p>指标全部来自实时查询或进程内计数，不做占位兜底。空分母的指标返回
+ * <p>设备类指标在抓取时实时查询；齐套率涉及全部待开工工单的 BOM 核算，改为定时刷新到
+ * {@link AtomicReference}，抓取只读缓存，保证 O(1)。空分母的指标返回
  * {@link Double#NaN}，表示「未定义」而不是 0；调用方需要自行判断。</p>
  *
  * @author Caspian
@@ -44,6 +47,8 @@ public class BusinessMetrics {
     private final Counter telemetryReports;
     private final Counter workOrderReports;
     private final Timer telemetryIngest;
+    /** 齐套率缓存；首次定时刷新前为 NaN（未定义）。 */
+    private final AtomicReference<Double> kitRate = new AtomicReference<>(Double.NaN);
 
     /**
      * 注册业务指标。
@@ -75,8 +80,8 @@ public class BusinessMetrics {
         Gauge.builder("zhizao.work_orders.takt.per_hour", this, BusinessMetrics::taktPerHour)
                 .description("最近 24 小时完工合格数量 / 24 小时；无完工时为 0")
                 .register(meterRegistry);
-        Gauge.builder("zhizao.materials.kit_rate", this, BusinessMetrics::kitRate)
-                .description("待开工且已绑定工艺的工单中物料齐套占比；无此类工单时为 NaN")
+        Gauge.builder("zhizao.materials.kit_rate", kitRate::get)
+                .description("待开工且已绑定工艺的工单中物料齐套占比；无此类工单时为 NaN。定时刷新，抓取只读缓存")
                 .register(meterRegistry);
 
         this.telemetryReports = Counter.builder("zhizao.telemetry.reports")
@@ -107,7 +112,7 @@ public class BusinessMetrics {
         long online = (long) onlineCount();
         long telemetryCount = (long) telemetryReports.count();
         long reportCount = (long) workOrderReports.count();
-        double kit = kitRate();
+        double kit = kitRate.get();
 
         return new MetricsOverview(
                 online,
@@ -177,7 +182,18 @@ public class BusinessMetrics {
         return qualified / 24.0;
     }
 
-    private double kitRate() {
+    /**
+     * 定时刷新齐套率缓存。
+     *
+     * <p>默认每分钟一次，可用 {@code metrics.kit-rate-refresh-ms} 调整。刷新会遍历「待开工且已绑定工艺」
+     * 的工单并逐单核算 BOM，成本与待开工工单数相关；指标抓取本身只读缓存，不触发查询。</p>
+     */
+    @Scheduled(fixedDelayString = "${metrics.kit-rate-refresh-ms:60000}")
+    public void refreshKitRate() {
+        kitRate.set(computeKitRate());
+    }
+
+    private double computeKitRate() {
         List<WorkOrder> pending = workOrderMapper.selectList(new LambdaQueryWrapper<WorkOrder>()
                 .eq(WorkOrder::getStatus, WorkOrderStatus.PENDING.name())
                 .isNotNull(WorkOrder::getProcessId));
