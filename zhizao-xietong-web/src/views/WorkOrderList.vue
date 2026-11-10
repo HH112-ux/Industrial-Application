@@ -30,7 +30,11 @@
         <el-table-column label="操作" width="220" fixed="right">
           <template #default="{ row }">
             <el-button v-if="row.status === 'PENDING'" link type="success" @click="start(row)">开工</el-button>
-            <el-button v-if="row.status === 'IN_PRODUCTION'" link type="primary" @click="openReport(row)">报工</el-button>
+            <el-tooltip v-if="row.status === 'IN_PRODUCTION' && remainingQty(row) <= 0"
+              content="已报满，无可报数量" placement="top">
+              <span><el-button link type="primary" disabled>报工</el-button></span>
+            </el-tooltip>
+            <el-button v-else-if="row.status === 'IN_PRODUCTION'" link type="primary" @click="openReport(row)">报工</el-button>
             <el-button v-if="row.status === 'PENDING_QC'" link type="warning" @click="openQc(row)">质检</el-button>
             <el-button link type="info" @click="openHistory(row)">流转记录</el-button>
           </template>
@@ -163,11 +167,22 @@ async function start(row: WorkOrder) {
   load();
 }
 
+function remainingQty(row: WorkOrder): number {
+  // 质检失败会释放返工额度，可报上限按「计划 + 可返工 - 已报」计算。
+  const limit = (Number(row.qty) || 0) + (Number(row.qtyRework) || 0);
+  return Math.max(limit - (Number(row.qtyDone) || 0), 0);
+}
+
 function openReport(row: WorkOrder) {
+  const remaining = remainingQty(row);
+  if (remaining <= 0) {
+    ElMessage.warning('已报满，无可报数量');
+    return;
+  }
   reportDialog.orderId = row.id;
   Object.assign(reportForm, {
-    qty: row.qty,
-    qualifiedQty: row.qty,
+    qty: remaining,
+    qualifiedQty: remaining,
     defectQty: 0,
     idempotencyKey: newIdempotencyKey()
   });
