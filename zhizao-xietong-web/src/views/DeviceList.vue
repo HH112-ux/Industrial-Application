@@ -18,6 +18,7 @@
         </el-table-column>
         <el-table-column prop="deviceName" label="设备名称" min-width="140" />
         <el-table-column prop="deviceType" label="设备类型" width="110" />
+        <el-table-column prop="workshop" label="车间" width="110" />
         <el-table-column prop="manufacturer" label="制造商" width="120" />
         <el-table-column prop="model" label="型号" width="110" />
         <el-table-column prop="serialNo" label="序列号" width="120" />
