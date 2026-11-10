@@ -18,6 +18,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -98,6 +99,25 @@ class DataInitializerTest {
         assertEquals(List.of("admin", "zhangsan"), users.stream().map(SysUser::getUsername).toList());
         assertTrue(passwordEncoder.matches("admin-strong-pass", users.get(0).getPassword()));
         assertTrue(passwordEncoder.matches("demo-strong-pass", users.get(1).getPassword()));
+        assertNull(users.get(1).getWorkshopScope(), "未配置演示车间时不得预设车间");
+    }
+
+    @Test
+    void demoWorkshopComesFromConfiguration() {
+        when(userMapper.selectCount(any())).thenReturn(0L);
+        when(environment.acceptsProfiles(any(Profiles.class))).thenReturn(true);
+        DataInitializer initializer = new DataInitializer(userMapper, passwordEncoder, environment);
+        ReflectionTestUtils.setField(initializer, "adminPassword", "admin-strong-pass");
+        ReflectionTestUtils.setField(initializer, "demoPassword", "demo-strong-pass");
+        ReflectionTestUtils.setField(initializer, "demoWorkshop", " 二车间 ");
+
+        initializer.run();
+
+        ArgumentCaptor<SysUser> captor = ArgumentCaptor.forClass(SysUser.class);
+        verify(userMapper, times(2)).insert(captor.capture());
+        SysUser demo = captor.getAllValues().get(1);
+        assertEquals("zhangsan", demo.getUsername());
+        assertEquals("二车间", demo.getWorkshopScope());
     }
 
     @Test

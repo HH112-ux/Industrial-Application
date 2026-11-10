@@ -243,11 +243,11 @@ public class AiService {
         if (qty == null) {
             missing.add("qty");
         }
-        Integer qualified = positive(raw.qualifiedQty());
+        Integer qualified = nonNegative(raw.qualifiedQty());
         if (qualified == null) {
             missing.add("qualifiedQty");
         }
-        Integer defect = positive(raw.defectQty());
+        Integer defect = nonNegative(raw.defectQty());
         if (defect == null) {
             missing.add("defectQty");
         }
@@ -271,6 +271,19 @@ public class AiService {
 
     private Integer positive(Integer value) {
         return value == null || value <= 0 ? null : value;
+    }
+
+    /**
+     * 合格数与不良数允许为 0：只有模型没有给出数值才算「缺失」。
+     *
+     * <p>历史实现用 {@link #positive(Integer)} 处理不良数，把「填了 0」误判成「未填写」，
+     * 前端会提示补填不良数；这里单独放开 0，负数仍视为非法（按缺失处理）。</p>
+     *
+     * @param value 模型给出的数量，可为空
+     * @return 非负数量；为空或负数时返回 null
+     */
+    private Integer nonNegative(Integer value) {
+        return value == null || value < 0 ? null : value;
     }
 
     private int remaining(WorkOrder order) {

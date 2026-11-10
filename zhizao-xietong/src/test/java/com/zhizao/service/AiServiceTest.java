@@ -196,6 +196,23 @@ class AiServiceTest {
     }
 
     @Test
+    void zeroDefectQuantityIsFilledRatherThanMissing() {
+        AiService realService = new AiService(properties, assistant, realTools(),
+                new ReadOnlySqlGuard(properties), auditRepository, jdbcTemplate);
+        when(workOrderService.getById(9L)).thenReturn(order());
+        when(assistant.draftReport(any())).thenReturn(new ReportDraft(
+                10, 10, 0, "张三", "全部合格，0 不良", List.of(), List.of(), false));
+
+        AiResult<ReportDraft> result = realService.draftReport(
+                new ReportDraftRequest(9L, "报工 10 件，全部合格，0 不良"), "tester");
+
+        assertTrue(result.available());
+        assertEquals(0, result.data().defectQty());
+        assertFalse(result.data().missingFields().contains("defectQty"),
+                "填了 0 不良不应被当作未填写");
+    }
+
+    @Test
     void textToSqlIsAdminOnlyAndRejectsNonAdminBeforeCallingModel() {
         assertThrows(ForbiddenException.class, () -> service.query(
                 new AiQueryRequest("设备在线情况"), new UserPrincipal("worker", "USER", "一车间")));
