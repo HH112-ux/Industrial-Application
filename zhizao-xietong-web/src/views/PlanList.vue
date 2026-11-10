@@ -48,6 +48,7 @@
       <el-form :model="form" label-width="110px">
         <el-form-item label="产品编号" required><el-input v-model="form.productCode" /></el-form-item>
         <el-form-item label="产品名称" required><el-input v-model="form.productName" /></el-form-item>
+        <el-form-item label="车间" required><el-input v-model="form.workshop" placeholder="如：一车间" /></el-form-item>
         <el-form-item label="计划数量" required><el-input-number v-model="form.planQty" :min="1" style="width: 100%" /></el-form-item>
         <el-form-item label="计划开始" required><el-date-picker v-model="form.planStart" type="date" value-format="YYYY-MM-DD" style="width: 100%" /></el-form-item>
         <el-form-item label="计划完成" required><el-date-picker v-model="form.planEnd" type="date" value-format="YYYY-MM-DD" style="width: 100%" /></el-form-item>
@@ -77,7 +78,7 @@
           </el-select>
         </el-form-item>
         <el-form-item label="车间">
-          <el-input v-model="dispatchDialog.workshop" placeholder="缺省一车间" />
+          <el-input v-model="dispatchDialog.workshop" placeholder="留空则取计划车间" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -101,9 +102,9 @@ const total = ref(0);
 const query = reactive({ pageNum: 1, pageSize: 10, keyword: '', status: '' });
 
 const dialog = reactive({ visible: false, isEdit: false });
-const form = reactive<Plan>({ productCode: '', productName: '', planQty: 1, planStart: '', planEnd: '', priority: 'MEDIUM', batch: '', estHours: undefined });
+const form = reactive<Plan>({ productCode: '', productName: '', planQty: 1, planStart: '', planEnd: '', priority: 'MEDIUM', batch: '', workshop: '', estHours: undefined });
 const dispatchDialog = reactive<{ visible: boolean; plan: Plan | null; processId?: number; workshop: string }>({
-  visible: false, plan: null, processId: undefined, workshop: '一车间'
+  visible: false, plan: null, processId: undefined, workshop: ''
 });
 const publishedProcesses = ref<Process[]>([]);
 
@@ -127,7 +128,7 @@ function reset() {
 
 function openCreate() {
   dialog.isEdit = false;
-  Object.assign(form, { id: undefined, productCode: '', productName: '', planQty: 1, planStart: '', planEnd: '', priority: 'MEDIUM', batch: '', estHours: undefined });
+  Object.assign(form, { id: undefined, productCode: '', productName: '', planQty: 1, planStart: '', planEnd: '', priority: 'MEDIUM', batch: '', workshop: '', estHours: undefined });
   dialog.visible = true;
 }
 
@@ -138,8 +139,8 @@ function openEdit(row: Plan) {
 }
 
 async function save() {
-  if (!form.productCode || !form.productName || !form.planStart || !form.planEnd) {
-    ElMessage.warning('请填写完整的产品与计划日期');
+  if (!form.productCode || !form.productName || !form.workshop || !form.planStart || !form.planEnd) {
+    ElMessage.warning('请填写完整的产品、车间与计划日期');
     return;
   }
   if (dialog.isEdit) {
@@ -156,7 +157,7 @@ async function save() {
 async function dispatch(row: Plan) {
   dispatchDialog.plan = row;
   dispatchDialog.processId = undefined;
-  dispatchDialog.workshop = '一车间';
+  dispatchDialog.workshop = row.workshop || '';
   dispatchDialog.visible = true;
   const res = await processApi.list({ pageNum: 1, pageSize: 100, approvalStatus: 'PUBLISHED' });
   publishedProcesses.value = res.records;

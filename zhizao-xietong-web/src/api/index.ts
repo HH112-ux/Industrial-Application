@@ -14,6 +14,7 @@ export interface Device {
   model: string;
   serialNo?: string;
   status?: string;
+  workshop?: string;
 }
 
 export interface Material {
@@ -49,6 +50,7 @@ export interface Plan {
   planEnd: string;
   priority: string;
   batch?: string;
+  workshop?: string;
   requiredDeviceId?: number;
   estHours?: number;
   status?: string;

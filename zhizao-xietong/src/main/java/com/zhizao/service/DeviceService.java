@@ -88,24 +88,54 @@ public class DeviceService {
         return device;
     }
 
+    /**
+     * 新增设备：车间必填，不再回退到固定车间。
+     *
+     * @param device 设备数据
+     * @return 已保存的设备
+     * @throws BusinessException 未指定车间时抛出
+     */
     public Device create(Device device) {
         device.setId(null);
         device.setDeviceNo(codeGenerator.next("EQ"));
         if (device.getStatus() == null) {
             device.setStatus(DeviceStatus.STOPPED.name());
         }
-        if (!StringUtils.hasText(device.getWorkshop())) {
-            device.setWorkshop("一车间");
-        }
+        device.setWorkshop(requireWorkshop(device.getWorkshop(), "设备"));
         deviceMapper.insert(device);
         return device;
     }
 
+    /**
+     * 更新设备：车间传入时必须非空，传 null 表示不修改。
+     *
+     * @param device 设备数据
+     * @return 更新后的设备
+     * @throws BusinessException 车间传空时抛出
+     */
     public Device update(Device device) {
         getById(device.getId());
         device.setDeviceNo(null); // 编号不可修改
+        if (device.getWorkshop() != null) {
+            device.setWorkshop(requireWorkshop(device.getWorkshop(), "设备"));
+        }
         deviceMapper.updateById(device);
         return getById(device.getId());
+    }
+
+    /**
+     * 校验并规范化车间必填值。
+     *
+     * @param workshop 车间值
+     * @param subject  业务对象名称，用于错误文案
+     * @return 去除首尾空白后的车间
+     * @throws BusinessException 车间为空时抛出
+     */
+    private static String requireWorkshop(String workshop, String subject) {
+        if (!StringUtils.hasText(workshop)) {
+            throw new BusinessException(subject + "必须指定车间");
+        }
+        return workshop.trim();
     }
 
     public void delete(Long id) {

@@ -94,23 +94,53 @@ public class PlanService {
         return plan;
     }
 
+    /**
+     * 新建计划：车间必填，不再回退到固定车间。
+     *
+     * @param plan 计划数据
+     * @return 已保存的计划
+     * @throws BusinessException 未指定车间时抛出
+     */
     public Plan create(Plan plan) {
         plan.setId(null);
         plan.setPlanOrderNo(codeGenerator.next("PO"));
         plan.setStatus(PlanStatus.PENDING_SCHEDULE.name());
-        if (!StringUtils.hasText(plan.getWorkshop())) {
-            plan.setWorkshop("一车间");
-        }
+        plan.setWorkshop(requireWorkshop(plan.getWorkshop(), "计划"));
         planMapper.insert(plan);
         return plan;
     }
 
+    /**
+     * 更新计划：车间传入时必须非空，传 null 表示不修改。
+     *
+     * @param plan 计划数据
+     * @return 更新后的计划
+     * @throws BusinessException 车间传空时抛出
+     */
     public Plan update(Plan plan) {
         getById(plan.getId());
         plan.setPlanOrderNo(null);
         plan.setStatus(null); // 状态走专用流转
+        if (plan.getWorkshop() != null) {
+            plan.setWorkshop(requireWorkshop(plan.getWorkshop(), "计划"));
+        }
         planMapper.updateById(plan);
         return getById(plan.getId());
+    }
+
+    /**
+     * 校验并规范化车间必填值。
+     *
+     * @param workshop 车间值
+     * @param subject  业务对象名称，用于错误文案
+     * @return 去除首尾空白后的车间
+     * @throws BusinessException 车间为空时抛出
+     */
+    private static String requireWorkshop(String workshop, String subject) {
+        if (!StringUtils.hasText(workshop)) {
+            throw new BusinessException(subject + "必须指定车间");
+        }
+        return workshop.trim();
     }
 
     /**
@@ -133,7 +163,8 @@ public class PlanService {
      * 下达工单：待排产 → 进行中，并生成生产工单。
      *
      * <p>必须显式指定已发布工艺，工单会锁定该工艺版本；车间与设备可由请求覆盖，
-     * 设备为空时取计划上的所需设备。不再自动挑选「第一个已发布工艺」，避免多工艺产品下错工艺。</p>
+     * 车间为空时取计划所属车间，设备为空时取计划上的所需设备。
+     * 不再自动挑选「第一个已发布工艺」，避免多工艺产品下错工艺。</p>
      *
      * @param id      计划主键
      * @param request 下达请求，包含工艺版本、可选设备与车间
@@ -159,7 +190,8 @@ public class PlanService {
         order.setProductName(plan.getProductName());
         order.setQty(plan.getPlanQty());
         order.setBatch(plan.getBatch());
-        order.setWorkshop(StringUtils.hasText(request.workshop()) ? request.workshop().trim() : "一车间");
+        String workshop = StringUtils.hasText(request.workshop()) ? request.workshop().trim() : plan.getWorkshop();
+        order.setWorkshop(requireWorkshop(workshop, "工单"));
         order.setDeviceId(request.deviceId() != null ? request.deviceId() : plan.getRequiredDeviceId());
         order.setProcessId(process.getId());
         order.setProcessVersion(process.getVersion());

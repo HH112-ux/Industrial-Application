@@ -89,6 +89,7 @@
             <el-option v-for="t in deviceTypes" :key="t" :label="t" :value="t" />
           </el-select>
         </el-form-item>
+        <el-form-item label="车间" required><el-input v-model="form.workshop" placeholder="如：一车间" /></el-form-item>
         <el-form-item label="制造商"><el-input v-model="form.manufacturer" /></el-form-item>
         <el-form-item label="型号" required><el-input v-model="form.model" /></el-form-item>
         <el-form-item label="序列号"><el-input v-model="form.serialNo" /></el-form-item>
@@ -122,7 +123,7 @@ const query = reactive({ pageNum: 1, pageSize: 10, keyword: '', status: '' });
 
 let listSeq = 0;
 const dialog = reactive({ visible: false, isEdit: false });
-const form = reactive<Device>({ deviceName: '', deviceType: '加工设备', manufacturer: '', model: '', serialNo: '', status: 'STOPPED' });
+const form = reactive<Device>({ deviceName: '', deviceType: '加工设备', manufacturer: '', model: '', serialNo: '', status: 'STOPPED', workshop: '' });
 
 async function load() {
   const seq = ++listSeq;
@@ -148,7 +149,7 @@ function reset() {
 
 function openCreate() {
   dialog.isEdit = false;
-  Object.assign(form, { id: undefined, deviceName: '', deviceType: '加工设备', manufacturer: '', model: '', serialNo: '', status: 'STOPPED' });
+  Object.assign(form, { id: undefined, deviceName: '', deviceType: '加工设备', manufacturer: '', model: '', serialNo: '', status: 'STOPPED', workshop: '' });
   dialog.visible = true;
 }
 
@@ -159,8 +160,8 @@ function openEdit(row: Device) {
 }
 
 async function save() {
-  if (!form.deviceName || !form.model) {
-    ElMessage.warning('请填写设备名称和型号');
+  if (!form.deviceName || !form.model || !form.workshop) {
+    ElMessage.warning('请填写设备名称、型号和车间');
     return;
   }
   if (dialog.isEdit) {
