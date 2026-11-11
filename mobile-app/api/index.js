@@ -17,6 +17,10 @@ export const workOrderApi = {
   qc: (id, data) => request({ url: `/work-orders/${id}/qc`, method: 'POST', data })
 };
 
+export const scheduleApi = {
+  entries: (workOrderId) => request({ url: `/schedules/work-orders/${workOrderId}`, method: 'GET' })
+};
+
 export const workOrderStatusMap = {
   PENDING: { label: '待开工', color: '#94a3b8' },
   IN_PRODUCTION: { label: '生产中', color: '#1d5fd6' },

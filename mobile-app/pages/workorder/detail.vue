@@ -25,6 +25,39 @@
       <text class="progress-text">累计 {{ order.qtyDone || 0 }} / 计划 {{ order.qty }}</text>
     </view>
 
+    <view class="card schedule">
+      <view class="schedule-head">
+        <text class="k">排程落点</text>
+        <text v-if="summaryText" class="summary">{{ summaryText }}</text>
+      </view>
+      <view v-if="scheduleLoading" class="schedule-empty">加载中…</view>
+      <view v-else-if="!schedules.length" class="schedule-empty">该工单尚未排程：可能未运行排产，或无法排入</view>
+      <view v-else>
+        <view v-for="item in schedules" :key="item.id" class="schedule-item">
+          <view class="schedule-top">
+            <text class="queue">{{ queueLabel(item) }}</text>
+            <text class="op">{{ operationLabel(item) }}</text>
+          </view>
+          <view class="schedule-row">
+            <text class="k">设备</text>
+            <text class="v">{{ deviceLabel(item) }}</text>
+          </view>
+          <view class="schedule-row">
+            <text class="k">占用时间</text>
+            <text class="v">{{ formatWindow(item.startTime, item.endTime) }}</text>
+          </view>
+          <view class="schedule-row">
+            <text class="k">工时</text>
+            <view class="v">
+              <text>{{ hoursText(item) }}</text>
+              <text v-if="isEstimated(item)" class="estimate-tag">估算</text>
+            </view>
+          </view>
+          <text v-if="item.message" class="schedule-note">{{ item.message }}</text>
+        </view>
+      </view>
+    </view>
+
     <view class="actions">
       <button v-if="order.status === 'PENDING'" class="btn" @click="start">开工</button>
       <button v-if="order.status === 'IN_PRODUCTION'" class="btn" :disabled="remainingQty <= 0" @click="openReport">报工</button>
@@ -59,7 +92,16 @@
 </template>
 
 <script>
-import { workOrderApi, workOrderStatusMap } from '../../api/index.js';
+import { workOrderApi, scheduleApi, workOrderStatusMap } from '../../api/index.js';
+import {
+  formatWindow,
+  deviceLabel,
+  hoursText,
+  isEstimated,
+  queueLabel,
+  operationLabel,
+  scheduleSummary
+} from '../../utils/schedule.mjs';
 
 export default {
   data() {
@@ -67,6 +109,8 @@ export default {
       id: null,
       order: {},
       statusMap: workOrderStatusMap,
+      schedules: [],
+      scheduleLoading: false,
       reportVisible: false,
       qcVisible: false,
       reportForm: { qty: 0, qualifiedQty: 0, defectQty: 0, idempotencyKey: '' },
@@ -87,6 +131,9 @@ export default {
       // 质检失败后释放可返工额度，剩余量按「计划 + 可返工」计算。
       const limit = (this.order.qty || 0) + (this.order.qtyRework || 0);
       return Math.max(limit - (this.order.qtyDone || 0), 0);
+    },
+    summaryText() {
+      return scheduleSummary(this.schedules);
     }
   },
   onLoad(options) {
@@ -94,11 +141,29 @@ export default {
     this.load();
   },
   methods: {
+    formatWindow,
+    deviceLabel,
+    hoursText,
+    isEstimated,
+    queueLabel,
+    operationLabel,
     async load() {
       this.order = await workOrderApi.get(this.id);
       this.reportForm.qty = this.remainingQty;
       this.reportForm.qualifiedQty = this.remainingQty;
       this.reportForm.defectQty = 0;
+      this.loadSchedule();
+    },
+    async loadSchedule() {
+      this.scheduleLoading = true;
+      try {
+        this.schedules = await scheduleApi.entries(this.id);
+      } catch (e) {
+        // 请求层已提示错误，排程区块退回空态，不影响工单主体操作。
+        this.schedules = [];
+      } finally {
+        this.scheduleLoading = false;
+      }
     },
     openReport() {
       if (this.remainingQty <= 0) {
@@ -220,6 +285,80 @@ export default {
   margin-top: 10rpx;
   color: #5b6b82;
   font-size: 24rpx;
+}
+.schedule {
+  margin-top: 24rpx;
+}
+.schedule-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14rpx;
+}
+.schedule-head .k {
+  color: #5b6b82;
+  font-size: 28rpx;
+}
+.summary {
+  color: #1d5fd6;
+  font-size: 24rpx;
+  font-weight: 600;
+}
+.schedule-empty {
+  text-align: center;
+  color: #94a3b8;
+  font-size: 26rpx;
+  padding: 24rpx 0;
+}
+.schedule-item {
+  padding: 20rpx 0;
+  border-top: 1rpx dashed #e3e8f0;
+}
+.schedule-item:first-child {
+  padding-top: 6rpx;
+  border-top: none;
+}
+.schedule-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10rpx;
+}
+.queue {
+  color: #1d5fd6;
+  font-size: 26rpx;
+  font-weight: 700;
+}
+.op {
+  color: #182538;
+  font-size: 28rpx;
+}
+.schedule-row {
+  display: flex;
+  justify-content: space-between;
+  padding: 6rpx 0;
+}
+.schedule-row .k {
+  color: #5b6b82;
+  font-size: 26rpx;
+}
+.schedule-row .v {
+  color: #182538;
+  font-size: 26rpx;
+  font-weight: 600;
+  text-align: right;
+}
+.schedule-note {
+  display: block;
+  margin-top: 8rpx;
+  color: #5b6b82;
+  font-size: 24rpx;
+  line-height: 1.6;
+}
+.estimate-tag {
+  color: #e8871a;
+  font-size: 24rpx;
+  margin-left: 8rpx;
 }
 .actions {
   margin-top: 32rpx;
