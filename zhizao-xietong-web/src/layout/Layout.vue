@@ -19,6 +19,10 @@
         <el-menu-item index="/devices">
           <el-icon><Cpu /></el-icon><span>设备管理</span>
         </el-menu-item>
+        <el-menu-item index="/alarms">
+          <el-icon><Bell /></el-icon><span>报警中心</span>
+          <el-badge v-if="unread > 0" :value="unread" :max="99" class="menu-badge" />
+        </el-menu-item>
         <el-menu-item index="/maintenance">
           <el-icon><Tools /></el-icon><span>点检与维修</span>
         </el-menu-item>
@@ -59,9 +63,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { DataBoard, Cpu, Box, SetUp, Calendar, Histogram, Tickets, Tools, User } from '@element-plus/icons-vue';
+import { Bell, DataBoard, Cpu, Box, SetUp, Calendar, Histogram, Tickets, Tools, User } from '@element-plus/icons-vue';
+import { alarmApi } from '@/api';
 import { getUser, clearToken, isAdmin } from '@/api/request';
 
 const admin = isAdmin();
@@ -70,6 +75,27 @@ const router = useRouter();
 const activeMenu = computed(() => route.path);
 const pageTitle = computed(() => (route.meta.title as string) || '智造协同');
 const displayName = computed(() => getUser()?.nickname || getUser()?.username || '');
+const unread = ref(0);
+let unreadTimer: number | undefined;
+
+async function refreshUnread() {
+  try {
+    unread.value = await alarmApi.unreadCount();
+  } catch {
+    // 未读数失败不打断页面，错误提示由请求拦截器统一处理
+  }
+}
+
+onMounted(() => {
+  refreshUnread();
+  unreadTimer = window.setInterval(refreshUnread, 60000);
+});
+onBeforeUnmount(() => {
+  if (unreadTimer) {
+    window.clearInterval(unreadTimer);
+  }
+});
+watch(() => route.path, refreshUnread);
 
 function logout() {
   clearToken();
@@ -117,6 +143,12 @@ function logout() {
 }
 .menu :deep(.el-menu-item.is-active) {
   background: var(--zhizao-accent);
+}
+.menu-badge {
+  margin-left: auto;
+}
+.menu-badge :deep(.el-badge__content) {
+  border: none;
 }
 .header {
   background: #fff;

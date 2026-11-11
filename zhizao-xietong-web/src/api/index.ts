@@ -326,3 +326,25 @@ export const maintenanceApi = {
   update: (id: number, data: MaintenanceRecord) => request.put(`/maintenance/${id}`, data),
   remove: (id: number) => request.delete(`/maintenance/${id}`)
 };
+
+export interface AlarmRecord {
+  id?: number;
+  deviceId?: number;
+  metric?: string;
+  ruleType?: string;
+  triggerValue?: number | null;
+  thresholdSnapshot?: string;
+  startTime?: string;
+  recoverTime?: string | null;
+  status?: string;
+  ackUser?: string | null;
+  ackTime?: string | null;
+  activeFlag?: number | null;
+}
+
+export const alarmApi = {
+  list: (params: Record<string, any>) => request.get<any, PageResult<AlarmRecord>>('/alarm-records', { params }),
+  unreadCount: () => request.get<any, number>('/alarm-records/unread-count'),
+  acknowledge: (id: number) => request.post<any, AlarmRecord>(`/alarm-records/${id}/acknowledge`),
+  recover: (id: number) => request.post<any, AlarmRecord>(`/alarm-records/${id}/recover`)
+};
