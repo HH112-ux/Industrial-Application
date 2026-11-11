@@ -2,6 +2,9 @@ package com.zhizao.aspect;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zhizao.dto.PasswordChangeRequest;
+import com.zhizao.dto.UserCreateRequest;
+import com.zhizao.dto.UserCreateResponse;
+import com.zhizao.dto.UserView;
 import com.zhizao.entity.AuditLog;
 import com.zhizao.mapper.AuditLogMapper;
 import org.aspectj.lang.ProceedingJoinPoint;
@@ -34,6 +37,17 @@ class AuditAspectTest {
         assertFalse(json.contains("old-secret"));
         assertFalse(json.contains("new-secret"));
         assertTrue(json.contains("***"));
+    }
+
+    @Test
+    void createAccountPasswordFieldsAreMaskedBeforePersisting() {
+        AuditAspect aspect = new AuditAspect(null, new ObjectMapper(), transactionManager());
+        UserView view = new UserView(7L, "wangwu", "王五", "USER", true, "一车间", "LOCAL", null, null);
+        String json = aspect.serializeArgs(new Object[]{
+                new UserCreateRequest("wangwu", "王五", "USER", "一车间", "given-secret"),
+                new UserCreateResponse(view, "generated-secret")});
+        assertFalse(json.contains("given-secret"));
+        assertFalse(json.contains("generated-secret"));
     }
 
     @Test
