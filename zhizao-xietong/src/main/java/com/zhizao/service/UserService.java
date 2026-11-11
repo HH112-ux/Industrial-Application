@@ -2,8 +2,10 @@ package com.zhizao.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.zhizao.common.BadRequestException;
 import com.zhizao.common.BusinessException;
 import com.zhizao.common.PageResult;
+import com.zhizao.common.PasswordPolicy;
 import com.zhizao.dto.UserView;
 import com.zhizao.entity.SysUser;
 import com.zhizao.entity.SysUserIdentity;
@@ -110,20 +112,24 @@ public class UserService {
     }
 
     /**
-     * 管理员重置密码，并递增令牌版本使该用户所有旧令牌立即失效。
+     * 管理员重置密码：校验强度后写入新密码，递增令牌版本使该用户所有旧令牌立即失效，
+     * 并置「必须先改密」，让管理员掌握的临时密码只能使用一次。
+     *
+     * <p>强度规则与自助改密共用 {@link PasswordPolicy}，管理员不能设置比用户更弱的密码。
+     * 「必须先改密」的拦截沿用认证过滤器既有逻辑，不另造一套。</p>
      *
      * @param id          用户主键
      * @param newPassword 新密码
-     * @throws BusinessException 用户不存在或新密码为空时抛出
+     * @throws BusinessException      用户不存在时抛出
+     * @throws BadRequestException    新密码不满足策略时抛出，返回 HTTP 400
      */
     @Transactional
     public void resetPassword(Long id, String newPassword) {
         SysUser user = requireUser(id);
-        if (newPassword == null || newPassword.isBlank()) {
-            throw new BusinessException("新密码不能为空");
-        }
+        PasswordPolicy.validate(newPassword, user.getUsername());
         user.setPassword(passwordEncoder.encode(newPassword));
         user.setTokenVersion(tokenVersion(user) + 1);
+        user.setMustChangePassword(1);
         userMapper.updateById(user);
     }
 

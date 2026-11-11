@@ -4,7 +4,7 @@
       <text class="title">修改初始密码</text>
       <text class="sub">为保障账号安全，请先设置新密码后继续使用。</text>
       <input v-model="form.oldPassword" class="input" password placeholder="原密码" />
-      <input v-model="form.newPassword" class="input" password placeholder="新密码（至少 6 位）" />
+      <input v-model="form.newPassword" class="input" password placeholder="新密码（8-64 位，且不能包含用户名）" />
       <button class="btn" :loading="loading" @click="submit">确认修改</button>
     </view>
   </view>
@@ -20,8 +20,8 @@ export default {
   },
   methods: {
     async submit() {
-      if (!this.form.oldPassword || this.form.newPassword.length < 6) {
-        uni.showToast({ title: '请填写原密码，新密码至少 6 位', icon: 'none' });
+      if (!this.form.oldPassword || this.form.newPassword.length < 8 || this.form.newPassword.length > 64) {
+        uni.showToast({ title: '请填写原密码，新密码需为 8-64 位', icon: 'none' });
         return;
       }
       const username = uni.getStorageSync('zhizao_username');
