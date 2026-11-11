@@ -31,6 +31,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -61,6 +62,9 @@ class DeviceDataServiceTest {
     @Mock
     private DeviceService deviceService;
 
+    @Mock
+    private AlarmEvaluationService alarmEvaluationService;
+
     private DeviceDataService deviceDataService;
 
     /**
@@ -69,7 +73,7 @@ class DeviceDataServiceTest {
     @BeforeEach
     void setUp() {
         deviceDataService = new DeviceDataService(deviceMapper, telemetryMapper, idempotencyGuard,
-                businessMetrics, deviceService);
+                businessMetrics, deviceService, alarmEvaluationService);
         lenient().when(idempotencyGuard.acquire(any())).thenReturn(true);
     }
 
@@ -214,7 +218,7 @@ class DeviceDataServiceTest {
         when(deviceMapper.selectById(1L)).thenReturn(otherWorkshop);
         DeviceService scopedDeviceService = new DeviceService(deviceMapper, mock(CodeGenerator.class), new DataScope());
         DeviceDataService scoped = new DeviceDataService(deviceMapper, telemetryMapper, idempotencyGuard,
-                businessMetrics, scopedDeviceService);
+                businessMetrics, scopedDeviceService, alarmEvaluationService);
         SecurityContextHolder.getContext().setAuthentication(new UsernamePasswordAuthenticationToken(
                 new UserPrincipal("lisi", "USER", "一车间"), null, List.of()));
         try {
@@ -258,6 +262,21 @@ class DeviceDataServiceTest {
         deviceDataService.handleGatewayReport(
                 new DeviceGatewayReport("EQ-202609-0001", "RUNNING", 45.0, 1500.0, 8.5));
 
+        verify(deviceMapper).updateById(any(Device.class));
+        assertEquals("MQTT", deviceDataService.getTelemetry(1L).source());
+    }
+
+    @Test
+    void alarmEvaluationFailureDoesNotBreakIngest() {
+        when(deviceMapper.selectOne(any())).thenReturn(device());
+        when(deviceService.getById(1L)).thenReturn(device());
+        doThrow(new RuntimeException("alarm down"))
+                .when(alarmEvaluationService).evaluateThreshold(any(), any());
+
+        deviceDataService.handleGatewayReport(
+                new DeviceGatewayReport("EQ-202609-0001", "RUNNING", 45.0, 1500.0, 8.5));
+
+        verify(telemetryMapper).insert(any(DeviceTelemetryRecord.class));
         verify(deviceMapper).updateById(any(Device.class));
         assertEquals("MQTT", deviceDataService.getTelemetry(1L).source());
     }
