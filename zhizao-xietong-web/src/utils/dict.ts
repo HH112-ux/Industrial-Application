@@ -53,3 +53,14 @@ export const mtResultMap: Record<string, DictItem> = {
   PENDING_REPAIR: { label: '待维修', type: 'warning' },
   FIXED: { label: '已修复', type: 'primary' }
 };
+
+export const alarmStatusMap: Record<string, DictItem> = {
+  OPEN: { label: '未处理', type: 'danger' },
+  ACKNOWLEDGED: { label: '已确认', type: 'warning' },
+  RECOVERED: { label: '已恢复', type: 'success' }
+};
+
+export const alarmRuleTypeMap: Record<string, DictItem> = {
+  THRESHOLD: { label: '阈值越界', type: 'danger' },
+  OFFLINE: { label: '设备离线', type: 'warning' }
+};
