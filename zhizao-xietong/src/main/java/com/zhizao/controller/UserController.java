@@ -6,6 +6,8 @@ import com.zhizao.common.UnauthorizedException;
 import com.zhizao.dto.PasswordChangeRequest;
 import com.zhizao.dto.PasswordResetRequest;
 import com.zhizao.dto.RoleAssignRequest;
+import com.zhizao.dto.UserCreateRequest;
+import com.zhizao.dto.UserCreateResponse;
 import com.zhizao.dto.UserView;
 import com.zhizao.dto.WorkshopAssignRequest;
 import com.zhizao.security.UserPrincipal;
@@ -60,6 +62,18 @@ public class UserController {
                                              @RequestParam(defaultValue = "10") int pageSize,
                                              @RequestParam(required = false) String keyword) {
         return Result.ok(userService.list(pageNum, pageSize, keyword));
+    }
+
+    /**
+     * 管理员创建本地账号。初始密码只在本次响应返回一次，新建账号首次登录必须改密。
+     *
+     * @param request 用户名、姓名、角色、车间与可选初始密码
+     * @return 新建账号视图与一次性初始密码
+     */
+    @PreAuthorize("hasRole('ADMIN')")
+    @PostMapping
+    public Result<UserCreateResponse> create(@RequestBody UserCreateRequest request) {
+        return Result.ok(userService.create(request));
     }
 
     /**

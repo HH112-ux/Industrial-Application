@@ -40,7 +40,8 @@ public class AuditAspect {
     private static final Logger LOGGER = LoggerFactory.getLogger(AuditAspect.class);
 
     /** 请求体中的敏感字段，落库前统一脱敏。 */
-    private static final Set<String> SENSITIVE_FIELDS = Set.of("password", "oldPassword", "newPassword", "token");
+    private static final Set<String> SENSITIVE_FIELDS =
+            Set.of("password", "oldPassword", "newPassword", "initialPassword", "token");
 
     private final AuditLogMapper auditLogMapper;
     private final ObjectMapper objectMapper;

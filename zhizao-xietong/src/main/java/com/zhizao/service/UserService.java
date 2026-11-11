@@ -6,21 +6,28 @@ import com.zhizao.common.BadRequestException;
 import com.zhizao.common.BusinessException;
 import com.zhizao.common.PageResult;
 import com.zhizao.common.PasswordPolicy;
+import com.zhizao.dto.UserCreateRequest;
+import com.zhizao.dto.UserCreateResponse;
 import com.zhizao.dto.UserView;
+import com.zhizao.entity.Device;
 import com.zhizao.entity.SysUser;
 import com.zhizao.entity.SysUserIdentity;
+import com.zhizao.mapper.DeviceMapper;
 import com.zhizao.mapper.SysUserIdentityMapper;
 import com.zhizao.mapper.SysUserMapper;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import java.security.SecureRandom;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -39,8 +46,18 @@ public class UserService {
     private static final String ROLE_ADMIN = "ADMIN";
     private static final String AUTH_SOURCE_LOCAL = "LOCAL";
 
+    /** 用户名规则：字母开头，3-32 位，仅字母数字点下划线短横线，天然不含空格。 */
+    private static final Pattern USERNAME_PATTERN = Pattern.compile("^[A-Za-z][A-Za-z0-9._-]{2,31}$");
+
+    /** 初始密码字符集去掉 0/O/1/l/I 等易混字符，便于管理员口头交付。 */
+    private static final String INITIAL_PASSWORD_CHARS =
+            "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
+    private static final int INITIAL_PASSWORD_LENGTH = 12;
+    private static final SecureRandom RANDOM = new SecureRandom();
+
     private final SysUserMapper userMapper;
     private final SysUserIdentityMapper identityMapper;
+    private final DeviceMapper deviceMapper;
     private final PasswordEncoder passwordEncoder;
 
     /**
@@ -48,12 +65,14 @@ public class UserService {
      *
      * @param userMapper      用户数据访问
      * @param identityMapper  外部身份映射，用于展示企微部门建议值
+     * @param deviceMapper    设备数据访问，用于校验车间是否为系统现有车间
      * @param passwordEncoder 密码编码器
      */
     public UserService(SysUserMapper userMapper, SysUserIdentityMapper identityMapper,
-                       PasswordEncoder passwordEncoder) {
+                       DeviceMapper deviceMapper, PasswordEncoder passwordEncoder) {
         this.userMapper = userMapper;
         this.identityMapper = identityMapper;
+        this.deviceMapper = deviceMapper;
         this.passwordEncoder = passwordEncoder;
     }
 
@@ -92,6 +111,82 @@ public class UserService {
             throw new BusinessException("用户不存在");
         }
         return UserView.of(user);
+    }
+
+    /** 管理员创建本地账号：唯一键兜底并发重名，初始密码只返回一次，首登强制改密。 */
+    @Transactional
+    public UserCreateResponse create(UserCreateRequest request) {
+        String username = request.username() == null ? "" : request.username().trim();
+        String nickname = request.nickname() == null ? "" : request.nickname().trim();
+        if (username.isEmpty() || !USERNAME_PATTERN.matcher(username).matches()) {
+            throw new BadRequestException("用户名需为 3-32 位、字母开头，只能包含字母、数字、点、下划线或短横线，不能包含空格");
+        }
+        if (nickname.isEmpty() || nickname.length() > 32) {
+            throw new BadRequestException("姓名不能为空且不能超过 32 位");
+        }
+        String role = StringUtils.hasText(request.role())
+                ? request.role().trim().toUpperCase(Locale.ROOT) : "WORKER";
+        if (!ASSIGNABLE_ROLES.contains(role)) {
+            throw new BadRequestException("角色只能是 ADMIN、USER 或 WORKER");
+        }
+        String workshop = requireWorkshop(request.workshopScope(), role);
+
+        boolean generated = !StringUtils.hasText(request.password());
+        String rawPassword = generated ? generateInitialPassword(username) : request.password();
+        if (!generated) {
+            PasswordPolicy.validate(rawPassword, username);
+        }
+
+        SysUser user = new SysUser();
+        user.setUsername(username);
+        user.setNickname(nickname);
+        user.setRole(role);
+        user.setWorkshopScope(workshop);
+        user.setPassword(passwordEncoder.encode(rawPassword));
+        user.setEnabled(1);
+        user.setTokenVersion(0);
+        user.setMustChangePassword(1);
+        user.setAuthSource(AUTH_SOURCE_LOCAL);
+        try {
+            userMapper.insert(user);
+        } catch (DuplicateKeyException e) {
+            throw new BusinessException(409, "用户名已存在，请更换后重试");
+        }
+        return new UserCreateResponse(UserView.of(user), generated ? rawPassword : null);
+    }
+
+    /** 车间以设备归属为“现有车间”口径，未维护设备的车间写入后也看不到数据，直接拒绝。 */
+    private String requireWorkshop(String value, String role) {
+        if (!StringUtils.hasText(value)) {
+            return null;
+        }
+        if (ROLE_ADMIN.equals(role)) {
+            throw new BadRequestException("管理员不受车间数据域限制，无需指定车间");
+        }
+        String workshop = value.trim();
+        Long count = deviceMapper.selectCount(
+                new LambdaQueryWrapper<Device>().eq(Device::getWorkshop, workshop));
+        if (count == null || count == 0) {
+            throw new BadRequestException("车间「" + workshop + "」不存在，请先在设备管理中维护该车间");
+        }
+        return workshop;
+    }
+
+    private String generateInitialPassword(String username) {
+        for (int attempt = 0; attempt < 5; attempt++) {
+            StringBuilder builder = new StringBuilder(INITIAL_PASSWORD_LENGTH);
+            for (int i = 0; i < INITIAL_PASSWORD_LENGTH; i++) {
+                builder.append(INITIAL_PASSWORD_CHARS.charAt(RANDOM.nextInt(INITIAL_PASSWORD_CHARS.length())));
+            }
+            String candidate = builder.toString();
+            try {
+                PasswordPolicy.validate(candidate, username);
+                return candidate;
+            } catch (BadRequestException ignored) {
+                // 12 位随机串几乎不会命中策略，命中则重新生成。
+            }
+        }
+        throw new BusinessException("初始密码生成失败，请手动指定密码");
     }
 
     /**
