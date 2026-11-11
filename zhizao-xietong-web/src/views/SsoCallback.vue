@@ -20,13 +20,19 @@ const router = useRouter();
 
 onMounted(async () => {
   const code = typeof route.query.code === 'string' ? route.query.code : '';
+  const state = typeof route.query.state === 'string' ? route.query.state : '';
   if (!code) {
     ElMessage.error('未获取到企业微信授权码，请重新扫码');
     router.replace('/login');
     return;
   }
+  if (!state) {
+    ElMessage.error('缺少登录会话标识，请从登录页重新扫码');
+    router.replace('/login');
+    return;
+  }
   try {
-    const res = await authApi.ssoLogin(code);
+    const res = await authApi.ssoLogin(code, state);
     setToken(res.token);
     setUser({ username: res.username, nickname: res.nickname, role: res.role });
     setMustChangePassword(!!res.mustChangePassword);
