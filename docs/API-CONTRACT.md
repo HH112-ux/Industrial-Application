@@ -53,7 +53,7 @@
 
 - 登录后返回 JWT，放在 `Authorization: Bearer <token>`。
 - 白名单：`/api/auth/**`、Swagger、`/actuator/health`、`/actuator/info`；设备鉴权开启时 `/api/integration/device-status` 也放行，由 HMAC 校验替代用户令牌；其余端点均需登录。`[代码实证]`
-- 管理类写操作使用 `@PreAuthorize("hasRole('ADMIN')")`；现场操作中开工、报工允许 `ADMIN` / `USER` / `WORKER`，质检只允许 `ADMIN` / `USER`。`[代码实证]`
+- 管理类写操作使用 `@PreAuthorize("hasRole('ADMIN')")`；现场操作中开工、报工、成品入库确认与取消允许 `ADMIN` / `USER` / `WORKER`，质检只允许 `ADMIN` / `USER`。`[代码实证]`
 - 角色取值为 `ADMIN` / `USER` / `WORKER`；`USER` 与 `WORKER` 均非管理员，数据域仍由 `sys_user.workshop_scope` 决定。
 - SSO 三个端点位于 `/api/auth/sso/**`，随 `/api/auth/**` 一起放行；真正的防重放依赖服务端一次性 `state` 与 `sso_browser` Cookie，见 §4.7。`app.sso.enabled=false` 时授权跳转与回调均返回 503，`/config` 返回 `false`。`[代码实证]`
 - 目标增加两类主体：用户令牌（管理端/移动端）与设备凭证（设备上报）。设备上报不再复用用户令牌。`[工程判断]`
@@ -217,9 +217,9 @@
 | 64 | POST | `/api/users/me/password` | 登录 | 自助改密 | 已落地 | S6 已实现；校验原密码，成功后当前令牌立即失效 |
 | 65 | POST | `/api/users/{id}/workshop` | ADMIN | 分配车间数据域 | 已落地 | S6 已实现；非管理员未分配时看不到任何车间数据，分配后下一次请求生效，不需要重新登录 |
 
-S6 的即时失效口径：认证过滤器在**每次请求**读取数据库中的 `enabled` 与 `token_version`，不使用缓存；禁用、重置密码或自助改密后，旧令牌在下一次请求返回 HTTP 401。非管理员访问其他车间的设备、计划或工单详情返回 HTTP 403，列表查询自动追加 `workshop` 条件。升级到 S6 前签发的令牌不含 `tv` 声明，升级后第一次请求即被判定失效，用户需要重新登录。`[代码实证]`
+S6 的即时失效口径：认证过滤器在**每次请求**读取数据库中的 `enabled` 与 `token_version`，不使用缓存；禁用、重置密码或自助改密后，旧令牌在下一次请求返回 HTTP 401。非管理员访问其他车间的设备、计划或工单详情返回 HTTP 403，相关列表（含成品入库单与成品库存）查询自动追加 `workshop` 条件。升级到 S6 前签发的令牌不含 `tv` 声明，升级后第一次请求即被判定失效，用户需要重新登录。`[代码实证]`
 
-车间数据域采用 deny-by-default：V11 曾把非管理员统一回填为「一车间」，但用户表此前没有车间字段，该回填没有依据且等于批量授权；V13 已将其纠正为 `NULL`，未分配车间的非管理员看不到任何设备、计划与工单，必须由管理员通过 `POST /api/users/{id}/workshop` 显式分配。管理员不受车间限制，分配请求会被拒绝。`[代码实证]`
+车间数据域采用 deny-by-default：V11 曾把非管理员统一回填为「一车间」，但用户表此前没有车间字段，该回填没有依据且等于批量授权；V13 已将其纠正为 `NULL`，未分配车间的非管理员看不到任何设备、计划、工单、成品入库单与库存，必须由管理员通过 `POST /api/users/{id}/workshop` 显式分配。管理员不受车间限制，分配请求会被拒绝。`[代码实证]`
 
 ### 2.13 AI 旁路
 
@@ -237,7 +237,18 @@ S6 的即时失效口径：认证过滤器在**每次请求**读取数据库中�
 |---|---|---|---|---|---|---|
 | 54 | GET | `/api/metrics/overview` | ADMIN | 设备在线率、遥测上报、报工、工单节拍、齐套率 | 已落地 | S7 已实现；空分母返回 `value=null` 与 `reason`，不伪造 0 或 100% |
 
-端点合计：73 个（按 Controller 注解读取；工序维护的 POST/PUT/DELETE 合并为 #50 一行，故表格数据行少于端点总数 2 行）。`[代码实证]`
+### 2.15 成品入库
+
+| # | 方法 | 路径 | 现状鉴权 | 用途 | 处置 | 目标变更 |
+|---|---|---|---|---|---|---|
+| 74 | GET | `/api/finished-goods/inbounds?pageNum=&pageSize=&keyword=&status=&workshop=` | 登录 | 成品入库单分页，按车间数据域过滤 | 已落地 | 支持按产品编码/批次模糊搜索与状态过滤；状态取 `PENDING/INBOUND/CANCELLED` |
+| 75 | POST | `/api/finished-goods/inbounds/{id}/confirm` | ADMIN / USER / WORKER | 确认入库，可选覆盖批次号 | 已落地 | 请求体 `{batch}` 可省略；条件更新仅放行「待入库」且数量不超过 `min(计划数, 合格数) − 已入库数`；命中 0 行返回业务码 409（已处理 / 超额两种 message） |
+| 76 | POST | `/api/finished-goods/inbounds/{id}/cancel` | ADMIN / USER / WORKER | 取消待入库单 | 已落地 | 请求体 `{reason}` 必填且不超过 255 字；仅「待入库」可取消，已被处理时返回业务码 409 |
+| 77 | GET | `/api/finished-goods/stocks?pageNum=&pageSize=&keyword=` | 登录 | 成品库存分页，按车间数据域过滤 | 已落地 | 按产品编码搜索；同一产品编码 + 车间一行，库存为累计合格入库数 |
+
+成品入库单由工单质检通过并完工时自动生成，没有创建接口；一张工单最多一条入库单（`uk_inbound_work_order`），已取消的单据不会重新生成。非管理员只能看到 `workshop_scope` 范围内的单据与库存，未分配车间时返回空列表。`[代码实证]`
+
+端点合计：86 个（按 Controller 注解读取）。本表覆盖至 #77；报警规则、报警记录共 8 个端点与用户创建 1 个端点由并行切片引入，尚未在 2.x 表内编号。工序维护的 POST/PUT/DELETE 合并为 #50 一行，故表格数据行少于端点总数 2 行。`[代码实证]`
 
 ---
 
@@ -425,6 +436,44 @@ POST /api/schedules/run
 - 授权超时：超过 5 分钟的 `state` 被拒绝，提示重新扫码。
 - 重复回调：`state` 已被消费，第二次返回 400，不会重复签发令牌。
 - 直接访问回调页且无 `state`：前端在调用后端前提示「缺少登录会话标识，请从登录页重新扫码」。`[代码实证]`
+
+### 4.8 成品入库确认与取消（已落地）
+
+**生成规则**：工单质检通过并流转为「已完工」时，在同一事务内生成一条「待入库」单，数量为 `min(计划数, 合格数) − 已入库数`，结果不大于 0 时不生成空单；批次号默认「工单号-yyyyMMdd」，确认时可覆盖。一张工单最多一条入库单，重复触发由 `uk_inbound_work_order` 忽略，已取消的单据也不会重新生成。`[代码实证]`
+
+**确认入库**：
+
+```http
+POST /api/finished-goods/inbounds/12/confirm
+Content-Type: application/json
+
+{"batch":"WO-202611-0001-A"}
+```
+
+请求体可省略；`batch` 去空格后最长 64 字，为空则沿用原批次。服务端用一条条件更新同时约束状态与数量：
+
+```text
+WHERE id = ? AND status = 'PENDING'
+  AND qty <= min(工单计划数, 工单合格数) - 已入库数
+```
+
+命中 0 行时回读当前单据区分原因，两者都返回 HTTP 200 + 业务码 `409`，但 `message` 不同：
+
+- 单据已不是「待入库」：「入库单已确认或已取消，请刷新后重试」
+- 仍是「待入库」：数量超过计划数或合格数，「入库数量超过计划数或合格数，无法确认」
+
+确认成功后在同一事务内以 `INSERT ... ON DUPLICATE KEY UPDATE qty = qty + #{qty}` 原子累加 `fg_finished_stock`，不做先查后写；两个并发确认请求只有一个能命中条件更新，库存只增加一次，集成用例 `confirmWritesStockOnlyOnceUnderConcurrentRequests` 覆盖该行为。`[代码实证]`
+
+**取消入库**：
+
+```http
+POST /api/finished-goods/inbounds/12/cancel
+Content-Type: application/json
+
+{"reason":"批次标签打印错误，重新质检"}
+```
+
+`reason` 必填，去空格后 1–255 字，空值或超长返回 HTTP 400。取消同样使用 `WHERE status = 'PENDING'` 的条件更新，命中 0 行返回业务码 `409` +「入库单已确认或已取消，请刷新后重试」。操作人取自当前令牌，不读请求体。`[代码实证]`
 
 ---
 

@@ -8,7 +8,8 @@
 - 生产计划下达为工单，工单按状态机流转：待生产 → 生产中 → 待质检 → 完工
 - 开工前按 BOM 校验物料齐套，报工记录合格数与不良数
 - 工艺版本化与工序路线、BOM 按工艺版本管理、设备维保记录、写操作审计
-- Web 管理端（看板、主数据、计划、工单）与 uni-app 移动端（工单、报工、设备）
+- 工单质检完工后生成待入库单，确认入库按「产品编码 + 车间」原子累加成品库存，取消需填写原因
+- Web 管理端（看板、主数据、计划、工单、成品入库）与 uni-app 移动端（工单、报工、设备）
 
 ## 技术栈
 
@@ -34,7 +35,7 @@
 .
 ├── zhizao-xietong/                  # Spring Boot 后端
 │   ├── src/main/java/com/zhizao/
-│   │   ├── controller/              # REST 入口（10 个）
+│   │   ├── controller/              # REST 入口（18 个）
 │   │   ├── service/                 # 业务编排、状态机、齐套、编号
 │   │   ├── gateway/                 # MQTT 设备网关
 │   │   ├── security/                # JWT、CORS、设备签名校验
@@ -42,10 +43,10 @@
 │   │   └── common/ config/ aspect/
 │   ├── src/main/resources/
 │   │   ├── application.yml          # 配置，全部支持环境变量覆盖
-│   │   └── db/migration/            # Flyway 迁移 V1–V25
-│   └── src/test/java/               # 280 个测试（269 单元 + 11 集成）
+│   │   └── db/migration/            # Flyway 迁移 V1–V31
+│   └── src/test/java/               # 345 个测试（18 个 Testcontainers 集成）
 ├── zhizao-xietong-web/              # Vue 3 管理端
-│   ├── src/views/                   # 12 个页面组件
+│   ├── src/views/                   # 15 个页面组件
 │   └── vite.config.ts               # 开发服务器 5173，代理 /api
 ├── mobile-app/                      # uni-app 移动端（4 个页面）
 ├── docs/                            # 工程文档
@@ -263,7 +264,7 @@ docker compose up -d --build
 ## 测试与 CI
 
 ```bash
-# 后端全量测试（269 个单元测试 + 11 个 Testcontainers 集成测试）
+# 后端全量测试（345 个测试，其中 18 个 Testcontainers 集成测试）
 cd zhizao-xietong && mvn test
 
 # 管理端生产构建（同时覆盖 TypeScript 编译与打包）
@@ -273,7 +274,7 @@ cd zhizao-xietong-web && npm ci && npm run build
 npx --no -- commitlint --from HEAD~1 --to HEAD
 ```
 
-集成测试使用 Testcontainers 启动 `mysql:8.4`，覆盖工单状态机合法/非法流转、真实并发冲突、工艺版本隔离、遥测入库与 AI 只读会话。Docker 不可用时这些类由 `@Testcontainers(disabledWithoutDocker = true)` 自动跳过，其余测试照常执行、构建仍然成功；首次运行需拉取镜像，本机约 60–90 秒，CI 约 1 分钟。
+集成测试使用 Testcontainers 启动 `mysql:8.4`，覆盖工单状态机合法/非法流转、真实并发冲突、工艺版本隔离、遥测入库、AI 只读会话，以及成品入库的条件更新、超额/重复确认与并发确认只累加一次库存。Docker 不可用时这些类由 `@Testcontainers(disabledWithoutDocker = true)` 自动跳过，其余测试照常执行、构建仍然成功；首次运行需拉取镜像，本机约 60–90 秒，CI 约 1 分钟。
 
 本机使用 Colima 时，Testcontainers 不读取 colima 的 Docker context，且 virtiofs 不支持把 unix socket 挂载进 Ryuk 容器。跑集成测试需要显式指定 socket 并关闭 Ryuk：
 
@@ -286,7 +287,7 @@ mvn test
 
 这是 Colima + virtiofs 的本地限制；CI 使用标准 Docker socket，不需要这两个变量。
 
-CI 配置见 `.github/workflows/ci.yml`，每次 push 与 pull request 执行四个任务：
+CI 配置见 `.github/workflows/ci.yml`，每次 push 与 pull request 执行五个任务：
 
 | 任务 | 内容 | 门禁 |
 |---|---|---|
@@ -294,6 +295,7 @@ CI 配置见 `.github/workflows/ci.yml`，每次 push 与 pull request 执行四
 | Secret scan | gitleaks 只扫描本次推送或 PR 引入的提交范围，不扫全历史 | 发现密钥则失败 |
 | Backend tests | `mvn -B -ntp test` | 任一测试失败则失败 |
 | Frontend build | `npm ci && npm run build` | 构建失败则失败 |
+| Mobile tests and build | 移动端依赖安装、测试与构建 | 失败则失败 |
 
 本地钩子：仓库使用 `.githooks/` 下的 `commit-msg` 与 `pre-commit`，克隆后执行一次：
 
@@ -378,10 +380,11 @@ mvn test
 - 报工数量已做正数、合计与累计上限校验；报工幂等键已落地（`wo_report.idempotency_key`，同工单唯一，重试返回首次结果）
 - 工艺已支持版本化与单级工序路线；BOM 不单独版本化，`pr_bom.version` 列已由 V21 删除（S4）
 - 排产为有限产能贪心（S5）：按交期与优先级排队，使用运行中设备的时间窗；不做 APS 最优解。标准工时缺失时直接拒绝排程并返回 `STANDARD_HOURS_MISSING`，不生成假工时；只有显式开启 `schedule.estimate-fallback-hours` 才按估算工时排程并明确标记
-- 权限为 `ADMIN`/`USER`/`WORKER` 三级取值，非管理员按 `workshop_scope` 过滤设备、计划与工单；未分配车间时看不到任何车间数据（deny-by-default），由管理员在用户管理页显式分配；禁用用户与改密通过令牌版本在下一次请求即失效（S6）。工单写操作：开工/报工允许三种角色，质检仅 `ADMIN`/`USER`，计划派工与其余管理动作仅 `ADMIN`
+- 权限为 `ADMIN`/`USER`/`WORKER` 三级取值，非管理员按 `workshop_scope` 过滤设备、计划、工单、成品入库单与成品库存；未分配车间时看不到任何车间数据（deny-by-default），由管理员在用户管理页显式分配；禁用用户与改密通过令牌版本在下一次请求即失效（S6）。工单写操作：开工/报工允许三种角色，质检仅 `ADMIN`/`USER`，计划派工与其余管理动作仅 `ADMIN`；成品入库确认/取消允许三种角色
+- 成品入库单由工单质检完工时生成，确认使用条件更新同时校验「待入库」与「数量不超过 min(计划数, 合格数) − 已入库」，0 行时区分已处理（409）与超额（409）两种提示；库存用 `ON DUPLICATE KEY UPDATE` 原子累加，不回填历史库存，已取消单据不会重新生成
 - 登录限流已抽成 `LoginRateLimiter` 端口，当前为单实例本地实现；多实例部署必须替换为共享存储实现（S6）
 - 已有 `/actuator/health`、`/actuator/info`、`/actuator/metrics` 与带 `traceId` 的标准输出日志；业务指标已覆盖设备在线、上报、报工、节拍与齐套率，但没有告警阈值与集中采集
-- 测试 280 个（269 单元 + 11 Testcontainers 集成）；集成用例覆盖状态机流转、真实并发冲突、工艺版本隔离、遥测入库与 AI 只读会话，仅在 Docker 可用时执行；移动端构建未纳入 CI
+- 测试 345 个（18 个 Testcontainers 集成）；集成用例覆盖状态机流转、真实并发冲突、工艺版本隔离、遥测入库、AI 只读会话与成品入库并发确认，仅在 Docker 可用时执行；移动端构建未纳入 CI
 - 完整 Docker Compose 五服务栈未在本机实测（本机端口被本地 MySQL/Redis 占用）
 - AI 能力已落地（S8），默认关闭：`AI_ENABLED=false` 时三个 `/api/ai/**` 端点返回 HTTP 503 + 业务码 503，其余功能不受影响；开启后默认使用离线假模型，CI 不需要网络与密钥。AI 只调用只读工具、只返回建议文本，自然语言报工只产出待确认草稿；Text-to-SQL 仅 ADMIN 可用，只允许查询 5 个只读视图并强制行数上限。配置 `AI_DATASOURCE_URL` 后使用独立只读账号；未配置时回落主数据源，但查询强制只读会话并在启动时输出 WARN，不会假装已隔离。模型超时或返回非法内容时降级为「建议暂不可用」，不影响主链路
 

@@ -1,6 +1,6 @@
 # 数据模型设计
 
-本文档描述现状数据库结构与重构目标模型。现状结构来自 `zhizao-xietong/src/main/resources/db/migration/V1__init.sql` 至 `V25__drop_suggested_workshop.sql`，共 **21 张表 + 5 个只读视图**；目标结构为待评审设计，不包含未执行的迁移。
+本文档描述现状数据库结构与重构目标模型。现状结构来自 `zhizao-xietong/src/main/resources/db/migration/V1__init.sql` 至 `V31__finished_goods_stock.sql`，共 **25 张表 + 5 个只读视图**；目标结构为待评审设计，不包含未执行的迁移。
 
 标注说明：`[代码实证]` 表示可从当前代码或迁移脚本直接核对；`[工程判断]` 表示基于现有规模与约束提出的设计取舍；`[待确认]` 表示需要用户拍板。
 
@@ -50,6 +50,10 @@ erDiagram
 | `wo_status_history` | `WorkOrderStatusHistory` | `WorkOrderStatusHistoryMapper` | 工单状态流转历史 | `(order_id, created_at)` 索引，只追加 |
 | `wo_report` | `WorkOrderReport` | `WorkOrderReportMapper` | 报工记录 | `uk_report_no`，`order_id` 索引，`(order_id, idempotency_key)` 唯一 |
 | `wo_quality` | `QualityRecord` | `QualityRecordMapper` | 质检记录 | `uk_quality_no`，`order_id` 索引 |
+| `fg_inbound_order` | `FinishedGoodsInbound` | `FinishedGoodsInboundMapper` | 成品入库单：工单完工后生成的待入库、已入库或已取消记录 | `uk_inbound_work_order (work_order_id)` 保证一单一条；`(workshop, status)`、`product_code` 索引（V26） |
+| `fg_finished_stock` | `FinishedGoodsStock` | `FinishedGoodsStockMapper` | 成品库存：按产品编码 + 车间累计合格入库数 | `uk_stock_product_workshop (product_code, workshop)`，`workshop` 索引；确认入库时原子累加（V31） |
+| `eq_alarm_rule` | `AlarmRule` | `AlarmRuleMapper` | 设备报警规则 | `uk_rule_device_type_metric (device_id, rule_type, metric)`，`(rule_type, enabled)` 索引（V29） |
+| `eq_alarm_record` | `AlarmRecord` | `AlarmRecordMapper` | 设备报警记录 | `uk_alarm_active (device_id, rule_type, metric, active_flag)` 保证同一指标同时只有一条活动报警（V30） |
 | `eq_maintenance` | `MaintenanceRecord` | `MaintenanceRecordMapper` | 点检/维修 | `uk_mt_no`，`device_id` 索引 |
 | `eq_telemetry` | `DeviceTelemetryRecord` | `DeviceTelemetryMapper` | 设备遥测时序 | `(device_id, reported_at)` 索引，唯一键 `uk_device_ingest_key (device_id, ingest_key)`（V17） |
 | `eq_device_credential` | `DeviceCredential` | `DeviceCredentialMapper` | 设备凭证 | `device_id` 唯一、`key_id` 唯一 |
@@ -205,6 +209,40 @@ V9 为存量工艺回填一条「默认工序」（`seq = 1`），保证迁移�
 
 两张表只追加，保留 180 天；AI 不可用时不影响主表写入。`[工程判断]`
 
+#### 2.1.8 成品入库与库存（已落地，V26 / V31）
+
+`fg_inbound_order`：
+
+| 字段 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| `id` | BIGINT | PK | 代理键 |
+| `work_order_id` | BIGINT | NOT NULL, UK | `wo_work_order.id`；一张工单最多一条入库单，重复完工由唯一键忽略 |
+| `product_code` | VARCHAR(32) | NOT NULL | 成品编码，取自工单 |
+| `qty` | INT | NOT NULL | 待入库数量 = `min(计划数, 合格数) − 已入库数`，不大于 0 时不生成 |
+| `batch` | VARCHAR(64) | NOT NULL | 默认「工单号-yyyyMMdd」，确认时可覆盖 |
+| `workshop` | VARCHAR(32) | NOT NULL | 车间，用于数据域过滤与库存归属 |
+| `status` | VARCHAR(16) | NOT NULL DEFAULT 'PENDING' | `PENDING / INBOUND / CANCELLED` |
+| `operator` | VARCHAR(64) | NULL | 确认或取消操作人 |
+| `inbound_time` | DATETIME | NULL | 确认入库时间 |
+| `cancel_reason` | VARCHAR(255) | NULL | 取消原因 |
+| `created_at` / `updated_at` | DATETIME | NOT NULL | 创建与更新时间 |
+
+索引：`uk_inbound_work_order (work_order_id)`、`idx_inbound_workshop_status (workshop, status)`、`idx_inbound_product (product_code)`。`[代码实证]`
+
+`fg_finished_stock`：
+
+| 字段 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| `id` | BIGINT | PK | 代理键 |
+| `product_code` | VARCHAR(32) | NOT NULL, UK(联合) | 成品编码 |
+| `workshop` | VARCHAR(32) | NOT NULL, UK(联合) | 车间；与编码共同决定唯一库存行 |
+| `qty` | INT | NOT NULL DEFAULT 0 | 累计合格入库数量，确认入库时 `qty = qty + 本次数量` 原子累加 |
+| `created_at` / `updated_at` | DATETIME | NOT NULL | 创建与更新时间 |
+
+索引：`uk_stock_product_workshop (product_code, workshop)`、`idx_stock_workshop (workshop)`。库存不做历史回填，只统计本模块上线后的确认入库。`[代码实证]`
+
+迁移编号说明：V27/V28 未使用，V29/V30 为设备报警规则与记录，成品库存顺延到 V31，以保持 Flyway 单调追加、不改写已在线上执行过的版本。`[已决策]`
+
 ### 2.2 调整现有表
 
 #### `eq_device`
@@ -330,6 +368,12 @@ V9 为存量工艺回填一条「默认工序」（`seq = 1`），保证迁移�
 | `V23__user_must_change_password.sql` | `sys_user` 增加 `must_change_password`，并把未删除的存量管理员置 1 | 必须晚于 `V11` |
 | `V24__sso_identity.sql` | 新建 `sys_user_identity`（`uk_provider_external`、`uk_user_provider`）；`sys_user` 增加 `auth_source`，默认 `LOCAL`；建表时带的 `suggested_workshop` 由 V25 删除 | `V11`、`V13` |
 | `V25__drop_suggested_workshop.sql` | 删除 `sys_user_identity.suggested_workshop` 与 `idx_suggested_workshop`：该字段从未被赋值，系统没有部门→车间映射，留着会误导为存在该能力；**非幂等** | 必须晚于 `V24` |
+| `V26__finished_goods_inbound.sql` | 新建 `fg_inbound_order`，工单完工时生成待入库单；唯一键保证一单一条，不回填历史工单 | 必须晚于 `V16` |
+| `V29__device_alarm_rule.sql` | 新建 `eq_alarm_rule`，按设备 + 规则类型 + 指标唯一 | 无 |
+| `V30__device_alarm_record.sql` | 新建 `eq_alarm_record`，活动报警由 `active_flag` 唯一约束 | 必须晚于 `V29` |
+| `V31__finished_goods_stock.sql` | 新建 `fg_finished_stock`，按成品编码 + 车间累计入库；编号顺延避开已占用的 V29/V30，不回填历史库存 | 必须晚于 `V26` |
+
+编号说明：V27、V28 未被使用（当时为并行切片预留后废弃），Flyway 允许跳号但不允许重排或改写已执行版本；因此成品库存使用 V31，而不是回头补 V27。`[已决策]`
 
 每个迁移可单独回滚到上一版本；结构变更与回填放在同一迁移时，回填必须幂等并在 PR 中单独说明。生产环境执行前先备份。`[工程判断]`
 
