@@ -4,13 +4,21 @@ import com.zhizao.common.LoginRateLimiter;
 import com.zhizao.common.Result;
 import com.zhizao.dto.LoginRequest;
 import com.zhizao.dto.LoginResponse;
+import com.zhizao.dto.SsoLoginRequest;
 import com.zhizao.service.AuthService;
+import com.zhizao.sso.SsoAuthService;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.net.URI;
 
 @Tag(name = "认证")
 @RestController
@@ -18,10 +26,13 @@ import org.springframework.web.bind.annotation.RestController;
 public class AuthController {
 
     private final AuthService authService;
+    private final SsoAuthService ssoAuthService;
     private final LoginRateLimiter loginRateLimiter;
 
-    public AuthController(AuthService authService, LoginRateLimiter loginRateLimiter) {
+    public AuthController(AuthService authService, SsoAuthService ssoAuthService,
+                          LoginRateLimiter loginRateLimiter) {
         this.authService = authService;
+        this.ssoAuthService = ssoAuthService;
         this.loginRateLimiter = loginRateLimiter;
     }
 
@@ -42,5 +53,27 @@ public class AuthController {
     @PostMapping("/logout")
     public Result<Void> logout() {
         return Result.ok();
+    }
+
+    /** 企业微信扫码登录：用回调 code 换取本地 JWT；开关关闭时明确拒绝。 */
+    @PostMapping("/sso/wecom/login")
+    public Result<LoginResponse> wecomLogin(@RequestBody SsoLoginRequest request,
+                                            HttpServletRequest servletRequest) {
+        return Result.ok(ssoAuthService.login(request.code(), clientIp(servletRequest)));
+    }
+
+    /** 企微扫码授权跳转：登录页在开关开启时跳转到该地址。 */
+    @GetMapping("/sso/wecom/authorize")
+    public ResponseEntity<Void> wecomAuthorize() {
+        return ResponseEntity.status(HttpStatus.FOUND)
+                .location(URI.create(ssoAuthService.authorizeUrl()))
+                .build();
+    }
+
+    /** 取客户端 IP：优先 X-Forwarded-For 首个地址，与登录审计口径一致。 */
+    private String clientIp(HttpServletRequest request) {
+        String forwarded = request.getHeader("X-Forwarded-For");
+        return forwarded != null && !forwarded.isBlank()
+                ? forwarded.split(",")[0].trim() : request.getRemoteAddr();
     }
 }

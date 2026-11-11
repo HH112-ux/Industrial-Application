@@ -51,6 +51,15 @@ app:
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:8081}
   sso:
+    # 总开关：默认关闭；关闭时登录行为与今天完全一致，接口返回明确拒绝
+    enabled: ${SSO_ENABLED:false}
+    provider: ${SSO_PROVIDER:WEIXIN_WORK}
+    # 以下四项开启时必填，缺失则启动失败；真实值只从环境变量注入，禁止写入仓库
+    wecom:
+      corp-id: ${SSO_WECOM_CORP_ID:}
+      agent-id: ${SSO_WECOM_AGENT_ID:}
+      secret: ${SSO_WECOM_SECRET:}
+      redirect-uri: ${SSO_WECOM_REDIRECT_URI:}
     # 假身份提供方仅用于 dev/test，且必须显式开启；生产环境不装配该 Bean
     fake-provider-enabled: ${SSO_FAKE_PROVIDER_ENABLED:false}
 

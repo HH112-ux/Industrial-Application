@@ -2,6 +2,7 @@ package com.zhizao.sso;
 
 import com.zhizao.common.BadRequestException;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.context.annotation.Primary;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
@@ -17,6 +18,7 @@ import java.util.List;
  * @author Caspian
  */
 @Component
+@Primary
 @Profile({"dev", "test"})
 @ConditionalOnProperty(name = "app.sso.fake-provider-enabled", havingValue = "true")
 public class FakeIdentityProvider implements EnterpriseIdentityProvider {
