@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "scripts": {
     "dev:h5": "UNI_INPUT_DIR=. uni",
-    "build:h5": "UNI_INPUT_DIR=. uni build"
+    "build:h5": "UNI_INPUT_DIR=. uni build",
+    "test": "node --test"
   },
   "dependencies": {
     "@dcloudio/uni-app": "3.0.0-4070520250711001",
