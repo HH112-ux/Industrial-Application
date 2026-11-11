@@ -1,5 +1,7 @@
 package com.zhizao.service;
 
+import com.zhizao.common.BadRequestException;
+import com.zhizao.dto.ScheduleEntryView;
 import com.zhizao.dto.ScheduleRunResult;
 import com.zhizao.entity.Device;
 import com.zhizao.entity.Plan;
@@ -13,6 +15,7 @@ import com.zhizao.mapper.PlanMapper;
 import com.zhizao.mapper.ProcessOperationMapper;
 import com.zhizao.mapper.ScheduleEntryMapper;
 import com.zhizao.mapper.WorkOrderMapper;
+import com.zhizao.security.DataScope;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -60,6 +63,8 @@ class ScheduleServiceTest {
     private DeviceMapper deviceMapper;
     @Mock
     private ScheduleEntryMapper scheduleEntryMapper;
+    @Mock
+    private DataScope dataScope;
 
     private ScheduleService scheduleService;
 
@@ -299,18 +304,103 @@ class ScheduleServiceTest {
     }
 
     @Test
+    void entriesIncludeWorkOrderAndDeviceLabels() {
+        WorkOrder order = order(101L, 1L, 5L, 8);
+        order.setOrderNo("WO-101");
+        order.setProductCode("P-001");
+        order.setProductName("主轴");
+        order.setWorkshop("一车间");
+        ScheduleEntry entry = new ScheduleEntry();
+        entry.setId(900L);
+        entry.setWorkOrderId(101L);
+        entry.setPlanId(1L);
+        entry.setOperationSeq(1);
+        entry.setOperationName("粗加工");
+        entry.setDeviceType(TYPE);
+        entry.setDeviceId(1L);
+        entry.setStartTime(DAY.atTime(8, 0));
+        entry.setEndTime(DAY.atTime(16, 0));
+        entry.setDurationHours(new BigDecimal("8.00"));
+        entry.setEstimated(0);
+        entry.setQueueRank(1);
+        entry.setRankBasis("交期 " + DAY + "，优先级 HIGH(3)");
+        entry.setStatus(ScheduleStatus.SCHEDULED.name());
+        when(scheduleEntryMapper.selectList(any())).thenReturn(List.of(entry));
+        Device device = device(1L, TYPE, "RUNNING");
+        device.setDeviceNo("D-01");
+        device.setDeviceName("加工中心 1");
+        when(deviceMapper.selectBatchIds(any())).thenReturn(List.of(device));
+
+        List<ScheduleEntryView> views = scheduleService.entries(order);
+
+        assertEquals(1, views.size());
+        ScheduleEntryView view = views.get(0);
+        assertEquals("WO-101", view.orderNo());
+        assertEquals("主轴", view.productName());
+        assertEquals("一车间", view.workshop());
+        assertEquals("D-01", view.deviceNo());
+        assertEquals("加工中心 1", view.deviceName());
+        assertEquals("STANDARD", view.hoursSource());
+        assertEquals(DAY.atTime(8, 0), view.startTime());
+    }
+
+    @Test
+    void deviceTimelineIncludesScopedDeviceOccupancy() {
+        when(dataScope.workshopFilter()).thenReturn("一车间");
+        Device device = device(1L, TYPE, "RUNNING");
+        device.setDeviceNo("D-01");
+        device.setWorkshop("一车间");
+        when(deviceMapper.selectList(any())).thenReturn(List.of(device));
+        when(deviceMapper.selectBatchIds(any())).thenReturn(List.of(device));
+        WorkOrder order = order(101L, 1L, 5L, 8);
+        order.setOrderNo("WO-101");
+        when(workOrderMapper.selectBatchIds(any())).thenReturn(List.of(order));
+        ScheduleEntry entry = new ScheduleEntry();
+        entry.setWorkOrderId(101L);
+        entry.setPlanId(1L);
+        entry.setDeviceId(1L);
+        entry.setStartTime(DAY.atTime(8, 0));
+        entry.setEndTime(DAY.atTime(16, 0));
+        entry.setStatus(ScheduleStatus.SCHEDULED.name());
+        when(scheduleEntryMapper.selectList(any())).thenReturn(List.of(entry));
+
+        List<ScheduleEntryView> views = scheduleService.deviceTimeline(DAY, DAY);
+
+        assertEquals(1, views.size());
+        assertEquals("WO-101", views.get(0).orderNo());
+        assertEquals("D-01", views.get(0).deviceNo());
+    }
+
+    @Test
+    void deviceTimelineReturnsNothingWhenWorkshopScopeIsEmpty() {
+        when(dataScope.workshopFilter()).thenReturn("");
+        when(deviceMapper.selectList(any())).thenReturn(List.of());
+
+        assertTrue(scheduleService.deviceTimeline(DAY, DAY).isEmpty());
+        verify(scheduleEntryMapper, never()).selectList(any());
+    }
+
+    @Test
+    void deviceTimelineRejectsInvalidRange() {
+        assertThrows(BadRequestException.class,
+                () -> scheduleService.deviceTimeline(DAY, DAY.minusDays(1)));
+        assertThrows(BadRequestException.class,
+                () -> scheduleService.deviceTimeline(DAY, DAY.plusDays(32)));
+    }
+
+    @Test
     void rejectsInvalidScheduleConfig() {
         assertThrows(IllegalArgumentException.class, () -> new ScheduleService(
                 workOrderMapper, planMapper, processOperationMapper, deviceMapper, scheduleEntryMapper,
-                BigDecimal.valueOf(8), 24, BigDecimal.ZERO));
+                dataScope, BigDecimal.valueOf(8), 24, BigDecimal.ZERO));
         assertThrows(IllegalArgumentException.class, () -> new ScheduleService(
                 workOrderMapper, planMapper, processOperationMapper, deviceMapper, scheduleEntryMapper,
-                BigDecimal.ZERO, 8, BigDecimal.ZERO));
+                dataScope, BigDecimal.ZERO, 8, BigDecimal.ZERO));
     }
 
     private ScheduleService newService(BigDecimal estimateFallbackHours) {
         return new ScheduleService(workOrderMapper, planMapper, processOperationMapper,
-                deviceMapper, scheduleEntryMapper, BigDecimal.valueOf(8), 8, estimateFallbackHours);
+                deviceMapper, scheduleEntryMapper, dataScope, BigDecimal.valueOf(8), 8, estimateFallbackHours);
     }
 
     private void givenWorkOrders(WorkOrder... orders) {

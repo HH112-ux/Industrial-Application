@@ -1,6 +1,8 @@
 package com.zhizao.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.zhizao.common.BadRequestException;
+import com.zhizao.dto.ScheduleEntryView;
 import com.zhizao.dto.ScheduleRunResult;
 import com.zhizao.entity.Device;
 import com.zhizao.entity.Plan;
@@ -17,6 +19,7 @@ import com.zhizao.mapper.PlanMapper;
 import com.zhizao.mapper.ProcessOperationMapper;
 import com.zhizao.mapper.ScheduleEntryMapper;
 import com.zhizao.mapper.WorkOrderMapper;
+import com.zhizao.security.DataScope;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -69,9 +72,15 @@ public class ScheduleService {
     private final ProcessOperationMapper processOperationMapper;
     private final DeviceMapper deviceMapper;
     private final ScheduleEntryMapper scheduleEntryMapper;
+    private final DataScope dataScope;
     private final BigDecimal dailyHours;
     private final int dayStartHour;
     private final BigDecimal estimateFallbackHours;
+
+    /**
+     * 设备时间轴单次可查询的最大天数，避免一次请求扫出跨月的大结果集。
+     */
+    private static final int MAX_TIMELINE_DAYS = 31;
 
     /**
      * 构造排程服务。
@@ -81,13 +90,14 @@ public class ScheduleService {
      * @param processOperationMapper 工序数据访问
      * @param deviceMapper           设备数据访问
      * @param scheduleEntryMapper    排程结果数据访问
+     * @param dataScope              车间数据域
      * @param dailyHours             单台设备每日可用工时（车间规则，可有默认值）
      * @param dayStartHour           每日开工整点（车间规则，必须有值）
      * @param estimateFallbackHours  显式开启的估算工时；0 表示关闭，缺标准工时时直接拒绝排程
      */
     public ScheduleService(WorkOrderMapper workOrderMapper, PlanMapper planMapper,
                            ProcessOperationMapper processOperationMapper, DeviceMapper deviceMapper,
-                           ScheduleEntryMapper scheduleEntryMapper,
+                           ScheduleEntryMapper scheduleEntryMapper, DataScope dataScope,
                            @Value("${schedule.daily-hours:8}") BigDecimal dailyHours,
                            @Value("${schedule.day-start-hour:8}") int dayStartHour,
                            @Value("${schedule.estimate-fallback-hours:0}") BigDecimal estimateFallbackHours) {
@@ -96,6 +106,7 @@ public class ScheduleService {
         this.processOperationMapper = processOperationMapper;
         this.deviceMapper = deviceMapper;
         this.scheduleEntryMapper = scheduleEntryMapper;
+        this.dataScope = dataScope;
         if (dailyHours == null || dailyHours.signum() <= 0) {
             throw new IllegalArgumentException("schedule.daily-hours 必须大于 0");
         }
@@ -176,14 +187,133 @@ public class ScheduleService {
     /**
      * 查询某张工单的排程结果，用于回答「为什么排在这个时间」。
      *
-     * @param workOrderId 工单主键
-     * @return 按队列位置与工序顺序排列的排程记录
+     * <p>调用方需先通过工单入口完成车间数据域校验；这里补全工单号、产品与设备标识，
+     * 让前端无需再按主键反查。</p>
+     *
+     * @param order 已通过数据域校验的工单
+     * @return 按队列位置与工序顺序排列的排程明细
      */
-    public List<ScheduleEntry> entries(Long workOrderId) {
-        return scheduleEntryMapper.selectList(new LambdaQueryWrapper<ScheduleEntry>()
-                .eq(ScheduleEntry::getWorkOrderId, workOrderId)
+    public List<ScheduleEntryView> entries(WorkOrder order) {
+        List<ScheduleEntry> entries = scheduleEntryMapper.selectList(new LambdaQueryWrapper<ScheduleEntry>()
+                .eq(ScheduleEntry::getWorkOrderId, order.getId())
                 .orderByAsc(ScheduleEntry::getQueueRank)
                 .orderByAsc(ScheduleEntry::getOperationSeq));
+        if (entries.isEmpty()) {
+            return List.of();
+        }
+        Map<Long, WorkOrder> orders = Map.of(order.getId(), order);
+        Map<Long, Device> devices = loadDevices(entries);
+        return entries.stream()
+                .map(entry -> toView(entry, orders.get(entry.getWorkOrderId()),
+                        devices.get(entry.getDeviceId())))
+                .toList();
+    }
+
+    /**
+     * 查询所选日期范围内、当前用户车间可见设备的排程占用。
+     *
+     * <p>只返回已排入（有设备与时间窗）的记录，无法排入的冲突记录不占用设备，
+     * 不进入设备时间轴。日期范围按工单车间设备过滤后再取排程记录，
+     * 非管理员不会看到其他车间的设备占用。</p>
+     *
+     * @param from 起始日期（含）
+     * @param to   结束日期（含）
+     * @return 按设备编号、开始时间排序的排程明细
+     * @throws BadRequestException 起止日期缺失、顺序颠倒或跨度超过 31 天时抛出
+     */
+    public List<ScheduleEntryView> deviceTimeline(LocalDate from, LocalDate to) {
+        if (from == null || to == null) {
+            throw new BadRequestException("请指定设备时间轴的起止日期");
+        }
+        if (from.isAfter(to)) {
+            throw new BadRequestException("起始日期不能晚于结束日期");
+        }
+        if (Duration.between(from.atStartOfDay(), to.plusDays(1).atStartOfDay()).toDays() > MAX_TIMELINE_DAYS) {
+            throw new BadRequestException("设备时间轴最多查询 " + MAX_TIMELINE_DAYS + " 天");
+        }
+        String workshop = dataScope.workshopFilter();
+        List<Device> devices = deviceMapper.selectList(new LambdaQueryWrapper<Device>()
+                .eq(workshop != null, Device::getWorkshop, workshop)
+                .orderByAsc(Device::getDeviceNo)
+                .orderByAsc(Device::getId));
+        if (devices.isEmpty()) {
+            return List.of();
+        }
+        Map<Long, Device> deviceById = devices.stream()
+                .collect(toMap(Device::getId, device -> device, (a, b) -> a, LinkedHashMap::new));
+        List<ScheduleEntry> entries = scheduleEntryMapper.selectList(new LambdaQueryWrapper<ScheduleEntry>()
+                .in(ScheduleEntry::getDeviceId, deviceById.keySet())
+                .eq(ScheduleEntry::getStatus, ScheduleStatus.SCHEDULED.name())
+                .ge(ScheduleEntry::getEndTime, from.atStartOfDay())
+                .lt(ScheduleEntry::getStartTime, to.plusDays(1).atStartOfDay())
+                .orderByAsc(ScheduleEntry::getDeviceId)
+                .orderByAsc(ScheduleEntry::getStartTime));
+        if (entries.isEmpty()) {
+            return List.of();
+        }
+        Map<Long, WorkOrder> orders = loadOrders(entries);
+        return entries.stream()
+                .map(entry -> toView(entry, orders.get(entry.getWorkOrderId()),
+                        deviceById.get(entry.getDeviceId())))
+                .sorted(Comparator.comparing(ScheduleEntryView::deviceNo,
+                                Comparator.nullsLast(Comparator.naturalOrder()))
+                        .thenComparing(ScheduleEntryView::startTime,
+                                Comparator.nullsLast(Comparator.naturalOrder())))
+                .toList();
+    }
+
+    /**
+     * 批量读取排程记录涉及的工单，避免逐条反查。
+     *
+     * @param entries 排程记录
+     * @return 工单主键到工单
+     */
+    private Map<Long, WorkOrder> loadOrders(List<ScheduleEntry> entries) {
+        List<Long> orderIds = entries.stream().map(ScheduleEntry::getWorkOrderId)
+                .filter(Objects::nonNull).distinct().toList();
+        if (orderIds.isEmpty()) {
+            return Map.of();
+        }
+        return workOrderMapper.selectBatchIds(orderIds).stream()
+                .collect(toMap(WorkOrder::getId, order -> order, (a, b) -> a));
+    }
+
+    /**
+     * 批量读取排程记录涉及的设备，避免逐条反查。
+     *
+     * @param entries 排程记录
+     * @return 设备主键到设备
+     */
+    private Map<Long, Device> loadDevices(List<ScheduleEntry> entries) {
+        List<Long> deviceIds = entries.stream().map(ScheduleEntry::getDeviceId)
+                .filter(Objects::nonNull).distinct().toList();
+        if (deviceIds.isEmpty()) {
+            return Map.of();
+        }
+        return deviceMapper.selectBatchIds(deviceIds).stream()
+                .collect(toMap(Device::getId, device -> device, (a, b) -> a));
+    }
+
+    /**
+     * 把排程记录与工单、设备拼成展示视图；工单或设备缺失时对应字段保持 null。
+     *
+     * @param entry  排程记录
+     * @param order  工单，可为 null
+     * @param device 设备，可为 null
+     * @return 排程明细视图
+     */
+    private ScheduleEntryView toView(ScheduleEntry entry, WorkOrder order, Device device) {
+        return new ScheduleEntryView(entry.getId(), entry.getWorkOrderId(),
+                order == null ? null : order.getOrderNo(), entry.getPlanId(),
+                order == null ? null : order.getProductCode(),
+                order == null ? null : order.getProductName(),
+                order == null ? null : order.getWorkshop(),
+                entry.getOperationSeq(), entry.getOperationName(), entry.getDeviceType(),
+                entry.getDeviceId(), device == null ? null : device.getDeviceNo(),
+                device == null ? null : device.getDeviceName(),
+                entry.getStartTime(), entry.getEndTime(), entry.getDurationHours(),
+                entry.getHoursSource(), entry.getQueueRank(), entry.getRankBasis(),
+                entry.getStatus(), entry.getConflictCode(), entry.getMessage());
     }
 
     /**
