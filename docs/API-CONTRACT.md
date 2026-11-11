@@ -53,7 +53,7 @@
 
 - 登录后返回 JWT，放在 `Authorization: Bearer <token>`。
 - 白名单：`/api/auth/**`、Swagger、`/actuator/health`、`/actuator/info`；其余端点均需登录。`[代码实证]`
-- 管理类写操作使用 `@PreAuthorize("hasRole('ADMIN')")`；现场操作（开工、报工、质检、点检记录）允许 USER。
+- 管理类写操作使用 `@PreAuthorize("hasRole('ADMIN')")`；现场操作中开工、报工允许 `ADMIN` / `USER` / `WORKER`，质检只允许 `ADMIN` / `USER`。`[代码实证]`
 - 目标增加两类主体：用户令牌（管理端/移动端）与设备凭证（设备上报）。设备上报不再复用用户令牌。`[工程判断]`
 
 ### 1.3 时间与命名
@@ -163,10 +163,12 @@
 |---|---|---|---|---|---|---|
 | 37 | GET | `/api/work-orders` | 登录 | 工单分页 | 保留 | 增加 `workshop`、`planId` 过滤 |
 | 38 | GET | `/api/work-orders/{id}` | 登录 | 工单详情 | 保留 | 无 |
-| 39 | POST | `/api/work-orders/{id}/start` | 登录 | 开工 | 已落地 | S3 改为从令牌取操作人；并发冲突返回 HTTP 200 + 业务码 409 |
-| 40 | POST | `/api/work-orders/{id}/report` | 登录 | 报工 | 已落地 | S3 已实现数量校验、累计上限与幂等键；多次累计至报满后转「待质检」，未报满保持「生产中」 |
-| 41 | POST | `/api/work-orders/{id}/qc` | 登录 | 质检 | 已落地 | S3 结论校验前置，非法结论不写质检记录 |
+| 39 | POST | `/api/work-orders/{id}/start` | ADMIN / USER / WORKER | 开工 | 已落地 | S3 改为从令牌取操作人；并发冲突返回 HTTP 200 + 业务码 409 |
+| 40 | POST | `/api/work-orders/{id}/report` | ADMIN / USER / WORKER | 报工 | 已落地 | S3 已实现数量校验、累计上限与幂等键；多次累计至报满后转「待质检」，未报满保持「生产中」 |
+| 41 | POST | `/api/work-orders/{id}/qc` | ADMIN / USER | 质检 | 已落地 | S3 结论校验前置，非法结论不写质检记录 |
 | 48 | GET | `/api/work-orders/{id}/history` | 登录 | 状态流转历史 | 已落地 | S3 已实现，按发生时间升序返回 |
+
+工单没有独立的删除或流转端点：状态只能由开工、报工、质检三条链路驱动；下达工单（`POST /api/plans/{id}/dispatch`）由管理员执行。`[代码实证]`
 
 ### 2.9 设备点检与维修
 

@@ -8,6 +8,7 @@ import com.zhizao.dto.WorkOrderStatusCount;
 import com.zhizao.entity.WorkOrder;
 import com.zhizao.entity.WorkOrderStatusHistory;
 import com.zhizao.service.WorkOrderService;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.util.StringUtils;
@@ -67,16 +68,26 @@ public class WorkOrderController {
      * @param id 工单主键
      * @return 流转后的工单；并发冲突时返回 HTTP 200 + 业务码 409
      */
+    @PreAuthorize("hasAnyRole('ADMIN', 'USER', 'WORKER')")
     @PostMapping("/{id}/start")
     public Result<WorkOrder> start(@PathVariable Long id) {
         return Result.ok(workOrderService.start(id, currentOperator()));
     }
 
+    @PreAuthorize("hasAnyRole('ADMIN', 'USER', 'WORKER')")
     @PostMapping("/{id}/report")
     public Result<WorkOrder> report(@PathVariable Long id, @RequestBody ReportRequest request) {
         return Result.ok(workOrderService.report(id, request, currentOperator()));
     }
 
+    /**
+     * 质检是判定动作，只有管理员与普通用户（质检员）可以执行，一线员工不参与判定。
+     *
+     * @param id      工单主键
+     * @param request 质检结论与不良描述
+     * @return 流转后的工单
+     */
+    @PreAuthorize("hasAnyRole('ADMIN', 'USER')")
     @PostMapping("/{id}/qc")
     public Result<WorkOrder> qc(@PathVariable Long id, @RequestBody QcRequest request) {
         return Result.ok(workOrderService.qc(id, request, currentOperator()));
