@@ -252,6 +252,7 @@ public class DeviceDataService {
     private void evaluateAlarms(Device device, DeviceGatewayReport report) {
         try {
             alarmEvaluationService.evaluateThreshold(device.getId(), report);
+            alarmEvaluationService.recoverOffline(device.getId());
         } catch (RuntimeException e) {
             log.warn("报警判定失败，已忽略：deviceNo={}，原因={}", report.deviceNo(), e.getMessage());
         }

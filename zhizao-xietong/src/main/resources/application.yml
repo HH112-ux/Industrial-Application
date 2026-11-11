@@ -75,6 +75,9 @@ mqtt:
 device:
   online-threshold-seconds: ${DEVICE_ONLINE_THRESHOLD_SECONDS:90}
   credential-key: ${DEVICE_CREDENTIAL_KEY:}
+  alarm:
+    # 离线扫描周期，毫秒
+    offline-scan-ms: ${DEVICE_ALARM_OFFLINE_SCAN_MS:60000}
   simulation:
     enabled: ${DEVICE_SIMULATION_ENABLED:false}
   auth:

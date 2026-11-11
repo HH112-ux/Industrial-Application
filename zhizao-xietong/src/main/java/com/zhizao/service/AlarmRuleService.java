@@ -14,7 +14,10 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * 报警规则服务：管理员维护阈值规则，同一设备+指标+规则类型只允许一条。
+ * 报警规则服务：管理员维护阈值与离线规则，同一设备+指标+规则类型只允许一条。
+ *
+ * <p>离线规则不配置指标与阈值，统一复用 {@code device.online-threshold-seconds}，
+ * 因此指标固定为空串，同一设备最多一条离线规则。</p>
  *
  * @author Caspian
  */
@@ -24,6 +27,7 @@ public class AlarmRuleService {
     /** 阈值规则允许的指标，与遥测实际字段保持一致。 */
     private static final Set<String> METRICS = Set.of("temperature", "rpm", "current");
     private static final String THRESHOLD = "THRESHOLD";
+    private static final String OFFLINE = "OFFLINE";
     private static final int DEFAULT_CONSECUTIVE_TIMES = 3;
     private static final int MAX_CONSECUTIVE_TIMES = 100;
 
@@ -92,13 +96,22 @@ public class AlarmRuleService {
         return rule;
     }
     private void normalize(AlarmRule rule) {
-        if (rule.getRuleType() == null || !THRESHOLD.equalsIgnoreCase(rule.getRuleType().trim())) {
-            throw new BadRequestException("当前仅支持 THRESHOLD 报警规则");
+        String type = rule.getRuleType() == null ? "" : rule.getRuleType().trim().toUpperCase();
+        if (!THRESHOLD.equals(type) && !OFFLINE.equals(type)) {
+            throw new BadRequestException("规则类型必须为 THRESHOLD 或 OFFLINE");
         }
-        rule.setRuleType(THRESHOLD);
+        rule.setRuleType(type);
         rule.setCurrentStreak(0);
         if (rule.getEnabled() == null) {
             rule.setEnabled(Boolean.TRUE);
+        }
+        if (OFFLINE.equals(type)) {
+            // 离线规则复用全局在线阈值，不配置指标与上下限。
+            rule.setMetric("");
+            rule.setUpperLimit(null);
+            rule.setLowerLimit(null);
+            rule.setConsecutiveTimes(DEFAULT_CONSECUTIVE_TIMES);
+            return;
         }
         String metric = rule.getMetric() == null ? "" : rule.getMetric().trim();
         if (!METRICS.contains(metric)) {
