@@ -44,6 +44,9 @@
         <el-menu-item index="/work-orders">
           <el-icon><Tickets /></el-icon><span>生产执行</span>
         </el-menu-item>
+        <el-menu-item index="/finished-goods">
+          <el-icon><Finished /></el-icon><span>成品入库</span>
+        </el-menu-item>
         <el-menu-item v-if="admin" index="/users">
           <el-icon><User /></el-icon><span>用户管理</span>
         </el-menu-item>
@@ -68,7 +71,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { Bell, DataBoard, Cpu, Box, SetUp, Calendar, Histogram, Tickets, Tools, User } from '@element-plus/icons-vue';
+import { Bell, DataBoard, Cpu, Box, SetUp, Calendar, Histogram, Tickets, Finished, Tools, User } from '@element-plus/icons-vue';
 import { alarmApi } from '@/api';
 import { getUser, clearToken, isAdmin } from '@/api/request';
 

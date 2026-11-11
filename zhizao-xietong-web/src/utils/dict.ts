@@ -37,6 +37,12 @@ export const workOrderStatusMap: Record<string, DictItem> = {
   FINISHED: { label: '已完工', type: 'success' }
 };
 
+export const inboundStatusMap: Record<string, DictItem> = {
+  PENDING: { label: '待入库', type: 'warning' },
+  INBOUND: { label: '已入库', type: 'success' },
+  CANCELLED: { label: '已取消', type: 'info' }
+};
+
 export const priorityMap: Record<string, DictItem> = {
   HIGH: { label: '高', type: 'danger' },
   MEDIUM: { label: '中', type: 'warning' },
