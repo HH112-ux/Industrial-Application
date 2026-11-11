@@ -2,12 +2,15 @@ package com.zhizao.integration;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.zhizao.common.BusinessException;
 import com.zhizao.dto.QcRequest;
 import com.zhizao.dto.ReportRequest;
 import com.zhizao.entity.FinishedGoodsInbound;
+import com.zhizao.entity.FinishedGoodsStock;
 import com.zhizao.entity.ScheduleEntry;
 import com.zhizao.entity.WorkOrder;
 import com.zhizao.mapper.FinishedGoodsInboundMapper;
+import com.zhizao.mapper.FinishedGoodsStockMapper;
 import com.zhizao.mapper.ScheduleEntryMapper;
 import com.zhizao.mapper.WorkOrderMapper;
 import com.zhizao.service.FinishedGoodsInboundService;
@@ -22,9 +25,18 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * 成品入库生成链路的集成测试：真实 MySQL 上验证合格数口径与工单维度幂等。
@@ -55,6 +67,8 @@ class FinishedGoodsInboundIntegrationTest {
     private FinishedGoodsInboundMapper inboundMapper;
     @Autowired
     private ScheduleEntryMapper scheduleEntryMapper;
+    @Autowired
+    private FinishedGoodsStockMapper stockMapper;
 
     /**
      * 插入一张计划数量为 10 的工单，并补一条排程记录供开工使用。
@@ -62,10 +76,20 @@ class FinishedGoodsInboundIntegrationTest {
      * @return 工单主键
      */
     private Long createOrder() {
+        return createOrder("P-001");
+    }
+
+    /**
+     * 指定成品编码创建工单，库存断言用独立编码避免用例间互相累加。
+     *
+     * @param productCode 成品编码
+     * @return 工单主键
+     */
+    private Long createOrder(String productCode) {
         WorkOrder order = new WorkOrder();
         order.setOrderNo("FG-" + System.nanoTime());
         order.setPlanId(1L);
-        order.setProductCode("P-001");
+        order.setProductCode(productCode);
         order.setProductName("传动轴 A");
         order.setQty(10);
         order.setQtyDone(0);
@@ -166,5 +190,97 @@ class FinishedGoodsInboundIntegrationTest {
 
         assertEquals(1, inboundMapper.selectCount(new LambdaQueryWrapper<FinishedGoodsInbound>()
                 .eq(FinishedGoodsInbound::getWorkOrderId, id)), "重复触发不得生成第二条入库单");
+    }
+
+    /**
+     * 走完工链路生成一张待入库单，成品编码由调用方指定，避免库存断言互相干扰。
+     *
+     * @param productCode 成品编码
+     * @return 待入库单
+     */
+    private FinishedGoodsInbound createPendingInbound(String productCode) {
+        Long id = createOrder(productCode);
+        workOrderService.start(id, "tester");
+        workOrderService.report(id, new ReportRequest(10, 10, 0, null, "confirm-1"), "tester");
+        workOrderService.qc(id, new QcRequest("PASS", null), "qa");
+        return onlyInbound(id);
+    }
+
+    @Test
+    void confirmWritesStockOnlyOnceUnderConcurrentRequests() throws Exception {
+        String productCode = "FG-" + System.nanoTime();
+        FinishedGoodsInbound inbound = createPendingInbound(productCode);
+        ExecutorService pool = Executors.newFixedThreadPool(2);
+        CountDownLatch ready = new CountDownLatch(1);
+        List<String> results = new ArrayList<>();
+        try {
+            List<Future<String>> futures = new ArrayList<>();
+            for (int i = 0; i < 2; i++) {
+                futures.add(pool.submit(() -> {
+                    ready.await();
+                    try {
+                        inboundService.confirm(inbound.getId(), null, "operator");
+                        return "OK";
+                    } catch (BusinessException e) {
+                        return e.getCode() + ":" + e.getMessage();
+                    }
+                }));
+            }
+            ready.countDown();
+            for (Future<String> future : futures) {
+                results.add(future.get(30, TimeUnit.SECONDS));
+            }
+        } finally {
+            pool.shutdownNow();
+        }
+
+        assertEquals(1, results.stream().filter("OK"::equals).count(), "并发确认只能成功一次");
+        String conflict = results.stream().filter(r -> r.startsWith("409:"))
+                .findFirst().orElseThrow(() -> new AssertionError("并发确认必须有一次返回 409"));
+        assertTrue(conflict.contains("已确认或已取消"), "并发失败方应提示已被处理");
+        assertEquals("INBOUND", inboundMapper.selectById(inbound.getId()).getStatus());
+        assertEquals(10, stockOf(productCode).getQty(), "库存只累加一次");
+    }
+
+    @Test
+    void confirmRejectsWhenInboundExceedsQualified() {
+        String productCode = "FG-" + System.nanoTime();
+        FinishedGoodsInbound inbound = createPendingInbound(productCode);
+        workOrderMapper.update(null, new LambdaUpdateWrapper<WorkOrder>()
+                .eq(WorkOrder::getId, inbound.getWorkOrderId())
+                .set(WorkOrder::getQtyQualified, 5));
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> inboundService.confirm(inbound.getId(), null, "operator"));
+
+        assertEquals(409, error.getCode());
+        assertTrue(error.getMessage().contains("超过"), "超额与已处理需要区分原因");
+        assertEquals("PENDING", inboundMapper.selectById(inbound.getId()).getStatus());
+        assertNull(stockMapper.selectOne(new LambdaQueryWrapper<FinishedGoodsStock>()
+                .eq(FinishedGoodsStock::getProductCode, productCode)), "拒绝时不得写库存");
+    }
+
+    @Test
+    void confirmOverridesGeneratedBatch() {
+        String productCode = "FG-" + System.nanoTime();
+        FinishedGoodsInbound inbound = createPendingInbound(productCode);
+
+        FinishedGoodsInbound confirmed = inboundService.confirm(inbound.getId(), "MANUAL-20261111", "operator");
+
+        assertEquals("MANUAL-20261111", confirmed.getBatch());
+        assertEquals("INBOUND", confirmed.getStatus());
+        assertEquals(10, stockOf(productCode).getQty());
+    }
+
+    /**
+     * 查询指定成品的库存行。
+     *
+     * @param productCode 成品编码
+     * @return 库存行
+     */
+    private FinishedGoodsStock stockOf(String productCode) {
+        return stockMapper.selectOne(new LambdaQueryWrapper<FinishedGoodsStock>()
+                .eq(FinishedGoodsStock::getProductCode, productCode)
+                .eq(FinishedGoodsStock::getWorkshop, "一车间"));
     }
 }

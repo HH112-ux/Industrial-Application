@@ -3,7 +3,9 @@ package com.zhizao.controller;
 import com.zhizao.common.PageResult;
 import com.zhizao.common.Result;
 import com.zhizao.dto.InboundCancelRequest;
+import com.zhizao.dto.InboundConfirmRequest;
 import com.zhizao.entity.FinishedGoodsInbound;
+import com.zhizao.entity.FinishedGoodsStock;
 import com.zhizao.service.FinishedGoodsInboundService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -19,8 +21,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 成品入库接口：待入库单查询与取消。查询沿用现有读权限，取消需要能操作生产的角色，
- * 写操作由 AuditAspect 自动留痕。
+ * 成品入库接口：待入库查询、确认/取消入库与成品库存查询。查询沿用现有读权限，
+ * 确认/取消需要能操作生产的角色，写操作由 AuditAspect 自动留痕。
  *
  * @author Caspian
  */
@@ -55,6 +57,27 @@ public class FinishedGoodsInboundController {
     public Result<FinishedGoodsInbound> cancel(@PathVariable Long id,
                                                @RequestBody InboundCancelRequest request) {
         return Result.ok(inboundService.cancel(id, request.reason(), currentOperator()));
+    }
+
+    /**
+     * 分页查询成品库存，按车间数据域过滤。
+     */
+    @GetMapping("/stocks")
+    public Result<PageResult<FinishedGoodsStock>> stocks(@RequestParam(defaultValue = "1") int pageNum,
+                                                         @RequestParam(defaultValue = "10") int pageSize,
+                                                         @RequestParam(required = false) String keyword) {
+        return Result.ok(inboundService.stockList(pageNum, pageSize, keyword));
+    }
+
+    /**
+     * 确认入库，批次号可覆盖；被并发处理或数量超额时返回业务码 409。
+     */
+    @PreAuthorize("hasAnyRole('ADMIN', 'USER', 'WORKER')")
+    @PostMapping("/inbounds/{id}/confirm")
+    public Result<FinishedGoodsInbound> confirm(@PathVariable Long id,
+                                                @RequestBody(required = false) InboundConfirmRequest request) {
+        String batch = request == null ? null : request.batch();
+        return Result.ok(inboundService.confirm(id, batch, currentOperator()));
     }
 
     /** 读取当前登录用户名，未认证时缺省为 system。 */
