@@ -31,6 +31,7 @@
         <text v-if="summaryText" class="summary">{{ summaryText }}</text>
       </view>
       <view v-if="scheduleLoading" class="schedule-empty">加载中…</view>
+      <view v-else-if="scheduleError" class="schedule-empty">排程信息加载失败，请稍后重试</view>
       <view v-else-if="!schedules.length" class="schedule-empty">该工单尚未排程：可能未运行排产，或无法排入</view>
       <view v-else>
         <view v-for="item in schedules" :key="item.id" class="schedule-item">
@@ -111,6 +112,7 @@ export default {
       statusMap: workOrderStatusMap,
       schedules: [],
       scheduleLoading: false,
+      scheduleError: false,
       reportVisible: false,
       qcVisible: false,
       reportForm: { qty: 0, qualifiedQty: 0, defectQty: 0, idempotencyKey: '' },
@@ -148,19 +150,21 @@ export default {
     queueLabel,
     operationLabel,
     async load() {
+      this.loadSchedule();
       this.order = await workOrderApi.get(this.id);
       this.reportForm.qty = this.remainingQty;
       this.reportForm.qualifiedQty = this.remainingQty;
       this.reportForm.defectQty = 0;
-      this.loadSchedule();
     },
     async loadSchedule() {
       this.scheduleLoading = true;
+      this.scheduleError = false;
       try {
         this.schedules = await scheduleApi.entries(this.id);
       } catch (e) {
-        // 请求层已提示错误，排程区块退回空态，不影响工单主体操作。
+        // 请求层已提示错误；这里单独记录失败，避免把失败展示成「未排程」。
         this.schedules = [];
+        this.scheduleError = true;
       } finally {
         this.scheduleLoading = false;
       }

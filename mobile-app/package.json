@@ -4,7 +4,7 @@
   "scripts": {
     "dev:h5": "UNI_INPUT_DIR=. uni",
     "build:h5": "UNI_INPUT_DIR=. uni build",
-    "test": "node --test utils/schedule.test.mjs"
+    "test": "node --test"
   },
   "dependencies": {
     "@dcloudio/uni-app": "3.0.0-4070520250711001",
