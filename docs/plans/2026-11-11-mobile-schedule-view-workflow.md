@@ -10,21 +10,17 @@ worktree: false
 # 移动端工单排程落点（只读）
 
 ## 范围
-
 - 数据来源：`GET /api/schedules/work-orders/{id}`（PR #34）
 - 对照实现：Web `WorkOrderList.vue` 的「排程」弹窗（PR #35）
 - 只做展示：不改后端、不改排产算法、不碰报工逻辑
 
 ## 测试策略
-
-移动端没有测试框架，Vue 模板也不在 Node 中渲染。把「字段到文案」的纯逻辑抽到
-`mobile-app/utils/schedule.mjs`，用 Node 自带 `node --test` 覆盖；UI 接线用 H5 构建、
-浏览器实渲染（mock 接口）和代码审查兜底。不引入 Vitest，避免为一个只读展示扩张工具链。
+移动端无测试框架，Vue 模板也不在 Node 中渲染：把「字段到文案」抽到 `utils/schedule.mjs`，
+用 `node --test` 覆盖；UI 用 H5 构建、mock 接口实渲染和代码审查兜底，不引入 Vitest。
 
 ## 步骤
-
 - [ ] **Step 1: 写失败测试**
-action: 新建 `mobile-app/utils/schedule.test.mjs` 覆盖时间、设备、工时、位次、汇总；在 `package.json` 增加 `test` 脚本；先确认失败
+action: 新建 `mobile-app/utils/schedule.test.mjs` 覆盖时间、设备、工时、位次、汇总；`package.json` 增加 `test` 并先确认失败
 loop: false
 verify: cd mobile-app && npm test
 gate: auto
@@ -37,7 +33,7 @@ verify: cd mobile-app && npm test
 gate: auto
 
 - [ ] **Step 3: 接入接口与页面**
-action: `mobile-app/api/index.js` 增加 `scheduleApi.entries`；`detail.vue` 增加加载态、空态与明细卡片
+action: `mobile-app/api/index.js` 增加 `scheduleApi.entries`；`detail.vue` 增加加载、失败、空态与明细卡片
 loop: false
 verify: cd mobile-app && npm run build:h5
 gate: auto
@@ -71,8 +67,7 @@ verify: `gh pr checks` 全绿
 gate: human
 
 ## 跳过项
-
 - **brainstorming / docs/designs**：需求边界已给定且为低风险只读展示，无架构取舍。
-- **setup-project 适配文件**：README、ENGINEERING-DESIGN、CI、hooks 已承载真实约束，再生成会形成第二套事实来源；当前只使用 Trae 会话。
+- **setup-project 适配文件**：README、ENGINEERING-DESIGN、CI、hooks 已承载真实约束，再生成会形成第二套事实来源。
 - **多阶段 initiative 脚手架**：单切片，不适用。
 - **hotl 自带 code-review / pr-reviewing**：与现有代码审查插件标准冲突，只用后者。
