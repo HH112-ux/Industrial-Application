@@ -4,6 +4,7 @@ import com.zhizao.common.LoginRateLimiter;
 import com.zhizao.controller.AuthController;
 import com.zhizao.dto.LoginResponse;
 import com.zhizao.mapper.SysUserMapper;
+import com.zhizao.service.AuthAuditService;
 import com.zhizao.service.AuthService;
 import com.zhizao.sso.SsoAuthService;
 import org.junit.jupiter.api.Test;
@@ -58,6 +59,9 @@ class CorsHttpTest {
 
     @MockBean
     private LoginRateLimiter loginRateLimiter;
+
+    @MockBean
+    private AuthAuditService authAuditService;
 
     @MockBean
     private JwtUtil jwtUtil;

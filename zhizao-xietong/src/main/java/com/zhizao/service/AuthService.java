@@ -33,7 +33,7 @@ public class AuthService {
     private static final String AUTH_SOURCE_SSO = "SSO";
 
     /** SSO 账号误用本地密码登录时的提示，便于用户改走扫码入口。 */
-    static final String SSO_LOGIN_HINT = "该账号需使用企业微信扫码登录";
+    public static final String SSO_LOGIN_HINT = "该账号需使用企业微信扫码登录";
 
     private final SysUserMapper userMapper;
     private final PasswordEncoder passwordEncoder;
