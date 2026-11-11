@@ -22,6 +22,7 @@ public class AiProperties {
     private String model = "gpt-4o-mini";
     private int maxRows = 200;
     private int queryTimeoutSeconds = 3;
+    private Datasource datasource = new Datasource();
 
     public boolean isEnabled() {
         return enabled;
@@ -85,5 +86,49 @@ public class AiProperties {
 
     public void setQueryTimeoutSeconds(int queryTimeoutSeconds) {
         this.queryTimeoutSeconds = queryTimeoutSeconds;
+    }
+
+    public Datasource getDatasource() {
+        return datasource;
+    }
+
+    public void setDatasource(Datasource datasource) {
+        this.datasource = datasource;
+    }
+
+    /**
+     * 可选的 AI 只读数据源配置。未配置 url 时回落主数据源。
+     *
+     * <p>刻意不实现 {@code toString()}，避免口令进入日志。</p>
+     */
+    public static class Datasource {
+
+        private String url;
+        private String username;
+        private String password;
+
+        public String getUrl() {
+            return url;
+        }
+
+        public void setUrl(String url) {
+            this.url = url;
+        }
+
+        public String getUsername() {
+            return username;
+        }
+
+        public void setUsername(String username) {
+            this.username = username;
+        }
+
+        public String getPassword() {
+            return password;
+        }
+
+        public void setPassword(String password) {
+            this.password = password;
+        }
     }
 }

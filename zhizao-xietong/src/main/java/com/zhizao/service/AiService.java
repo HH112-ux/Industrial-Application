@@ -2,6 +2,7 @@ package com.zhizao.service;
 
 import com.zhizao.ai.AiAssistant;
 import com.zhizao.ai.AiAuditRepository;
+import com.zhizao.ai.AiQueryExecutor;
 import com.zhizao.ai.AiReadOnlyTools;
 import com.zhizao.ai.ReadOnlySqlGuard;
 import com.zhizao.ai.SqlRejectedException;
@@ -23,8 +24,6 @@ import com.zhizao.entity.WorkOrder;
 import com.zhizao.security.UserPrincipal;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.jdbc.core.ColumnMapRowMapper;
-import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.util.StringUtils;
 
@@ -55,7 +54,7 @@ public class AiService {
     private final AiReadOnlyTools tools;
     private final ReadOnlySqlGuard sqlGuard;
     private final AiAuditRepository auditRepository;
-    private final JdbcTemplate jdbcTemplate;
+    private final AiQueryExecutor queryExecutor;
 
     /**
      * 构造 AI 旁路服务。
@@ -65,16 +64,16 @@ public class AiService {
      * @param tools           只读工具
      * @param sqlGuard        只读 SQL 白名单
      * @param auditRepository 留痕仓库
-     * @param jdbcTemplate    只读查询执行器
+     * @param queryExecutor   只读查询执行器
      */
     public AiService(AiProperties properties, AiAssistant assistant, AiReadOnlyTools tools,
-                     ReadOnlySqlGuard sqlGuard, AiAuditRepository auditRepository, JdbcTemplate jdbcTemplate) {
+                     ReadOnlySqlGuard sqlGuard, AiAuditRepository auditRepository, AiQueryExecutor queryExecutor) {
         this.properties = properties;
         this.assistant = assistant;
         this.tools = tools;
         this.sqlGuard = sqlGuard;
         this.auditRepository = auditRepository;
-        this.jdbcTemplate = jdbcTemplate;
+        this.queryExecutor = queryExecutor;
     }
 
     /**
@@ -180,12 +179,8 @@ public class AiService {
 
         long start = System.nanoTime();
         try {
-            List<Map<String, Object>> rows = jdbcTemplate.query(con -> {
-                var statement = con.prepareStatement(sql);
-                statement.setQueryTimeout(Math.max(properties.getQueryTimeoutSeconds(), 1));
-                statement.setMaxRows(Math.max(properties.getMaxRows(), 1));
-                return statement;
-            }, new ColumnMapRowMapper());
+            List<Map<String, Object>> rows = queryExecutor.query(sql,
+                    properties.getQueryTimeoutSeconds(), properties.getMaxRows());
             long duration = elapsedMs(start);
             List<String> columns = rows.isEmpty() ? List.of() : List.copyOf(rows.get(0).keySet());
             auditRepository.logQuery(username, question, sql, rows.size(), duration, true, null);
