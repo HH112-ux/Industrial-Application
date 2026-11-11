@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.zhizao.common.BadRequestException;
 import com.zhizao.common.BusinessException;
+import com.zhizao.common.ForbiddenException;
 import com.zhizao.common.PageResult;
 import com.zhizao.common.PasswordPolicy;
 import com.zhizao.dto.UserCreateRequest;
@@ -191,18 +192,65 @@ public class UserService {
     /**
      * 启用或禁用用户，并递增令牌版本。
      *
-     * @param id      用户主键
-     * @param enabled true 启用，false 禁用
+     * <p>禁用前先做两条保护：不能禁用当前登录账号，避免管理员误操作把自己锁在门外；
+     * 不能禁用最后一个启用的本地管理员，保留企微故障时的应急入口。重复禁用直接返回当前状态，
+     * 不再递增令牌版本，便于前端重试。</p>
+     *
+     * @param id               用户主键
+     * @param enabled          true 启用，false 禁用
+     * @param operatorUsername 当前登录用户名，用于自身保护
      * @return 更新后的用户视图
+     * @throws ForbiddenException 禁用自己时抛出，返回 HTTP 403
+     * @throws BadRequestException 禁用最后一个启用的本地管理员时抛出，返回 HTTP 400
      * @throws BusinessException 用户不存在时抛出
      */
     @Transactional
-    public UserView setEnabled(Long id, boolean enabled) {
+    public UserView setEnabled(Long id, boolean enabled, String operatorUsername) {
         SysUser user = requireUser(id);
+        if (!enabled) {
+            if (user.getUsername().equals(operatorUsername)) {
+                throw new ForbiddenException("不能禁用当前登录账号");
+            }
+            if (Integer.valueOf(0).equals(user.getEnabled())) {
+                return UserView.of(user);
+            }
+            if (isLastActiveLocalAdmin(user)) {
+                throw new BadRequestException("至少保留一个启用的本地管理员账号作为应急回退");
+            }
+        } else if (Integer.valueOf(1).equals(user.getEnabled())) {
+            return UserView.of(user);
+        }
         user.setEnabled(enabled ? 1 : 0);
         user.setTokenVersion(tokenVersion(user) + 1);
         userMapper.updateById(user);
         return UserView.of(user);
+    }
+
+    /**
+     * 软删除用户：同时禁用、递增令牌版本并置 {@code deleted=1}。
+     *
+     * <p>用户行保留在库中，{@code uk_username} 继续占用该用户名，同名账号无法再次创建。
+     * 删除自己或删除最后一个启用的本地管理员同样被拒绝。</p>
+     *
+     * @param id               用户主键
+     * @param operatorUsername 当前登录用户名，用于自身保护
+     * @throws ForbiddenException 删除自己时抛出，返回 HTTP 403
+     * @throws BadRequestException 删除最后一个启用的本地管理员时抛出，返回 HTTP 400
+     * @throws BusinessException 用户不存在时抛出
+     */
+    @Transactional
+    public void delete(Long id, String operatorUsername) {
+        SysUser user = requireUser(id);
+        if (user.getUsername().equals(operatorUsername)) {
+            throw new ForbiddenException("不能删除当前登录账号");
+        }
+        if (isLastActiveLocalAdmin(user)) {
+            throw new BadRequestException("至少保留一个启用的本地管理员账号作为应急回退");
+        }
+        user.setEnabled(0);
+        user.setTokenVersion(tokenVersion(user) + 1);
+        userMapper.updateById(user);
+        userMapper.deleteById(id);
     }
 
     /**
@@ -275,15 +323,26 @@ public class UserService {
         if (normalized.equals(user.getRole())) {
             return UserView.of(user);
         }
-        if (AUTH_SOURCE_LOCAL.equals(user.getAuthSource()) && ROLE_ADMIN.equals(user.getRole())
-                && !ROLE_ADMIN.equals(normalized)
-                && Integer.valueOf(1).equals(user.getEnabled()) && isLastLocalAdmin()) {
+        if (isLastActiveLocalAdmin(user)) {
             throw new BusinessException("至少保留一个启用的本地管理员账号作为应急回退");
         }
         user.setRole(normalized);
         user.setTokenVersion(tokenVersion(user) + 1);
         userMapper.updateById(user);
         return UserView.of(user);
+    }
+
+    /**
+     * 判断目标是否为「最后一个启用的本地管理员」。
+     *
+     * <p>降级、禁用或删除这类账号都会切断应急回退路径，因此统一走这一处判断。</p>
+     *
+     * @param user 目标用户
+     * @return true 表示该用户是唯一可用的本地管理员
+     */
+    private boolean isLastActiveLocalAdmin(SysUser user) {
+        return AUTH_SOURCE_LOCAL.equals(user.getAuthSource()) && ROLE_ADMIN.equals(user.getRole())
+                && Integer.valueOf(1).equals(user.getEnabled()) && isLastLocalAdmin();
     }
 
     /**
