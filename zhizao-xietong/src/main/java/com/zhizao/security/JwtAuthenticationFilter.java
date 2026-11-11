@@ -15,6 +15,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Set;
 
 /**
  * JWT 认证过滤器：解析 Authorization 头，注入 SecurityContext。
@@ -23,10 +24,21 @@ import java.util.List;
  * 不使用缓存，也不留生效窗口。因此管理员禁用账号或用户修改密码后，
  * <strong>下一次请求</strong>就会因认证失败返回 401。</p>
  *
+ * <p>带 {@code must_change_password=1} 的账号只放行改密、登出与查询自身信息三个接口，
+ * 其余请求直接返回 HTTP 403 + 业务码 {@value #MUST_CHANGE_PASSWORD_CODE}，
+ * 前端据此跳转改密页。</p>
+ *
  * @author Caspian
  */
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
+
+    /** 必须先改密的业务码，前端据此跳转改密页。 */
+    public static final int MUST_CHANGE_PASSWORD_CODE = 40301;
+
+    /** 强制改密期间仍可访问的接口。 */
+    private static final Set<String> ALLOWED_WHILE_MUST_CHANGE = Set.of(
+            "/api/users/me/password", "/api/users/me", "/api/auth/logout");
 
     private final JwtUtil jwtUtil;
     private final SysUserMapper userMapper;
@@ -46,38 +58,59 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
         String header = request.getHeader("Authorization");
+        SysUser authenticated = null;
         if (header != null && header.startsWith("Bearer ")) {
-            authenticate(header.substring(7));
+            authenticated = authenticate(header.substring(7));
+        }
+        if (authenticated != null && Integer.valueOf(1).equals(authenticated.getMustChangePassword())
+                && !allowedWhileMustChange(request)) {
+            writeMustChangePassword(response);
+            return;
         }
         filterChain.doFilter(request, response);
     }
 
-    /**
-     * 校验令牌并注入认证信息；任一项不满足都不注入，后续由安全链返回 401。
-     *
-     * @param token 去掉 Bearer 前缀后的 JWT
-     */
-    private void authenticate(String token) {
+    /** 校验令牌并注入认证信息；不通过返回 null，由安全链返回 401。 */
+    private SysUser authenticate(String token) {
         if (!jwtUtil.validate(token)) {
-            return;
+            return null;
         }
         String username = jwtUtil.getUsername(token);
         Integer tokenVersion = jwtUtil.getTokenVersion(token);
         if (username == null || tokenVersion == null) {
-            return;
+            return null;
         }
         SysUser user = userMapper.selectOne(
                 new LambdaQueryWrapper<SysUser>().eq(SysUser::getUsername, username));
         if (user == null || !Integer.valueOf(1).equals(user.getEnabled())) {
-            return;
+            return null;
         }
         int currentVersion = user.getTokenVersion() == null ? 0 : user.getTokenVersion();
         if (tokenVersion != currentVersion) {
-            return;
+            return null;
         }
         UserPrincipal principal = new UserPrincipal(user.getUsername(), user.getRole(), user.getWorkshopScope());
         var authorities = List.of(new SimpleGrantedAuthority("ROLE_" + user.getRole()));
         var authentication = new UsernamePasswordAuthenticationToken(principal, null, authorities);
         SecurityContextHolder.getContext().setAuthentication(authentication);
+        return user;
+    }
+
+    /** 强制改密期间仅放行改密、登出与自身信息三个接口。 */
+    private boolean allowedWhileMustChange(HttpServletRequest request) {
+        if ("OPTIONS".equalsIgnoreCase(request.getMethod())) {
+            return true;
+        }
+        String path = request.getRequestURI();
+        return path != null && ALLOWED_WHILE_MUST_CHANGE.contains(path);
+    }
+
+    /** 输出强制改密的 403 响应，携带可识别业务码。 */
+    private void writeMustChangePassword(HttpServletResponse response) throws IOException {
+        SecurityContextHolder.clearContext();
+        response.setStatus(HttpServletResponse.SC_FORBIDDEN);
+        response.setContentType("application/json;charset=UTF-8");
+        response.getWriter().write("{\"code\":" + MUST_CHANGE_PASSWORD_CODE
+                + ",\"message\":\"请先修改初始密码后再访问\"}");
     }
 }

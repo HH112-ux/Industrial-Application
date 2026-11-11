@@ -27,6 +27,9 @@ import org.springframework.util.StringUtils;
 @Service
 public class AuthService {
 
+    /** 新口令最小长度，与 Web 端既有校验提示保持一致。 */
+    static final int MIN_PASSWORD_LENGTH = 6;
+
     private final SysUserMapper userMapper;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
@@ -62,7 +65,8 @@ public class AuthService {
         }
         int tokenVersion = tokenVersion(user);
         String token = jwtUtil.generateToken(user.getUsername(), user.getRole(), tokenVersion);
-        return new LoginResponse(token, user.getUsername(), user.getNickname(), user.getRole());
+        return new LoginResponse(token, user.getUsername(), user.getNickname(), user.getRole(),
+                mustChangePassword(user));
     }
 
     /**
@@ -87,15 +91,17 @@ public class AuthService {
             throw new UnauthorizedException("令牌已失效，请重新登录");
         }
         String newToken = jwtUtil.generateToken(user.getUsername(), user.getRole(), currentVersion);
-        return new LoginResponse(newToken, user.getUsername(), user.getNickname(), user.getRole());
+        return new LoginResponse(newToken, user.getUsername(), user.getNickname(), user.getRole(),
+                mustChangePassword(user));
     }
 
     /**
-     * 自助改密：校验原密码后写入新密码，并递增令牌版本使所有旧令牌立即失效。
+     * 自助改密：校验原密码与新口令强度后写入新密码，递增令牌版本使旧令牌立即失效，
+     * 并清除「必须先改密」标记。
      *
      * @param username 当前登录用户名
      * @param req      改密请求
-     * @throws BadRequestException 原密码为空时抛出，返回 HTTP 400
+     * @throws BadRequestException 原密码为空或新口令不满足强度要求时抛出，返回 HTTP 400
      * @throws BusinessException   用户不存在、原密码错误或新密码为空时抛出
      */
     @Transactional
@@ -113,8 +119,12 @@ public class AuthService {
         if (req.newPassword() == null || req.newPassword().isBlank()) {
             throw new BusinessException("新密码不能为空");
         }
+        if (req.newPassword().length() < MIN_PASSWORD_LENGTH) {
+            throw new BadRequestException("新密码长度不能少于 " + MIN_PASSWORD_LENGTH + " 位");
+        }
         user.setPassword(passwordEncoder.encode(req.newPassword()));
         user.setTokenVersion(tokenVersion(user) + 1);
+        user.setMustChangePassword(0);
         userMapper.updateById(user);
     }
 
@@ -139,5 +149,15 @@ public class AuthService {
      */
     private int tokenVersion(SysUser user) {
         return user.getTokenVersion() == null ? 0 : user.getTokenVersion();
+    }
+
+    /**
+     * 读取强制改密标记，空值按 false 处理。
+     *
+     * @param user 用户
+     * @return true 表示需要先修改密码
+     */
+    private boolean mustChangePassword(SysUser user) {
+        return Integer.valueOf(1).equals(user.getMustChangePassword());
     }
 }

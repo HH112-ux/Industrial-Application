@@ -62,6 +62,17 @@ public class UserController {
     }
 
     /**
+     * 查询当前登录用户自身信息。强制改密期间仍可访问。
+     *
+     * @param authentication 当前认证信息
+     * @return 当前用户视图
+     */
+    @GetMapping("/me")
+    public Result<UserView> me(Authentication authentication) {
+        return Result.ok(userService.profile(principal(authentication).username()));
+    }
+
+    /**
      * 启用或禁用用户。禁用后该用户的已签发令牌在下一次请求即被拒绝。
      *
      * @param id      用户主键
@@ -111,10 +122,20 @@ public class UserController {
     @PostMapping("/me/password")
     public Result<Void> changePassword(@RequestBody PasswordChangeRequest request,
                                        Authentication authentication) {
-        if (authentication == null || !(authentication.getPrincipal() instanceof UserPrincipal principal)) {
+        authService.changePassword(principal(authentication).username(), request);
+        return Result.ok();
+    }
+
+    /**
+     * 提取当前登录主体，未登录时按 401 处理。
+     *
+     * @param authentication 当前认证信息
+     * @return 登录主体
+     */
+    private UserPrincipal principal(Authentication authentication) {
+        if (authentication == null || !(authentication.getPrincipal() instanceof UserPrincipal user)) {
             throw new UnauthorizedException("未登录或登录已过期");
         }
-        authService.changePassword(principal.username(), request);
-        return Result.ok();
+        return user;
     }
 }

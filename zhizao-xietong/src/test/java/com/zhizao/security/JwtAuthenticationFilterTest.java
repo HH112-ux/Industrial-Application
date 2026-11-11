@@ -135,4 +135,47 @@ class JwtAuthenticationFilterTest {
 
         verify(userMapper, org.mockito.Mockito.times(2)).selectOne(any());
     }
+
+    @Test
+    void mustChangePasswordBlocksBusinessRequestsWithIdentifiableCode() throws Exception {
+        when(jwtUtil.validate("t7")).thenReturn(true);
+        when(jwtUtil.getUsername("t7")).thenReturn("admin");
+        when(jwtUtil.getTokenVersion("t7")).thenReturn(1);
+        SysUser admin = user(1, 1, null);
+        admin.setRole("ADMIN");
+        admin.setMustChangePassword(1);
+        when(userMapper.selectOne(any())).thenReturn(admin);
+
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
+        filter.doFilter(request("GET", "/api/work-orders", "t7"), response, chain);
+
+        assertEquals(403, response.getStatus());
+        assertTrue(response.getContentAsString().contains("\"code\":40301"));
+        assertNull(chain.getRequest(), "被拦截的请求不得继续进入后续过滤器");
+        assertNull(SecurityContextHolder.getContext().getAuthentication());
+    }
+
+    @Test
+    void mustChangePasswordAllowsChangePasswordSelfInfoAndLogout() throws Exception {
+        when(jwtUtil.validate("t8")).thenReturn(true);
+        when(jwtUtil.getUsername("t8")).thenReturn("admin");
+        when(jwtUtil.getTokenVersion("t8")).thenReturn(1);
+        SysUser admin = user(1, 1, null);
+        admin.setRole("ADMIN");
+        admin.setMustChangePassword(1);
+        when(userMapper.selectOne(any())).thenReturn(admin);
+
+        for (String path : new String[]{"/api/users/me/password", "/api/users/me", "/api/auth/logout"}) {
+            MockFilterChain chain = new MockFilterChain();
+            filter.doFilter(request("POST", path, "t8"), new MockHttpServletResponse(), chain);
+            assertTrue(chain.getRequest() != null, path + " 应放行");
+        }
+    }
+
+    private MockHttpServletRequest request(String method, String path, String token) {
+        MockHttpServletRequest request = new MockHttpServletRequest(method, path);
+        request.addHeader("Authorization", "Bearer " + token);
+        return request;
+    }
 }

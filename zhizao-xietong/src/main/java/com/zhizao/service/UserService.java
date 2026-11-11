@@ -57,6 +57,22 @@ public class UserService {
     }
 
     /**
+     * 查询当前登录用户自身信息，包含强制改密标记。
+     *
+     * @param username 用户名
+     * @return 用户视图
+     * @throws BusinessException 用户不存在时抛出
+     */
+    public UserView profile(String username) {
+        SysUser user = userMapper.selectOne(
+                new LambdaQueryWrapper<SysUser>().eq(SysUser::getUsername, username));
+        if (user == null) {
+            throw new BusinessException("用户不存在");
+        }
+        return UserView.of(user);
+    }
+
+    /**
      * 启用或禁用用户，并递增令牌版本。
      *
      * @param id      用户主键

@@ -1,6 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router';
 import Layout from '@/layout/Layout.vue';
-import { getToken, isAdmin } from '@/api/request';
+import { getToken, isAdmin, mustChangePassword } from '@/api/request';
 
 const router = createRouter({
   history: createWebHistory(),
@@ -10,6 +10,12 @@ const router = createRouter({
       name: 'Login',
       component: () => import('@/views/Login.vue'),
       meta: { title: '登录' }
+    },
+    {
+      path: '/change-password',
+      name: 'ChangePassword',
+      component: () => import('@/views/ChangePassword.vue'),
+      meta: { title: '修改密码' }
     },
     {
       path: '/',
@@ -36,9 +42,11 @@ const router = createRouter({
 
 router.beforeEach((to, _from, next) => {
   const token = getToken();
-  if (to.path !== '/login' && !token) {
-    next('/login');
-  } else if (to.path === '/login' && token) {
+  if (!token) {
+    next(to.path === '/login' ? undefined : '/login');
+  } else if (to.path !== '/change-password' && mustChangePassword()) {
+    next('/change-password');
+  } else if (to.path === '/login') {
     next('/dashboard');
   } else if (to.meta.admin && !isAdmin()) {
     next('/dashboard');

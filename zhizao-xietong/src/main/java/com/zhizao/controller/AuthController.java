@@ -37,4 +37,10 @@ public class AuthController {
         String token = authHeader != null && authHeader.startsWith("Bearer ") ? authHeader.substring(7) : null;
         return Result.ok(authService.refresh(token));
     }
+
+    /** 登出：无状态 JWT 由客户端丢弃令牌，服务端仅提供统一入口。 */
+    @PostMapping("/logout")
+    public Result<Void> logout() {
+        return Result.ok();
+    }
 }

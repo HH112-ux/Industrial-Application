@@ -205,6 +205,7 @@ export interface LoginResponse {
   username: string;
   nickname: string;
   role: string;
+  mustChangePassword: boolean;
 }
 
 export interface DeviceTelemetry {
@@ -220,7 +221,8 @@ export interface DeviceTelemetry {
 }
 
 export const authApi = {
-  login: (data: LoginRequest) => request.post<any, LoginResponse>('/auth/login', data)
+  login: (data: LoginRequest) => request.post<any, LoginResponse>('/auth/login', data),
+  logout: () => request.post('/auth/logout')
 };
 
 export interface DeviceTelemetryPoint {
@@ -260,6 +262,9 @@ export interface UserAccount {
 }
 
 export const userApi = {
+  me: () => request.get<any, UserAccount>('/users/me'),
+  changePassword: (oldPassword: string, newPassword: string) =>
+    request.post('/users/me/password', { oldPassword, newPassword }),
   list: (params: Record<string, any>) => request.get<any, PageResult<UserAccount>>('/users', { params }),
   changeStatus: (id: number, enabled: boolean) =>
     request.post(`/users/${id}/status`, null, { params: { enabled } }),

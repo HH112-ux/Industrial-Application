@@ -4,6 +4,11 @@ export const authApi = {
   login: (data) => request({ url: '/auth/login', method: 'POST', data })
 };
 
+export const userApi = {
+  changePassword: (oldPassword, newPassword) =>
+    request({ url: '/users/me/password', method: 'POST', data: { oldPassword, newPassword } })
+};
+
 export const workOrderApi = {
   list: (params) => request({ url: '/work-orders', method: 'GET', data: params }),
   get: (id) => request({ url: `/work-orders/${id}`, method: 'GET' }),

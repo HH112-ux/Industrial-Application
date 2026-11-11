@@ -33,6 +33,12 @@ export default {
       try {
         const res = await authApi.login(this.form);
         setToken(res.token);
+        uni.setStorageSync('zhizao_username', res.username);
+        if (res.mustChangePassword) {
+          uni.showToast({ title: '请先修改初始密码', icon: 'none' });
+          uni.reLaunch({ url: '/pages/changepassword/changepassword' });
+          return;
+        }
         uni.showToast({ title: '登录成功', icon: 'success' });
         setTimeout(() => uni.reLaunch({ url: '/pages/workorder/list' }), 400);
       } finally {

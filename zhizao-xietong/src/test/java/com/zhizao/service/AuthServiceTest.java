@@ -20,7 +20,9 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -125,8 +127,22 @@ class AuthServiceTest {
     }
 
     @Test
+    void loginReportsMustChangePasswordFlag() {
+        SysUser stored = user(1, 2);
+        stored.setMustChangePassword(1);
+        when(userMapper.selectOne(any())).thenReturn(stored);
+        when(passwordEncoder.matches("admin123", "encoded")).thenReturn(true);
+        when(jwtUtil.generateToken("admin", "ADMIN", 2)).thenReturn("token-abc");
+
+        LoginResponse resp = authService.login(new LoginRequest("admin", "admin123"));
+
+        assertTrue(resp.mustChangePassword());
+    }
+
+    @Test
     void changePasswordBumpsTokenVersionAndInvalidatesOldTokens() {
         SysUser stored = user(1, 2);
+        stored.setMustChangePassword(1);
         when(userMapper.selectOne(any())).thenReturn(stored);
         when(passwordEncoder.matches("old-pass", "encoded")).thenReturn(true);
         when(passwordEncoder.encode("new-pass")).thenReturn("encoded-new");
@@ -137,6 +153,17 @@ class AuthServiceTest {
         verify(userMapper).updateById(captor.capture());
         assertEquals("encoded-new", captor.getValue().getPassword());
         assertEquals(Integer.valueOf(3), captor.getValue().getTokenVersion());
+        assertEquals(Integer.valueOf(0), captor.getValue().getMustChangePassword());
+    }
+
+    @Test
+    void changePasswordRejectsTooShortNewPassword() {
+        when(userMapper.selectOne(any())).thenReturn(user(1, 2));
+        when(passwordEncoder.matches("old-pass", "encoded")).thenReturn(true);
+
+        assertThrows(BadRequestException.class,
+                () -> authService.changePassword("admin", new PasswordChangeRequest("old-pass", "12345")));
+        verify(userMapper, never()).updateById(any(SysUser.class));
     }
 
     @Test

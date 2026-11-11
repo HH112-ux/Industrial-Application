@@ -100,6 +100,8 @@ class DataInitializerTest {
         assertTrue(passwordEncoder.matches("admin-strong-pass", users.get(0).getPassword()));
         assertTrue(passwordEncoder.matches("demo-strong-pass", users.get(1).getPassword()));
         assertNull(users.get(1).getWorkshopScope(), "未配置演示车间时不得预设车间");
+        assertEquals(Integer.valueOf(1), users.get(0).getMustChangePassword(), "新建管理员必须强制改密");
+        assertEquals(Integer.valueOf(0), users.get(1).getMustChangePassword(), "普通用户不强制改密");
     }
 
     @Test
