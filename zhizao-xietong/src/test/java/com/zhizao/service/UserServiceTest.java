@@ -2,6 +2,8 @@ package com.zhizao.service;
 
 import com.zhizao.common.BadRequestException;
 import com.zhizao.common.BusinessException;
+import com.zhizao.common.ForbiddenException;
+import com.zhizao.dto.UserCreateRequest;
 import com.zhizao.entity.SysUser;
 import com.zhizao.mapper.SysUserIdentityMapper;
 import com.zhizao.mapper.SysUserMapper;
@@ -11,11 +13,13 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -50,7 +54,7 @@ class UserServiceTest {
     void disablingUserBumpsTokenVersionSoOldTokensDie() {
         when(userMapper.selectById(1L)).thenReturn(user());
 
-        userService.setEnabled(1L, false);
+        userService.setEnabled(1L, false, "admin");
 
         ArgumentCaptor<SysUser> captor = ArgumentCaptor.forClass(SysUser.class);
         verify(userMapper).updateById(captor.capture());
@@ -64,7 +68,7 @@ class UserServiceTest {
         disabled.setEnabled(0);
         when(userMapper.selectById(1L)).thenReturn(disabled);
 
-        userService.setEnabled(1L, true);
+        userService.setEnabled(1L, true, "admin");
 
         ArgumentCaptor<SysUser> captor = ArgumentCaptor.forClass(SysUser.class);
         verify(userMapper).updateById(captor.capture());
@@ -183,5 +187,81 @@ class UserServiceTest {
         ArgumentCaptor<SysUser> captor = ArgumentCaptor.forClass(SysUser.class);
         verify(userMapper).updateById(captor.capture());
         assertEquals("USER", captor.getValue().getRole());
+    }
+
+    @Test
+    void disablingSelfIsRejectedWith403() {
+        when(userMapper.selectById(1L)).thenReturn(user());
+
+        assertThrows(ForbiddenException.class, () -> userService.setEnabled(1L, false, "zhangsan"));
+        verify(userMapper, never()).updateById(any(SysUser.class));
+    }
+
+    @Test
+    void disablingLastLocalAdminIsRejectedWith400() {
+        when(userMapper.selectById(1L)).thenReturn(localAdmin());
+        when(userMapper.selectCount(any())).thenReturn(1L);
+
+        assertThrows(BadRequestException.class, () -> userService.setEnabled(1L, false, "admin"));
+        verify(userMapper, never()).updateById(any(SysUser.class));
+    }
+
+    @Test
+    void repeatingDisableIsIdempotent() {
+        SysUser disabled = user();
+        disabled.setEnabled(0);
+        when(userMapper.selectById(1L)).thenReturn(disabled);
+
+        userService.setEnabled(1L, false, "admin");
+
+        verify(userMapper, never()).updateById(any(SysUser.class));
+    }
+
+    @Test
+    void deletingSelfIsRejectedWith403() {
+        when(userMapper.selectById(1L)).thenReturn(user());
+
+        assertThrows(ForbiddenException.class, () -> userService.delete(1L, "zhangsan"));
+        verify(userMapper, never()).deleteById(1L);
+    }
+
+    @Test
+    void deletingLastLocalAdminIsRejectedWith400() {
+        when(userMapper.selectById(1L)).thenReturn(localAdmin());
+        when(userMapper.selectCount(any())).thenReturn(1L);
+
+        assertThrows(BadRequestException.class, () -> userService.delete(1L, "admin"));
+        verify(userMapper, never()).deleteById(1L);
+    }
+
+    @Test
+    void softDeleteDisablesAccountAndBumpsTokenVersion() {
+        when(userMapper.selectById(1L)).thenReturn(user());
+
+        userService.delete(1L, "admin");
+
+        ArgumentCaptor<SysUser> captor = ArgumentCaptor.forClass(SysUser.class);
+        verify(userMapper).updateById(captor.capture());
+        assertEquals(Integer.valueOf(0), captor.getValue().getEnabled());
+        assertEquals(Integer.valueOf(3), captor.getValue().getTokenVersion());
+        verify(userMapper).deleteById(1L);
+    }
+
+    /** 软删行仍占用 uk_username，重建同名账号由唯一键兜底为业务码 409。 */
+    @Test
+    void deletedUsernameCannotBeReused() {
+        when(userMapper.insert(any(SysUser.class))).thenThrow(new DuplicateKeyException("uk_username"));
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> userService.create(new UserCreateRequest("zhangsan", "张三", "USER", null, null)));
+
+        assertEquals(409, error.getCode());
+    }
+
+    private SysUser localAdmin() {
+        SysUser admin = user();
+        admin.setRole("ADMIN");
+        admin.setAuthSource("LOCAL");
+        return admin;
     }
 }
