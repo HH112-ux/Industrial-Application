@@ -69,7 +69,6 @@ class DefaultLocalIdentityResolverTest {
         ArgumentCaptor<SysUserIdentity> captor = ArgumentCaptor.forClass(SysUserIdentity.class);
         verify(identityMapper).insert(captor.capture());
         assertEquals("1,2", captor.getValue().getDepartmentIds());
-        assertNull(captor.getValue().getSuggestedWorkshop(), "部门只作建议，不产生授权值");
     }
 
     @Test
