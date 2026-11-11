@@ -327,6 +327,40 @@ export const maintenanceApi = {
   remove: (id: number) => request.delete(`/maintenance/${id}`)
 };
 
+export interface FinishedGoodsInbound {
+  id: number;
+  workOrderId: number;
+  productCode: string;
+  qty: number;
+  batch?: string;
+  workshop?: string;
+  status: string;
+  operator?: string;
+  inboundTime?: string;
+  cancelReason?: string;
+  createdAt?: string;
+}
+
+export interface FinishedGoodsStock {
+  id: number;
+  productCode: string;
+  workshop?: string;
+  qty: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export const finishedGoodsApi = {
+  inbounds: (params: Record<string, any>) =>
+    request.get<any, PageResult<FinishedGoodsInbound>>('/finished-goods/inbounds', { params }),
+  confirm: (id: number, batch?: string) =>
+    request.post<any, FinishedGoodsInbound>(`/finished-goods/inbounds/${id}/confirm`, { batch }),
+  cancel: (id: number, reason: string) =>
+    request.post<any, FinishedGoodsInbound>(`/finished-goods/inbounds/${id}/cancel`, { reason }),
+  stocks: (params: Record<string, any>) =>
+    request.get<any, PageResult<FinishedGoodsStock>>('/finished-goods/stocks', { params })
+};
+
 export interface AlarmRecord {
   id?: number;
   deviceId?: number;
