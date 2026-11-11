@@ -2,6 +2,7 @@ package com.zhizao.service;
 
 import com.zhizao.common.BusinessException;
 import com.zhizao.entity.SysUser;
+import com.zhizao.mapper.SysUserIdentityMapper;
 import com.zhizao.mapper.SysUserMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -23,6 +24,9 @@ class UserServiceTest {
 
     @Mock
     private SysUserMapper userMapper;
+
+    @Mock
+    private SysUserIdentityMapper identityMapper;
 
     @Mock
     private PasswordEncoder passwordEncoder;
@@ -111,5 +115,63 @@ class UserServiceTest {
 
         assertThrows(BusinessException.class, () -> userService.assignWorkshop(1L, "一车间"));
         verify(userMapper, never()).updateById(org.mockito.ArgumentMatchers.<SysUser>any());
+    }
+
+    @Test
+    void assigningRoleNormalizesCaseAndBumpsTokenVersion() {
+        when(userMapper.selectById(1L)).thenReturn(user());
+
+        userService.assignRole(1L, " worker ");
+
+        ArgumentCaptor<SysUser> captor = ArgumentCaptor.forClass(SysUser.class);
+        verify(userMapper).updateById(captor.capture());
+        assertEquals("WORKER", captor.getValue().getRole());
+        assertEquals(Integer.valueOf(3), captor.getValue().getTokenVersion());
+    }
+
+    @Test
+    void assigningUnknownRoleIsRejected() {
+        when(userMapper.selectById(1L)).thenReturn(user());
+
+        BusinessException error = assertThrows(BusinessException.class, () -> userService.assignRole(1L, "ROOT"));
+
+        assertEquals(400, error.getCode());
+        verify(userMapper, never()).updateById(org.mockito.ArgumentMatchers.<SysUser>any());
+    }
+
+    @Test
+    void assigningSameRoleDoesNotInvalidateCurrentToken() {
+        when(userMapper.selectById(1L)).thenReturn(user());
+
+        userService.assignRole(1L, "user");
+
+        verify(userMapper, never()).updateById(org.mockito.ArgumentMatchers.<SysUser>any());
+    }
+
+    @Test
+    void demotingLastLocalAdminIsRejected() {
+        SysUser admin = user();
+        admin.setRole("ADMIN");
+        admin.setAuthSource("LOCAL");
+        when(userMapper.selectById(1L)).thenReturn(admin);
+        when(userMapper.selectCount(org.mockito.ArgumentMatchers.any())).thenReturn(1L);
+
+        assertThrows(BusinessException.class, () -> userService.assignRole(1L, "USER"));
+        verify(userMapper, never()).updateById(org.mockito.ArgumentMatchers.<SysUser>any());
+    }
+
+    @Test
+    void demotingLocalAdminIsAllowedWhenAnotherLocalAdminExists() {
+        SysUser admin = user();
+        admin.setRole("ADMIN");
+        admin.setAuthSource("LOCAL");
+        when(userMapper.selectById(1L)).thenReturn(admin);
+        when(userMapper.selectCount(org.mockito.ArgumentMatchers.any())).thenReturn(2L);
+
+        userService.assignRole(1L, "USER");
+
+        ArgumentCaptor<SysUser> captor = ArgumentCaptor.forClass(SysUser.class);
+        verify(userMapper).updateById(captor.capture());
+        assertEquals("USER", captor.getValue().getRole());
     }
 }
