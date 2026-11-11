@@ -31,6 +31,9 @@
         <el-menu-item index="/plans">
           <el-icon><Calendar /></el-icon><span>计划与调度</span>
         </el-menu-item>
+        <el-menu-item index="/schedule-board">
+          <el-icon><Histogram /></el-icon><span>排产看板</span>
+        </el-menu-item>
         <el-menu-item index="/work-orders">
           <el-icon><Tickets /></el-icon><span>生产执行</span>
         </el-menu-item>
@@ -58,7 +61,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
-import { DataBoard, Cpu, Box, SetUp, Calendar, Tickets, Tools, User } from '@element-plus/icons-vue';
+import { DataBoard, Cpu, Box, SetUp, Calendar, Histogram, Tickets, Tools, User } from '@element-plus/icons-vue';
 import { getUser, clearToken, isAdmin } from '@/api/request';
 
 const admin = isAdmin();

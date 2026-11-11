@@ -147,11 +147,17 @@ export interface DispatchRequest {
 export interface ScheduleEntry {
   id?: number;
   workOrderId: number;
+  orderNo?: string;
   planId: number;
+  productCode?: string;
+  productName?: string;
+  workshop?: string;
   operationSeq?: number;
   operationName?: string;
   deviceType?: string;
   deviceId?: number;
+  deviceNo?: string;
+  deviceName?: string;
   startTime?: string;
   endTime?: string;
   durationHours?: number;
@@ -183,7 +189,9 @@ export const planApi = {
 export const scheduleApi = {
   run: () => request.post<any, ScheduleRunResult>('/schedules/run'),
   entries: (workOrderId: number) =>
-    request.get<any, ScheduleEntry[]>(`/schedules/work-orders/${workOrderId}`)
+    request.get<any, ScheduleEntry[]>(`/schedules/work-orders/${workOrderId}`),
+  deviceTimeline: (from: string, to: string) =>
+    request.get<any, ScheduleEntry[]>('/schedules/devices', { params: { from, to } })
 };
 
 export const workOrderApi = {

@@ -27,7 +27,7 @@
         <el-table-column label="状态" width="90">
           <template #default="{ row }"><StatusTag :value="row.status" :map="workOrderStatusMap" /></template>
         </el-table-column>
-        <el-table-column label="操作" width="220" fixed="right">
+        <el-table-column label="操作" width="280" fixed="right">
           <template #default="{ row }">
             <el-button v-if="row.status === 'PENDING'" link type="success" @click="start(row)">开工</el-button>
             <el-tooltip v-if="row.status === 'IN_PRODUCTION' && remainingQty(row) <= 0"
@@ -36,6 +36,7 @@
             </el-tooltip>
             <el-button v-else-if="row.status === 'IN_PRODUCTION'" link type="primary" @click="openReport(row)">报工</el-button>
             <el-button v-if="row.status === 'PENDING_QC'" link type="warning" @click="openQc(row)">质检</el-button>
+            <el-button link type="primary" @click="openSchedule(row)">排程</el-button>
             <el-button link type="info" @click="openHistory(row)">流转记录</el-button>
           </template>
         </el-table-column>
@@ -80,6 +81,35 @@
       <div v-else class="history-empty">暂无流转记录</div>
     </el-dialog>
 
+    <el-dialog v-model="scheduleDialog.visible" title="排程落点" width="92%" style="max-width: 820px">
+      <div class="history-order">{{ scheduleDialog.orderNo }}</div>
+      <el-table :data="scheduleDialog.rows" v-loading="scheduleDialog.loading" border size="small"
+        empty-text="该工单尚未排程：可能未运行排产，或无法排入">
+        <el-table-column label="队列" width="76">
+          <template #default="{ row }">第 {{ row.queueRank }} 位</template>
+        </el-table-column>
+        <el-table-column label="工序" width="140">
+          <template #default="{ row }">{{ row.operationSeq }} · {{ row.operationName || '—' }}</template>
+        </el-table-column>
+        <el-table-column label="设备" min-width="130">
+          <template #default="{ row }">{{ row.deviceName || row.deviceNo || row.deviceType || '—' }}</template>
+        </el-table-column>
+        <el-table-column label="占用时间" min-width="220">
+          <template #default="{ row }">{{ formatWindow(row.startTime, row.endTime) }}</template>
+        </el-table-column>
+        <el-table-column label="工时" width="120">
+          <template #default="{ row }">
+            {{ row.durationHours != null ? `${row.durationHours} 小时` : '—' }}
+            <span v-if="row.hoursSource === 'ESTIMATED'" class="estimate-tag">估算</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="排产依据" min-width="200" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.status === 'UNSCHEDULED' ? row.conflictCode : row.rankBasis }}</template>
+        </el-table-column>
+        <el-table-column prop="message" label="落位说明" min-width="240" show-overflow-tooltip />
+      </el-table>
+    </el-dialog>
+
     <el-dialog v-model="qcDialog.visible" title="质检" width="460px">
       <el-form :model="qcForm" label-width="90px">
         <el-form-item label="质检结论" required>
@@ -100,7 +130,7 @@
 
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue';
-import { workOrderApi, type WorkOrder, type WorkOrderHistory } from '@/api';
+import { scheduleApi, workOrderApi, type ScheduleEntry, type WorkOrder, type WorkOrderHistory } from '@/api';
 import { workOrderStatusMap } from '@/utils/dict';
 import StatusTag from '@/components/StatusTag.vue';
 
@@ -125,12 +155,23 @@ const historyDialog = reactive({
   rows: [] as WorkOrderHistory[]
 });
 
-function newIdempotencyKey(): string {
-  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
-}
+const scheduleDialog = reactive({
+  visible: false,
+  orderNo: '',
+  loading: false,
+  rows: [] as ScheduleEntry[]
+});
 
 function formatTime(value?: string): string {
   return value ? value.replace('T', ' ').slice(0, 19) : '';
+}
+
+function formatWindow(start?: string, end?: string): string {
+  return start && end ? `${formatTime(start)} ~ ${formatTime(end)}` : '未落位';
+}
+
+function newIdempotencyKey(): string {
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
 }
 
 // 报工累计口径在返工场景会超过计划数量，进度条封顶 100%，绝对数另行展示。
@@ -228,6 +269,18 @@ async function openHistory(row: WorkOrder) {
   }
 }
 
+async function openSchedule(row: WorkOrder) {
+  scheduleDialog.visible = true;
+  scheduleDialog.orderNo = `${row.orderNo || ''} · ${row.productName || ''}`;
+  scheduleDialog.loading = true;
+  scheduleDialog.rows = [];
+  try {
+    scheduleDialog.rows = await scheduleApi.entries(row.id!);
+  } finally {
+    scheduleDialog.loading = false;
+  }
+}
+
 function openQc(row: WorkOrder) {
   qcDialog.orderId = row.id;
   Object.assign(qcForm, { result: 'PASS', defectDesc: '' });
@@ -275,5 +328,10 @@ onMounted(load);
   text-align: center;
   color: var(--zhizao-muted);
   padding: 24px 0;
+}
+.estimate-tag {
+  color: var(--zhizao-accent2);
+  font-size: 12px;
+  margin-left: 4px;
 }
 </style>
