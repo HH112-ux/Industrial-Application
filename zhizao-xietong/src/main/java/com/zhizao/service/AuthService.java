@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.zhizao.common.BadRequestException;
 import com.zhizao.common.BusinessException;
 import com.zhizao.common.ForbiddenException;
+import com.zhizao.common.PasswordPolicy;
 import com.zhizao.common.UnauthorizedException;
 import com.zhizao.config.SsoProperties;
 import com.zhizao.dto.LoginRequest;
@@ -27,9 +28,6 @@ import org.springframework.util.StringUtils;
  */
 @Service
 public class AuthService {
-
-    /** 新口令最小长度，与 Web 端既有校验提示保持一致。 */
-    static final int MIN_PASSWORD_LENGTH = 6;
 
     /** SSO 建号的账号来源标记；这类账号的本地密码是随机不可用哈希。 */
     private static final String AUTH_SOURCE_SSO = "SSO";
@@ -117,10 +115,13 @@ public class AuthService {
      * 自助改密：校验原密码与新口令强度后写入新密码，递增令牌版本使旧令牌立即失效，
      * 并清除「必须先改密」标记。
      *
+     * <p>新口令强度统一交给 {@link PasswordPolicy}，与管理员重置共用同一份规则，
+     * 避免管理端与用户端出现两套标准。</p>
+     *
      * @param username 当前登录用户名
      * @param req      改密请求
-     * @throws BadRequestException 原密码为空、新口令不满足强度要求或与原口令相同时抛出，返回 HTTP 400
-     * @throws BusinessException   用户不存在、原密码错误或新密码为空时抛出
+     * @throws BadRequestException 原密码为空、新口令不满足策略或与原口令相同时抛出，返回 HTTP 400
+     * @throws BusinessException   用户不存在、原密码错误时抛出
      */
     @Transactional
     public void changePassword(String username, PasswordChangeRequest req) {
@@ -134,12 +135,7 @@ public class AuthService {
         if (!passwordEncoder.matches(req.oldPassword(), user.getPassword())) {
             throw new BusinessException("原密码错误");
         }
-        if (req.newPassword() == null || req.newPassword().isBlank()) {
-            throw new BusinessException("新密码不能为空");
-        }
-        if (req.newPassword().length() < MIN_PASSWORD_LENGTH) {
-            throw new BadRequestException("新密码长度不能少于 " + MIN_PASSWORD_LENGTH + " 位");
-        }
+        PasswordPolicy.validate(req.newPassword(), user.getUsername());
         if (passwordEncoder.matches(req.newPassword(), user.getPassword())) {
             throw new BadRequestException("新密码不能与原密码相同");
         }
