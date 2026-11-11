@@ -199,7 +199,7 @@ class AuthServiceTest {
         when(passwordEncoder.matches("old-pass", "encoded")).thenReturn(true);
 
         assertThrows(BadRequestException.class,
-                () -> authService.changePassword("admin", new PasswordChangeRequest("old-pass", "12345")));
+                () -> authService.changePassword("admin", new PasswordChangeRequest("old-pass", "1234567")));
         verify(userMapper, never()).updateById(any(SysUser.class));
     }
 

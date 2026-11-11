@@ -1,5 +1,6 @@
 package com.zhizao.service;
 
+import com.zhizao.common.BadRequestException;
 import com.zhizao.common.BusinessException;
 import com.zhizao.entity.SysUser;
 import com.zhizao.mapper.SysUserIdentityMapper;
@@ -72,7 +73,7 @@ class UserServiceTest {
     }
 
     @Test
-    void resettingPasswordBumpsTokenVersion() {
+    void resettingPasswordBumpsTokenVersionAndForcesChange() {
         when(userMapper.selectById(1L)).thenReturn(user());
         when(passwordEncoder.encode("new-pass")).thenReturn("encoded-new");
 
@@ -82,6 +83,15 @@ class UserServiceTest {
         verify(userMapper).updateById(captor.capture());
         assertEquals("encoded-new", captor.getValue().getPassword());
         assertEquals(Integer.valueOf(3), captor.getValue().getTokenVersion());
+        assertEquals(Integer.valueOf(1), captor.getValue().getMustChangePassword());
+    }
+
+    @Test
+    void resettingPasswordRejectsPasswordContainingUsername() {
+        when(userMapper.selectById(1L)).thenReturn(user());
+
+        assertThrows(BadRequestException.class, () -> userService.resetPassword(1L, "zhangsan2026"));
+        verify(userMapper, never()).updateById(org.mockito.ArgumentMatchers.<SysUser>any());
     }
 
     @Test

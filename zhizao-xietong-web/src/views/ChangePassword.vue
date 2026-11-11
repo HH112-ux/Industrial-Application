@@ -5,7 +5,7 @@
       <div class="pwd-sub">为保障账号安全，请先设置新密码后继续使用。</div>
       <el-form @keyup.enter="submit">
         <el-form-item><el-input v-model="form.oldPassword" type="password" placeholder="原密码" size="large" show-password /></el-form-item>
-        <el-form-item><el-input v-model="form.newPassword" type="password" placeholder="新密码（至少 6 位）" size="large" show-password /></el-form-item>
+        <el-form-item><el-input v-model="form.newPassword" type="password" placeholder="新密码（8-64 位，且不能包含用户名）" size="large" show-password /></el-form-item>
         <el-form-item><el-input v-model="form.confirm" type="password" placeholder="确认新密码" size="large" show-password /></el-form-item>
         <el-button type="primary" size="large" style="width: 100%" :loading="loading" @click="submit">
           确认修改
@@ -26,8 +26,8 @@ const loading = ref(false);
 const form = reactive({ oldPassword: '', newPassword: '', confirm: '' });
 
 async function submit() {
-  if (!form.oldPassword || form.newPassword.length < 6) {
-    ElMessage.warning('请填写原密码，新密码至少 6 位');
+  if (!form.oldPassword || form.newPassword.length < 8 || form.newPassword.length > 64) {
+    ElMessage.warning('请填写原密码，新密码需为 8-64 位');
     return;
   }
   if (form.newPassword !== form.confirm) {
