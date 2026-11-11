@@ -78,7 +78,7 @@ class UserCreateHttpTest {
     @Test
     void adminCanCreateUserAndSeesInitialPasswordOnce() throws Exception {
         authenticateAs("ADMIN");
-        UserView view = new UserView(7L, "wangwu", "王五", "USER", true, "一车间",
+        UserView view = new UserView(7L, "wangwu", "王五", "USER", true, true, "一车间",
                 "LOCAL", null, LocalDateTime.now());
         when(userService.create(any())).thenReturn(new UserCreateResponse(view, "InitPass1234"));
 

@@ -13,6 +13,7 @@ import java.time.LocalDateTime;
  * @param nickname       昵称
  * @param role           角色
  * @param enabled        是否启用
+ * @param mustChangePassword 是否待改密（新建、重置或开通本地密码后为 true）
  * @param workshopScope  车间数据域，管理员为 null
  * @param authSource     账号来源：LOCAL 本地，SSO 仅企微，BOTH 双通道
  * @param departmentIds  企微部门 ID 快照，仅作车间分配的建议依据，不是授权值
@@ -20,7 +21,8 @@ import java.time.LocalDateTime;
  * @author Caspian
  */
 public record UserView(Long id, String username, String nickname, String role, boolean enabled,
-                       String workshopScope, String authSource, String departmentIds, LocalDateTime createdAt) {
+                       boolean mustChangePassword, String workshopScope, String authSource,
+                       String departmentIds, LocalDateTime createdAt) {
 
     /**
      * 由实体转换为视图，不含外部身份快照。
@@ -41,7 +43,9 @@ public record UserView(Long id, String username, String nickname, String role, b
      */
     public static UserView of(SysUser user, SysUserIdentity identity) {
         return new UserView(user.getId(), user.getUsername(), user.getNickname(), user.getRole(),
-                Integer.valueOf(1).equals(user.getEnabled()), user.getWorkshopScope(), user.getAuthSource(),
+                Integer.valueOf(1).equals(user.getEnabled()),
+                Integer.valueOf(1).equals(user.getMustChangePassword()),
+                user.getWorkshopScope(), user.getAuthSource(),
                 identity == null ? null : identity.getDepartmentIds(), user.getCreatedAt());
     }
 }
