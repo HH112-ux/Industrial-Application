@@ -28,6 +28,7 @@ const router = createRouter({
         { path: 'materials', name: 'Materials', component: () => import('@/views/MaterialList.vue'), meta: { title: '物料管理' } },
         { path: 'processes', name: 'Processes', component: () => import('@/views/ProcessList.vue'), meta: { title: '工艺管理' } },
         { path: 'plans', name: 'Plans', component: () => import('@/views/PlanList.vue'), meta: { title: '计划与调度' } },
+        { path: 'schedule-board', name: 'ScheduleBoard', component: () => import('@/views/ScheduleBoard.vue'), meta: { title: '排产看板' } },
         { path: 'work-orders', name: 'WorkOrders', component: () => import('@/views/WorkOrderList.vue'), meta: { title: '生产执行' } },
         {
           path: 'users',
