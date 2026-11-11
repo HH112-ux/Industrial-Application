@@ -382,3 +382,21 @@ export const alarmApi = {
   acknowledge: (id: number) => request.post<any, AlarmRecord>(`/alarm-records/${id}/acknowledge`),
   recover: (id: number) => request.post<any, AlarmRecord>(`/alarm-records/${id}/recover`)
 };
+
+export interface AlarmRule {
+  id?: number;
+  deviceId?: number;
+  metric?: string;
+  ruleType?: string;
+  upperLimit?: number | null;
+  lowerLimit?: number | null;
+  consecutiveTimes?: number;
+  currentStreak?: number;
+  enabled?: boolean;
+}
+
+export const alarmRuleApi = {
+  list: (deviceId?: number) => request.get<any, AlarmRule[]>('/alarm-rules', { params: { deviceId } }),
+  create: (data: AlarmRule) => request.post<any, AlarmRule>('/alarm-rules', data),
+  update: (id: number, data: AlarmRule) => request.put<any, AlarmRule>(`/alarm-rules/${id}`, data)
+};

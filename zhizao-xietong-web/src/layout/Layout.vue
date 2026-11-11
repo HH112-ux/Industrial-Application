@@ -23,6 +23,9 @@
           <el-icon><Bell /></el-icon><span>报警中心</span>
           <el-badge v-if="unread > 0" :value="unread" :max="99" class="menu-badge" />
         </el-menu-item>
+        <el-menu-item v-if="admin" index="/alarm-rules">
+          <el-icon><SetUp /></el-icon><span>报警规则</span>
+        </el-menu-item>
         <el-menu-item index="/maintenance">
           <el-icon><Tools /></el-icon><span>点检与维修</span>
         </el-menu-item>

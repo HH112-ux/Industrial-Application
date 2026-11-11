@@ -70,3 +70,9 @@ export const alarmRuleTypeMap: Record<string, DictItem> = {
   THRESHOLD: { label: '阈值越界', type: 'danger' },
   OFFLINE: { label: '设备离线', type: 'warning' }
 };
+
+export const alarmMetricMap: Record<string, DictItem> = {
+  temperature: { label: '温度', type: 'info' },
+  rpm: { label: '转速', type: 'info' },
+  current: { label: '电流', type: 'info' }
+};
