@@ -20,6 +20,8 @@ public class SysUser {
     private Integer tokenVersion;
     private Integer mustChangePassword;
     private String workshopScope;
+    /** 账号来源：LOCAL 为本地密码账号，SSO 为统一身份建号，SSO 账号禁止本地密码登录。 */
+    private String authSource;
     private LocalDateTime createdAt;
     @TableLogic
     private Integer deleted;
@@ -42,6 +44,8 @@ public class SysUser {
     public void setMustChangePassword(Integer mustChangePassword) { this.mustChangePassword = mustChangePassword; }
     public String getWorkshopScope() { return workshopScope; }
     public void setWorkshopScope(String workshopScope) { this.workshopScope = workshopScope; }
+    public String getAuthSource() { return authSource; }
+    public void setAuthSource(String authSource) { this.authSource = authSource; }
     public LocalDateTime getCreatedAt() { return createdAt; }
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
     public Integer getDeleted() { return deleted; }
