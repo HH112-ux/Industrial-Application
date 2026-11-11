@@ -30,6 +30,7 @@ const router = createRouter({
       children: [
         { path: 'dashboard', name: 'Dashboard', component: () => import('@/views/Dashboard.vue'), meta: { title: '驾驶舱' } },
         { path: 'devices', name: 'Devices', component: () => import('@/views/DeviceList.vue'), meta: { title: '设备管理' } },
+        { path: 'alarms', name: 'Alarms', component: () => import('@/views/AlarmCenter.vue'), meta: { title: '报警中心' } },
         { path: 'maintenance', name: 'Maintenance', component: () => import('@/views/MaintenanceList.vue'), meta: { title: '点检与维修' } },
         { path: 'materials', name: 'Materials', component: () => import('@/views/MaterialList.vue'), meta: { title: '物料管理' } },
         { path: 'processes', name: 'Processes', component: () => import('@/views/ProcessList.vue'), meta: { title: '工艺管理' } },
