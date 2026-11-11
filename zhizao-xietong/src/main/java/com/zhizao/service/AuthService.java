@@ -5,6 +5,7 @@ import com.zhizao.common.BadRequestException;
 import com.zhizao.common.BusinessException;
 import com.zhizao.common.ForbiddenException;
 import com.zhizao.common.UnauthorizedException;
+import com.zhizao.config.SsoProperties;
 import com.zhizao.dto.LoginRequest;
 import com.zhizao.dto.LoginResponse;
 import com.zhizao.dto.PasswordChangeRequest;
@@ -30,9 +31,16 @@ public class AuthService {
     /** 新口令最小长度，与 Web 端既有校验提示保持一致。 */
     static final int MIN_PASSWORD_LENGTH = 6;
 
+    /** SSO 建号的账号来源标记；这类账号的本地密码是随机不可用哈希。 */
+    private static final String AUTH_SOURCE_SSO = "SSO";
+
+    /** SSO 账号误用本地密码登录时的提示，便于用户改走扫码入口。 */
+    static final String SSO_LOGIN_HINT = "该账号需使用企业微信扫码登录";
+
     private final SysUserMapper userMapper;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
+    private final SsoProperties ssoProperties;
 
     /**
      * 构造认证服务。
@@ -40,23 +48,33 @@ public class AuthService {
      * @param userMapper      用户数据访问
      * @param passwordEncoder 密码编码器
      * @param jwtUtil         令牌工具
+     * @param ssoProperties   SSO 灰度开关，关闭时不返回扫码提示
      */
-    public AuthService(SysUserMapper userMapper, PasswordEncoder passwordEncoder, JwtUtil jwtUtil) {
+    public AuthService(SysUserMapper userMapper, PasswordEncoder passwordEncoder, JwtUtil jwtUtil,
+                       SsoProperties ssoProperties) {
         this.userMapper = userMapper;
         this.passwordEncoder = passwordEncoder;
         this.jwtUtil = jwtUtil;
+        this.ssoProperties = ssoProperties;
     }
 
     /**
      * 登录：校验密码与账号启停状态，签发携带当前令牌版本的 JWT。
      *
+     * <p>SSO 建号的账号没有可用本地密码，误用密码登录时返回「需扫码登录」而不是
+     * 「用户名或密码错误」，否则用户无法判断该走哪个入口。该提示确认了用户名存在，
+     * 取舍见 {@link #requiresSsoLogin(SysUser)}。</p>
+     *
      * @param req 登录请求
      * @return 登录响应，包含令牌与用户信息
-     * @throws BusinessException  用户名或密码错误时抛出
+     * @throws BusinessException  用户名或密码错误、或 SSO 账号误用本地密码时抛出
      * @throws ForbiddenException 账号已禁用时抛出，返回 HTTP 403
      */
     public LoginResponse login(LoginRequest req) {
         SysUser user = findByUsername(req.username());
+        if (requiresSsoLogin(user)) {
+            throw new BusinessException(SSO_LOGIN_HINT);
+        }
         if (user == null || !passwordEncoder.matches(req.password(), user.getPassword())) {
             throw new BusinessException("用户名或密码错误");
         }
@@ -129,6 +147,22 @@ public class AuthService {
         user.setTokenVersion(tokenVersion(user) + 1);
         user.setMustChangePassword(0);
         userMapper.updateById(user);
+    }
+
+    /**
+     * 判断是否应提示改用扫码登录：仅 SSO 账号且开关开启时成立。
+     *
+     * <p>可枚举性取舍：提示在密码校验之前返回，因此它确认了「该用户名已开通 SSO 账号」。
+     * 接受这一泄露，理由有三：SSO 账号的本地密码是随机哈希，不存在「先验密码再提示」的可行顺序；
+     * 提示与提交的密码无关，不能用于校验口令，也不会泄露角色、车间或启停状态；
+     * 限流仍在 Controller 按用户名计数，单个账号的爆破成本不变。开关关闭时不提示，
+     * 保证 `app.sso.enabled=false` 的对外行为与接入前完全一致。</p>
+     *
+     * @param user 已查到的用户，可为 null
+     * @return true 表示应返回扫码登录提示
+     */
+    private boolean requiresSsoLogin(SysUser user) {
+        return user != null && AUTH_SOURCE_SSO.equals(user.getAuthSource()) && ssoProperties.isEnabled();
     }
 
     /**

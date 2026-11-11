@@ -4,6 +4,7 @@ import com.zhizao.common.BadRequestException;
 import com.zhizao.common.BusinessException;
 import com.zhizao.common.ForbiddenException;
 import com.zhizao.common.UnauthorizedException;
+import com.zhizao.config.SsoProperties;
 import com.zhizao.dto.LoginRequest;
 import com.zhizao.dto.LoginResponse;
 import com.zhizao.dto.PasswordChangeRequest;
@@ -22,6 +23,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -37,6 +40,9 @@ class AuthServiceTest {
 
     @Mock
     private JwtUtil jwtUtil;
+
+    @Mock
+    private SsoProperties ssoProperties;
 
     @InjectMocks
     private AuthService authService;
@@ -80,8 +86,39 @@ class AuthServiceTest {
     void loginUnknownUserThrows() {
         when(userMapper.selectOne(any())).thenReturn(null);
 
-        assertThrows(BusinessException.class,
+        BusinessException error = assertThrows(BusinessException.class,
                 () -> authService.login(new LoginRequest("nobody", "x")));
+
+        assertEquals("用户名或密码错误", error.getMessage());
+    }
+
+    @Test
+    void loginOnSsoAccountAsksForSsoLogin() {
+        SysUser sso = user(1, 0);
+        sso.setAuthSource("SSO");
+        when(userMapper.selectOne(any())).thenReturn(sso);
+        when(ssoProperties.isEnabled()).thenReturn(true);
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> authService.login(new LoginRequest("u1001", "any-password")));
+
+        assertEquals(AuthService.SSO_LOGIN_HINT, error.getMessage());
+        verify(passwordEncoder, never()).matches(anyString(), anyString());
+        verify(jwtUtil, never()).generateToken(anyString(), anyString(), anyInt());
+    }
+
+    @Test
+    void loginOnSsoAccountKeepsGenericErrorWhenSsoSwitchedOff() {
+        SysUser sso = user(1, 0);
+        sso.setAuthSource("SSO");
+        when(userMapper.selectOne(any())).thenReturn(sso);
+        when(ssoProperties.isEnabled()).thenReturn(false);
+        when(passwordEncoder.matches("wrong", "encoded")).thenReturn(false);
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> authService.login(new LoginRequest("u1001", "wrong")));
+
+        assertEquals("用户名或密码错误", error.getMessage());
     }
 
     @Test
