@@ -36,12 +36,14 @@ class AlarmEvaluationServiceTest {
     private AlarmRuleMapper ruleMapper;
     @Mock
     private AlarmRecordMapper recordMapper;
+    @Mock
+    private WeComAlarmNotifier notifier;
 
     private AlarmEvaluationService service;
 
     @BeforeEach
     void setUp() {
-        service = new AlarmEvaluationService(ruleMapper, recordMapper);
+        service = new AlarmEvaluationService(ruleMapper, recordMapper, notifier);
     }
 
     private AlarmRule rule(int consecutiveTimes, int streak) {
@@ -103,6 +105,7 @@ class AlarmEvaluationServiceTest {
         assertEquals(90.0, captor.getValue().getTriggerValue(), 0.01);
         assertEquals("upper=80.0, lower=-", captor.getValue().getThresholdSnapshot());
         assertTrue(captureUpdate().getSqlSet().contains("trigger_value"));
+        verify(notifier).notify(captor.getValue());
     }
 
     @Test

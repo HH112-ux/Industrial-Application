@@ -8,6 +8,7 @@ import com.zhizao.enums.AlarmStatus;
 import com.zhizao.mapper.AlarmRecordMapper;
 import com.zhizao.mapper.AlarmRuleMapper;
 import com.zhizao.mapper.DeviceMapper;
+import com.zhizao.service.WeComAlarmNotifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -36,6 +37,7 @@ public class OfflineAlarmJob {
     private final AlarmRuleMapper ruleMapper;
     private final AlarmRecordMapper recordMapper;
     private final DeviceMapper deviceMapper;
+    private final WeComAlarmNotifier notifier;
 
     @Value("${device.online-threshold-seconds:90}")
     private long onlineThresholdSeconds = 90;
@@ -46,12 +48,14 @@ public class OfflineAlarmJob {
      * @param ruleMapper   报警规则数据访问
      * @param recordMapper 报警记录数据访问
      * @param deviceMapper 设备数据访问
+     * @param notifier     企微通知入口
      */
     public OfflineAlarmJob(AlarmRuleMapper ruleMapper, AlarmRecordMapper recordMapper,
-                           DeviceMapper deviceMapper) {
+                           DeviceMapper deviceMapper, WeComAlarmNotifier notifier) {
         this.ruleMapper = ruleMapper;
         this.recordMapper = recordMapper;
         this.deviceMapper = deviceMapper;
+        this.notifier = notifier;
     }
 
     /** 按系统时间扫描，供调度器周期触发。 */
@@ -117,6 +121,7 @@ public class OfflineAlarmJob {
         } catch (DuplicateKeyException e) {
             return false;
         }
+        notifier.notify(record);
         return true;
     }
 }
