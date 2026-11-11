@@ -238,7 +238,7 @@ export interface SsoStatus {
 export const authApi = {
   login: (data: LoginRequest) => request.post<any, LoginResponse>('/auth/login', data),
   ssoStatus: () => request.get<any, SsoStatus>('/auth/sso/config'),
-  ssoLogin: (code: string) => request.post<any, LoginResponse>('/auth/sso/wecom/login', { code }),
+  ssoLogin: (code: string, state: string) => request.post<any, LoginResponse>('/auth/sso/wecom/login', { code, state }),
   logout: () => request.post('/auth/logout')
 };
 
