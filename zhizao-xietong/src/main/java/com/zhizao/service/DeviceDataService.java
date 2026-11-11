@@ -53,6 +53,7 @@ public class DeviceDataService {
     private final DeviceIdempotencyGuard idempotencyGuard;
     private final BusinessMetrics businessMetrics;
     private final DeviceService deviceService;
+    private final AlarmEvaluationService alarmEvaluationService;
     private final Random random = new Random();
 
     /** 最近一次设备网关上报，key=设备编号。 */
@@ -68,16 +69,18 @@ public class DeviceDataService {
      * @param telemetryMapper  遥测时序数据访问
      * @param idempotencyGuard 上报幂等守卫
      * @param businessMetrics  业务指标
-     * @param deviceService    设备查询服务，用于复用车间数据域校验
+     * @param deviceService           设备查询服务，用于复用车间数据域校验
+     * @param alarmEvaluationService  报警判定服务，判定失败不影响遥测入库
      */
     public DeviceDataService(DeviceMapper deviceMapper, DeviceTelemetryMapper telemetryMapper,
                              DeviceIdempotencyGuard idempotencyGuard, BusinessMetrics businessMetrics,
-                             DeviceService deviceService) {
+                             DeviceService deviceService, AlarmEvaluationService alarmEvaluationService) {
         this.deviceMapper = deviceMapper;
         this.telemetryMapper = telemetryMapper;
         this.idempotencyGuard = idempotencyGuard;
         this.businessMetrics = businessMetrics;
         this.deviceService = deviceService;
+        this.alarmEvaluationService = alarmEvaluationService;
     }
 
     /**
@@ -201,6 +204,7 @@ public class DeviceDataService {
             deviceMapper.updateById(device);
             persistTelemetry(device, report, ingestKey, source, receivedAt);
             latestReports.put(report.deviceNo(), new LatestReport(report, source));
+            evaluateAlarms(device, report);
             businessMetrics.telemetryReported();
         } finally {
             businessMetrics.stopIngest(sample);
@@ -236,6 +240,20 @@ public class DeviceDataService {
                     report.deviceNo(), ingestKey);
         } catch (RuntimeException e) {
             log.warn("设备遥测写入失败，已忽略：deviceNo={}，原因={}", report.deviceNo(), e.getMessage());
+        }
+    }
+
+    /**
+     * 评估报警规则。判定异常只记录 WARN，不回滚也不阻断遥测入库。
+     *
+     * @param device 已确认存在的设备
+     * @param report 上报内容
+     */
+    private void evaluateAlarms(Device device, DeviceGatewayReport report) {
+        try {
+            alarmEvaluationService.evaluateThreshold(device.getId(), report);
+        } catch (RuntimeException e) {
+            log.warn("报警判定失败，已忽略：deviceNo={}，原因={}", report.deviceNo(), e.getMessage());
         }
     }
 
