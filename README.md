@@ -43,8 +43,8 @@
 │   │   └── common/ config/ aspect/
 │   ├── src/main/resources/
 │   │   ├── application.yml          # 配置，全部支持环境变量覆盖
-│   │   └── db/migration/            # Flyway 迁移 V1–V31
-│   └── src/test/java/               # 345 个测试（18 个 Testcontainers 集成）
+│   │   └── db/migration/            # Flyway 迁移 V1–V32（V27、V28 为空号）
+│   └── src/test/java/               # 366 个测试（5 个 Testcontainers 集成类）
 ├── zhizao-xietong-web/              # Vue 3 管理端
 │   ├── src/views/                   # 15 个页面组件
 │   └── vite.config.ts               # 开发服务器 5173，代理 /api
@@ -177,6 +177,8 @@ docker exec zhizao-mqtt mosquitto_pub -h localhost \
 | `DEVICE_IDEMPOTENCY_TTL_SECONDS` | 幂等键保留时长 | `600` | 否 | `600` |
 | `DEVICE_IDEMPOTENCY_MAX_ENTRIES` | 幂等键最大条数 | `10000` | 否 | `10000` |
 | `DEVICE_TELEMETRY_RETENTION_DAYS` | 遥测时序保留天数，过期数据每日清理 | `90` | 否 | `30` |
+| `DEVICE_ALARM_WECOM_ENABLED` | 是否把设备报警推送到企业微信 | `false` | 否 | `true` |
+| `DEVICE_ALARM_WECOM_CORP_ID` / `_AGENT_ID` / `_SECRET` | 报警通知的应用凭据，任一为空时静默跳过发送 | 空 | 开启通知时必填 | 由部署环境注入 |
 | `AI_ENABLED` | 是否启用 AI 旁路；关闭时三个 AI 端点返回 503 | `false` | 否 | `true` |
 | `AI_PROVIDER` | 模型实现：`fake` 离线假模型 / `external` OpenAI 兼容接口 | `fake` | 否 | `fake` |
 | `AI_TIMEOUT_SECONDS` | 模型调用超时 | `5` | 否 | `5` |
@@ -188,8 +190,41 @@ docker exec zhizao-mqtt mosquitto_pub -h localhost \
 | `AI_DATASOURCE_URL` | AI 专属只读数据源 JDBC 地址 | 空 | 否 | `jdbc:mysql://...` |
 | `AI_DATASOURCE_USERNAME` | AI 只读账号 | 空 | 配置 url 时建议填写 | `ai_reader` |
 | `AI_DATASOURCE_PASSWORD` | AI 只读账号口令 | 空 | 配置 url 时建议填写 | 由部署环境注入 |
+| `SSO_ENABLED` | 是否启用企业微信扫码登录；关闭时三个 SSO 端点明确拒绝 | `false` | 否 | `true` |
+| `SSO_JIT_ENABLED` | 未开通用户首次扫码是否自动建号；关闭时返回「账号未开通，请联系管理员」 | `false` | 否 | `true` |
+| `SSO_WECOM_CORP_ID` / `_AGENT_ID` / `_SECRET` | 企微应用凭据 | 空 | 开启 SSO 时必填 | 由部署环境注入 |
+| `SSO_WECOM_REDIRECT_URI` | 授权回调页，需为企微可信域名下的 HTTPS 地址 | 空 | 开启 SSO 时必填 | `https://mes.example.com/sso/callback` |
 
 ## 打包与部署
+
+### docker compose 环境变量透传
+
+`docker-compose.yml` 的 `backend.environment` 只透传有限几类变量：`DB_URL`、`DB_USERNAME`、`DB_PASSWORD`、`JWT_SECRET`、`CORS_ALLOWED_ORIGINS`、`APP_BOOTSTRAP_ADMIN_PASSWORD`、`REDIS_HOST`、`REDIS_PORT`、`MQTT_ENABLED`、`MQTT_BROKER_URL` 与 `TZ`。`.env` 只参与 compose 的变量替换，**不会自动进入容器**。
+
+因此 `SSO_*`、`AI_*`、`DEVICE_ALARM_*` 即使写进 `.env`，容器内仍取 `application.yml` 的默认值（均为关闭）。需要启用时，手工把对应变量追加到 `docker-compose.yml` 的 `backend.environment`，示例：
+
+```yaml
+  backend:
+    environment:
+      # 其余已有项（DB_URL、DB_USERNAME、DB_PASSWORD、JWT_SECRET、CORS_ALLOWED_ORIGINS、REDIS_*、MQTT_*、TZ）保持不变
+      # 追加：企业微信扫码登录
+      SSO_ENABLED: ${SSO_ENABLED:-false}
+      SSO_JIT_ENABLED: ${SSO_JIT_ENABLED:-false}
+      SSO_WECOM_CORP_ID: ${SSO_WECOM_CORP_ID:-}
+      SSO_WECOM_AGENT_ID: ${SSO_WECOM_AGENT_ID:-}
+      SSO_WECOM_SECRET: ${SSO_WECOM_SECRET:-}
+      SSO_WECOM_REDIRECT_URI: ${SSO_WECOM_REDIRECT_URI:-}
+      # 追加：设备报警企业微信通知
+      DEVICE_ALARM_WECOM_ENABLED: ${DEVICE_ALARM_WECOM_ENABLED:-false}
+      DEVICE_ALARM_WECOM_CORP_ID: ${DEVICE_ALARM_WECOM_CORP_ID:-}
+      DEVICE_ALARM_WECOM_AGENT_ID: ${DEVICE_ALARM_WECOM_AGENT_ID:-}
+      DEVICE_ALARM_WECOM_SECRET: ${DEVICE_ALARM_WECOM_SECRET:-}
+      # 追加：AI 旁路（按需）
+      AI_ENABLED: ${AI_ENABLED:-false}
+      AI_PROVIDER: ${AI_PROVIDER:-fake}
+```
+
+真实凭据仍只放在部署环境的 `.env` 或密钥管理里，不要写进 `docker-compose.yml` 本身；仓库中的 compose 必填项逻辑（`MYSQL_ROOT_PASSWORD`、`JWT_SECRET`、`CORS_ALLOWED_ORIGINS`）不因本说明改变。
 
 ### 后端
 
@@ -264,7 +299,7 @@ docker compose up -d --build
 ## 测试与 CI
 
 ```bash
-# 后端全量测试（345 个测试，其中 18 个 Testcontainers 集成测试）
+# 后端全量测试（366 个测试，其中 5 个 Testcontainers 集成类）
 cd zhizao-xietong && mvn test
 
 # 管理端生产构建（同时覆盖 TypeScript 编译与打包）
@@ -384,7 +419,7 @@ mvn test
 - 成品入库单由工单质检完工时生成，确认使用条件更新同时校验「待入库」与「数量不超过 min(计划数, 合格数) − 已入库」，0 行时区分已处理（409）与超额（409）两种提示；库存用 `ON DUPLICATE KEY UPDATE` 原子累加，不回填历史库存，已取消单据不会重新生成
 - 登录限流已抽成 `LoginRateLimiter` 端口，当前为单实例本地实现；多实例部署必须替换为共享存储实现（S6）
 - 已有 `/actuator/health`、`/actuator/info`、`/actuator/metrics` 与带 `traceId` 的标准输出日志；业务指标已覆盖设备在线、上报、报工、节拍与齐套率，但没有告警阈值与集中采集
-- 测试 345 个（18 个 Testcontainers 集成）；集成用例覆盖状态机流转、真实并发冲突、工艺版本隔离、遥测入库、AI 只读会话与成品入库并发确认，仅在 Docker 可用时执行；移动端构建未纳入 CI
+- 测试 366 个（5 个 Testcontainers 集成类）；集成用例覆盖状态机流转、真实并发冲突、工艺版本隔离、遥测入库、AI 只读会话与成品入库并发确认，仅在 Docker 可用时执行；移动端构建未纳入 CI
 - 完整 Docker Compose 五服务栈未在本机实测（本机端口被本地 MySQL/Redis 占用）
 - AI 能力已落地（S8），默认关闭：`AI_ENABLED=false` 时三个 `/api/ai/**` 端点返回 HTTP 503 + 业务码 503，其余功能不受影响；开启后默认使用离线假模型，CI 不需要网络与密钥。AI 只调用只读工具、只返回建议文本，自然语言报工只产出待确认草稿；Text-to-SQL 仅 ADMIN 可用，只允许查询 5 个只读视图并强制行数上限。配置 `AI_DATASOURCE_URL` 后使用独立只读账号；未配置时回落主数据源，但查询强制只读会话并在启动时输出 WARN，不会假装已隔离。模型超时或返回非法内容时降级为「建议暂不可用」，不影响主链路
 

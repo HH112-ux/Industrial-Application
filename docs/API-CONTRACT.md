@@ -1,6 +1,6 @@
 # 接口契约
 
-现状接口以当前代码为准，共 73 个端点（按 Controller 注解逐条统计，基线 `main @ 56b89a5`）。表格编号沿用历史值、只增不复用：原 BOM 版本端点 #26、#27 已于 S4 移除，新补登记使用 #66–#73。
+现状接口以当前代码为准，共 87 个端点（按 Controller 注解逐条统计，基线 `main @ 962dde8`）。表格编号沿用历史值、只增不复用：原 BOM 版本端点 #26、#27 已于 S4 移除，新补登记使用 #66–#73 与 #78–#87。
 
 标注说明：`[代码实证]` 表示已在 Controller 中核对；`[工程判断]` 表示设计建议；`[待确认]` 表示需要用户拍板。
 
@@ -47,7 +47,7 @@
 
 两条判定线的区别是责任方：客户端把请求写错了属于前者；请求格式正确但当前业务状态不接受，属于后者。业务拒绝使用 HTTP 200 是为了让前端统一按 `code` 提示，而不是被浏览器或网关当成传输错误。
 
-已有接口维持现状：`BusinessException` 仍由全局处理器转成 HTTP 200 + `code=500`，参数错误也仍是 HTTP 200。这样避免一次性改动 73 个端点的响应语义、把现有 Web 与移动端打崩。新接口的新写法只对新代码生效。`[代码实证]`
+已有接口维持现状：`BusinessException` 仍由全局处理器转成 HTTP 200 + `code=500`，参数错误也仍是 HTTP 200。这样避免一次性改动 87 个端点的响应语义、把现有 Web 与移动端打崩。新接口的新写法只对新代码生效。`[代码实证]`
 
 ### 1.2 认证
 
@@ -55,6 +55,7 @@
 - 白名单：`/api/auth/**`、Swagger、`/actuator/health`、`/actuator/info`；设备鉴权开启时 `/api/integration/device-status` 也放行，由 HMAC 校验替代用户令牌；其余端点均需登录。`[代码实证]`
 - 管理类写操作使用 `@PreAuthorize("hasRole('ADMIN')")`；现场操作中开工、报工、成品入库确认与取消允许 `ADMIN` / `USER` / `WORKER`，质检只允许 `ADMIN` / `USER`。`[代码实证]`
 - 角色取值为 `ADMIN` / `USER` / `WORKER`；`USER` 与 `WORKER` 均非管理员，数据域仍由 `sys_user.workshop_scope` 决定。
+- 报警规则（`/api/alarm-rules/**`）整个控制器仅 `ADMIN`；报警记录的列表、未读数、确认与恢复对登录用户开放，按设备所属车间过滤数据域。`[代码实证]`
 - SSO 三个端点位于 `/api/auth/sso/**`，随 `/api/auth/**` 一起放行；真正的防重放依赖服务端一次性 `state` 与 `sso_browser` Cookie，见 §4.7。`app.sso.enabled=false` 时授权跳转与回调均返回 503，`/config` 返回 `false`。`[代码实证]`
 - 目标增加两类主体：用户令牌（管理端/移动端）与设备凭证（设备上报）。设备上报不再复用用户令牌。`[工程判断]`
 
@@ -209,10 +210,12 @@
 | # | 方法 | 路径 | 现状鉴权 | 用途 | 处置 | 目标变更 |
 |---|---|---|---|---|---|---|
 | 53 | GET | `/api/audit-logs` | ADMIN | 审计查询 | 已落地 | S6 已实现；支持操作人、路径、起止日期筛选，验证码与密码不入审计 |
-| 61 | GET | `/api/users` | ADMIN | 用户分页 | 已落地 | S6 已实现；返回脱敏视图，不包含密码 |
+| 61 | GET | `/api/users` | ADMIN | 用户分页 | 已落地 | S6 已实现；返回脱敏视图，不包含密码；`ssoOnly=true` 只返回仍是纯 SSO 的账号 |
+| 86 | POST | `/api/users` | ADMIN | 创建本地账号 | 已落地 | 请求体 `{username, nickname, role, workshopScope, password}`；`role` 缺省 `WORKER`，`password` 留空时由服务端生成并只在本次响应返回一次；新账号 `auth_source=LOCAL`、`must_change_password=1`；用户名重复返回业务码 409 |
 | 70 | GET | `/api/users/me` | 登录 | 查询当前登录用户自身信息 | 已落地 | 强制改密期间仍可访问，供前端判断 `mustChangePassword` 与角色 |
 | 62 | POST | `/api/users/{id}/status` | ADMIN | 启用或禁用用户 | 已落地 | S6 已实现；同时递增令牌版本，旧令牌下一次请求即 401 |
-| 63 | POST | `/api/users/{id}/password` | ADMIN | 重置用户密码 | 已落地 | S6 已实现；递增令牌版本，该用户所有旧令牌立即失效 |
+| 87 | DELETE | `/api/users/{id}` | ADMIN | 软删除用户 | 已落地 | 禁用 + 递增令牌版本 + 逻辑删除，用户行保留、用户名仍被占用；不能删除自己，也不能删除最后一个启用的本地管理员（403 / 400） |
+| 63 | POST | `/api/users/{id}/password` | ADMIN | 重置用户密码 | 已落地 | S6 已实现；递增令牌版本，该用户所有旧令牌立即失效；同时置 `must_change_password=1`，纯 SSO 账号（`auth_source=SSO`）转为 `BOTH`，扫码通道保留 |
 | 71 | POST | `/api/users/{id}/role` | ADMIN | 调整用户角色 | 已落地 | 角色取值 `ADMIN` / `USER` / `WORKER`；变更写审计并递增令牌版本 |
 | 64 | POST | `/api/users/me/password` | 登录 | 自助改密 | 已落地 | S6 已实现；校验原密码，成功后当前令牌立即失效 |
 | 65 | POST | `/api/users/{id}/workshop` | ADMIN | 分配车间数据域 | 已落地 | S6 已实现；非管理员未分配时看不到任何车间数据，分配后下一次请求生效，不需要重新登录 |
@@ -248,7 +251,22 @@ S6 的即时失效口径：认证过滤器在**每次请求**读取数据库中�
 
 成品入库单由工单质检通过并完工时自动生成，没有创建接口；一张工单最多一条入库单（`uk_inbound_work_order`），已取消的单据不会重新生成。非管理员只能看到 `workshop_scope` 范围内的单据与库存，未分配车间时返回空列表。`[代码实证]`
 
-端点合计：86 个（按 Controller 注解读取）。本表覆盖至 #77；报警规则、报警记录共 8 个端点与用户创建 1 个端点由并行切片引入，尚未在 2.x 表内编号。工序维护的 POST/PUT/DELETE 合并为 #50 一行，故表格数据行少于端点总数 2 行。`[代码实证]`
+### 2.16 设备报警
+
+| # | 方法 | 路径 | 现状鉴权 | 用途 | 处置 | 目标变更 |
+|---|---|---|---|---|---|---|
+| 78 | GET | `/api/alarm-rules?deviceId=` | ADMIN | 查询报警规则，可按设备过滤 | 已落地 | 控制器整体仅 ADMIN；`deviceId` 可选，不传返回全部规则 |
+| 79 | POST | `/api/alarm-rules` | ADMIN | 新建报警规则 | 已落地 | 同一设备 + 规则类型 + 指标唯一（`uk_rule_device_type_metric`）；重复返回业务码 409 |
+| 80 | PUT | `/api/alarm-rules/{id}` | ADMIN | 更新报警规则 | 已落地 | 阈值与连续次数可改；已有报警记录保留创建时的阈值快照，不受影响 |
+| 81 | DELETE | `/api/alarm-rules/{id}` | ADMIN | 删除报警规则 | 已落地 | 只删规则，不级联删除历史报警记录 |
+| 82 | GET | `/api/alarm-records?pageNum=&pageSize=&status=` | 登录 | 报警记录分页，按开始时间倒序 | 已落地 | `status` 可选，取 `OPEN/ACKNOWLEDGED/RECOVERED`；按设备所属车间过滤数据域，未分配车间返回空列表 |
+| 83 | GET | `/api/alarm-records/unread-count` | 登录 | 未处理报警数量 | 已落地 | 统计数据域内 `status=OPEN` 的记录数，无记录返回 0 |
+| 84 | POST | `/api/alarm-records/{id}/acknowledge` | 登录 | 确认报警 | 已落地 | 仅 `OPEN` 可确认，写入 `ack_user`、`ack_time`；已被他人处理时返回业务码 409 |
+| 85 | POST | `/api/alarm-records/{id}/recover` | 登录 | 标记报警恢复 | 已落地 | 仅 `OPEN` / `ACKNOWLEDGED` 可恢复，写入 `recover_time` 并置 `active_flag=NULL`；已恢复时返回业务码 409 |
+
+报警规则只有管理员能维护；报警记录对登录用户开放，但只能看到设备所属车间在自己 `workshop_scope` 内的记录，跨车间按 403 处理。阈值规则需连续越界 `consecutive_times` 次才触发，离线规则由 `device.alarm.offline-scan-ms` 周期扫描。`[代码实证]`
+
+端点合计：87 个（按 Controller 注解读取），已全部在 §2 表内编号（#1–#87，其中 #26、#27 已移除）。工序维护的 POST/PUT/DELETE 合并为 #50 一行，故表格数据行为 85 行。`[代码实证]`
 
 ---
 
