@@ -4,7 +4,7 @@
       <el-tabs v-model="activeTab">
         <el-tab-pane label="待入库" name="inbound">
           <div class="toolbar">
-            <el-input v-model="inboundQuery.keyword" placeholder="搜索产品编码/批次/车间" clearable
+            <el-input v-model="inboundQuery.keyword" placeholder="搜索产品编码/批次" clearable
               style="width: 240px" @keyup.enter="loadInbounds" />
             <el-select v-model="inboundQuery.status" placeholder="状态" clearable style="width: 140px">
               <el-option v-for="(v, k) in inboundStatusMap" :key="k" :label="v.label" :value="k" />
@@ -52,7 +52,7 @@
 
         <el-tab-pane label="成品库存" name="stock">
           <div class="toolbar">
-            <el-input v-model="stockQuery.keyword" placeholder="搜索产品编码/车间" clearable
+            <el-input v-model="stockQuery.keyword" placeholder="搜索产品编码" clearable
               style="width: 240px" @keyup.enter="loadStocks" />
             <el-button type="primary" @click="searchStocks">查询</el-button>
             <el-button @click="resetStocks">重置</el-button>
