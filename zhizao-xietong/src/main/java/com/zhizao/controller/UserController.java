@@ -5,6 +5,7 @@ import com.zhizao.common.Result;
 import com.zhizao.common.UnauthorizedException;
 import com.zhizao.dto.PasswordChangeRequest;
 import com.zhizao.dto.PasswordResetRequest;
+import com.zhizao.dto.RoleAssignRequest;
 import com.zhizao.dto.UserView;
 import com.zhizao.dto.WorkshopAssignRequest;
 import com.zhizao.security.UserPrincipal;
@@ -110,6 +111,19 @@ public class UserController {
     @PostMapping("/{id}/workshop")
     public Result<UserView> assignWorkshop(@PathVariable Long id, @RequestBody WorkshopAssignRequest request) {
         return Result.ok(userService.assignWorkshop(id, request.workshopScope()));
+    }
+
+    /**
+     * 管理员调整用户角色。角色变更写审计，旧令牌在下一次请求失效。
+     *
+     * @param id      用户主键
+     * @param request 目标角色
+     * @return 更新后的用户视图
+     */
+    @PreAuthorize("hasRole('ADMIN')")
+    @PostMapping("/{id}/role")
+    public Result<UserView> assignRole(@PathVariable Long id, @RequestBody RoleAssignRequest request) {
+        return Result.ok(userService.assignRole(id, request.role()));
     }
 
     /**

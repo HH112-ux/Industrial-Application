@@ -4,6 +4,7 @@ import com.zhizao.common.BusinessException;
 import com.zhizao.common.LoginRateLimiter;
 import com.zhizao.config.SsoProperties;
 import com.zhizao.dto.LoginResponse;
+import com.zhizao.dto.SsoStatus;
 import com.zhizao.entity.SysUser;
 import com.zhizao.security.JwtUtil;
 import org.springframework.stereotype.Service;
@@ -63,6 +64,15 @@ public class SsoAuthService {
     public String authorizeUrl() {
         requireEnabled();
         return provider.authorizeUrl(UUID.randomUUID().toString(), properties.getWecom().getRedirectUri());
+    }
+
+    /**
+     * 查询灰度开关状态，供登录页决定是否展示扫码入口；关闭时返回 false 而不是拒绝。
+     *
+     * @return SSO 可用状态
+     */
+    public SsoStatus status() {
+        return new SsoStatus(properties.isEnabled());
     }
 
     private void requireEnabled() {

@@ -231,8 +231,14 @@ export interface DeviceTelemetry {
   source?: string;
 }
 
+export interface SsoStatus {
+  enabled: boolean;
+}
+
 export const authApi = {
   login: (data: LoginRequest) => request.post<any, LoginResponse>('/auth/login', data),
+  ssoStatus: () => request.get<any, SsoStatus>('/auth/sso/config'),
+  ssoLogin: (code: string) => request.post<any, LoginResponse>('/auth/sso/wecom/login', { code }),
   logout: () => request.post('/auth/logout')
 };
 
@@ -269,6 +275,8 @@ export interface UserAccount {
   role: string;
   enabled: boolean;
   workshopScope?: string | null;
+  authSource?: string;
+  departmentIds?: string | null;
   createdAt?: string;
 }
 
@@ -282,7 +290,9 @@ export const userApi = {
   resetPassword: (id: number, newPassword: string) =>
     request.post(`/users/${id}/password`, { newPassword }),
   assignWorkshop: (id: number, workshopScope: string) =>
-    request.post(`/users/${id}/workshop`, { workshopScope })
+    request.post(`/users/${id}/workshop`, { workshopScope }),
+  assignRole: (id: number, role: string) =>
+    request.post(`/users/${id}/role`, { role })
 };
 
 export interface BomItem {

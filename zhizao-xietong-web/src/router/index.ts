@@ -18,6 +18,12 @@ const router = createRouter({
       meta: { title: '修改密码' }
     },
     {
+      path: '/sso/callback',
+      name: 'SsoCallback',
+      component: () => import('@/views/SsoCallback.vue'),
+      meta: { title: '企业微信登录' }
+    },
+    {
       path: '/',
       component: Layout,
       redirect: '/dashboard',
@@ -43,7 +49,9 @@ const router = createRouter({
 
 router.beforeEach((to, _from, next) => {
   const token = getToken();
-  if (!token) {
+  if (to.path === '/sso/callback') {
+    next();
+  } else if (!token) {
     next(to.path === '/login' ? undefined : '/login');
   } else if (to.path !== '/change-password' && mustChangePassword()) {
     next('/change-password');

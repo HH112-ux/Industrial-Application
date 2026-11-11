@@ -5,6 +5,7 @@ import com.zhizao.common.Result;
 import com.zhizao.dto.LoginRequest;
 import com.zhizao.dto.LoginResponse;
 import com.zhizao.dto.SsoLoginRequest;
+import com.zhizao.dto.SsoStatus;
 import com.zhizao.service.AuthService;
 import com.zhizao.sso.SsoAuthService;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -60,6 +61,12 @@ public class AuthController {
     public Result<LoginResponse> wecomLogin(@RequestBody SsoLoginRequest request,
                                             HttpServletRequest servletRequest) {
         return Result.ok(ssoAuthService.login(request.code(), clientIp(servletRequest)));
+    }
+
+    /** SSO 灰度开关状态：登录页据此显隐企业微信入口，关闭时仍返回 200。 */
+    @GetMapping("/sso/config")
+    public Result<SsoStatus> ssoConfig() {
+        return Result.ok(ssoAuthService.status());
     }
 
     /** 企微扫码授权跳转：登录页在开关开启时跳转到该地址。 */

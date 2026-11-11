@@ -22,6 +22,7 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -133,5 +134,14 @@ class SsoAuthServiceTest {
         assertThrows(com.zhizao.common.BadRequestException.class,
                 () -> service.login("bad-code", "10.0.0.5"));
         verifyNoInteractions(jwtUtil);
+    }
+
+    @Test
+    void statusReportsSwitchStateForLoginPage() {
+        assertTrue(service.status().enabled());
+
+        properties.setEnabled(false);
+
+        assertFalse(service.status().enabled());
     }
 }

@@ -21,12 +21,16 @@
           登 录
         </el-button>
       </el-form>
+      <template v-if="ssoEnabled">
+        <el-divider>或</el-divider>
+        <el-button size="large" style="width: 100%" @click="ssoLogin">企业微信扫码登录</el-button>
+      </template>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { reactive, ref } from 'vue';
+import { onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { User, Lock } from '@element-plus/icons-vue';
 import { authApi } from '@/api';
@@ -34,7 +38,20 @@ import { setToken, setUser, setMustChangePassword } from '@/api/request';
 
 const router = useRouter();
 const loading = ref(false);
+const ssoEnabled = ref(false);
 const form = reactive({ username: '', password: '' });
+
+onMounted(async () => {
+  try {
+    ssoEnabled.value = (await authApi.ssoStatus()).enabled;
+  } catch {
+    ssoEnabled.value = false;
+  }
+});
+
+function ssoLogin() {
+  window.location.href = '/api/auth/sso/wecom/authorize';
+}
 
 async function login() {
   if (!form.username || !form.password) {
