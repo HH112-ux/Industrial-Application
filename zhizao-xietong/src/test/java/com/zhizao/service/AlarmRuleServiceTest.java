@@ -79,12 +79,27 @@ class AlarmRuleServiceTest {
         reversed.setLowerLimit(80.0);
         AlarmRule unknownMetric = thresholdRule();
         unknownMetric.setMetric("pressure");
-        AlarmRule offline = thresholdRule();
-        offline.setRuleType("OFFLINE");
+        AlarmRule predictive = thresholdRule();
+        predictive.setRuleType("PREDICTIVE");
         assertAll(
                 () -> assertThrows(BadRequestException.class, () -> service().create(reversed)),
                 () -> assertThrows(BadRequestException.class, () -> service().create(unknownMetric)),
-                () -> assertThrows(BadRequestException.class, () -> service().create(offline)));
+                () -> assertThrows(BadRequestException.class, () -> service().create(predictive)));
+    }
+    @Test
+    void createOfflineRuleIgnoresMetricAndLimits() {
+        when(ruleMapper.selectCount(any())).thenReturn(0L);
+        AlarmRule rule = new AlarmRule();
+        rule.setDeviceId(1L);
+        rule.setRuleType("offline");
+        rule.setMetric("temperature");
+        rule.setUpperLimit(80.0);
+        AlarmRule saved = service().create(rule);
+        assertEquals("OFFLINE", saved.getRuleType());
+        assertEquals("", saved.getMetric());
+        assertNull(saved.getUpperLimit());
+        assertNull(saved.getLowerLimit());
+        assertEquals(3, saved.getConsecutiveTimes());
     }
     @Test
     void duplicateRuleRejectedBeforeInsert() {

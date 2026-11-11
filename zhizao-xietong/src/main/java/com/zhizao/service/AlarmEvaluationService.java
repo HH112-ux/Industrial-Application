@@ -22,6 +22,7 @@ public class AlarmEvaluationService {
 
     private static final Logger log = LoggerFactory.getLogger(AlarmEvaluationService.class);
     private static final String THRESHOLD = "THRESHOLD";
+    private static final String OFFLINE = "OFFLINE";
 
     private final AlarmRuleMapper ruleMapper;
     private final AlarmRecordMapper recordMapper;
@@ -49,6 +50,23 @@ public class AlarmEvaluationService {
             } else {
                 handleRecovered(rule, active);
             }
+        }
+    }
+
+    /**
+     * 设备重新上报后关闭在途的离线报警；没有在途记录时什么都不做。
+     *
+     * @param deviceId 设备主键
+     */
+    public void recoverOffline(Long deviceId) {
+        AlarmRecord active = recordMapper.selectOne(new LambdaQueryWrapper<AlarmRecord>()
+                .eq(AlarmRecord::getDeviceId, deviceId)
+                .eq(AlarmRecord::getRuleType, OFFLINE)
+                .eq(AlarmRecord::getMetric, "")
+                .eq(AlarmRecord::getActiveFlag, 1)
+                .last("LIMIT 1"));
+        if (active != null) {
+            recover(active.getId());
         }
     }
 

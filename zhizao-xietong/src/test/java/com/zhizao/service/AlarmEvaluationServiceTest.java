@@ -106,6 +106,26 @@ class AlarmEvaluationServiceTest {
     }
 
     @Test
+    void recoverOfflineClosesActiveOfflineRecord() {
+        when(recordMapper.selectOne(any())).thenReturn(activeRecord());
+
+        service.recoverOffline(1L);
+
+        String sqlSet = captureUpdate().getSqlSet();
+        assertTrue(sqlSet.contains("recover_time"));
+        assertTrue(sqlSet.contains("active_flag = NULL"));
+    }
+
+    @Test
+    void recoverOfflineIgnoresWhenNoActiveRecord() {
+        when(recordMapper.selectOne(any())).thenReturn(null);
+
+        service.recoverOffline(1L);
+
+        verify(recordMapper, never()).update(isNull(), any());
+    }
+
+    @Test
     void normalValueRecoversAlarmAndResetsStreak() {
         AlarmRule rule = rule(3, 4);
         when(ruleMapper.selectList(any())).thenReturn(List.of(rule));
