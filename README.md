@@ -206,6 +206,15 @@ java -jar target/zhizao-xietong-1.0.0.jar
 - JWT 密钥、数据库密码、`DEVICE_CREDENTIAL_KEY` 必须由部署环境注入；启用外部模型时 `AI_API_KEY` 同样只能由环境变量注入，不得写入配置文件或日志
 - 日志输出到标准输出，每行带 `traceId`，可用响应头 `X-Request-Id` 串联一次请求；文件日志与集中采集尚未接入
 
+### 数据库迁移
+
+后端启动时由 Flyway 自动执行 `src/main/resources/db/migration`。升级前先备份；已执行过迁移的环境不要修改历史迁移文件，Flyway 会因 checksum 变化拒绝启动，修复只能追加新版本。
+
+`V15__process_unique_version.sql` **非幂等**：内容是 `ALTER TABLE pr_process DROP INDEX uk_process_no`，而 MySQL 8 不支持 `DROP INDEX IF EXISTS`。若某环境曾手工删除该索引，V15 会以「Can't DROP 'uk_process_no'; check that column/key exists」失败，需二选一处理后重跑：
+
+1. 先恢复同名索引再重跑迁移：`ALTER TABLE pr_process ADD UNIQUE KEY uk_process_no (process_no);`
+2. 确认索引确已删除后，手工向 `flyway_schema_history` 补一条 V15 成功记录（`version='15'`、`success=1`，checksum 与迁移文件一致），再重启。手工补记录前务必备份该表。
+
 ### 管理端
 
 ```bash
