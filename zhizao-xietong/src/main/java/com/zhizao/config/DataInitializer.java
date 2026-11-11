@@ -59,11 +59,11 @@ public class DataInitializer implements CommandLineRunner {
     public void run(String... args) {
         boolean devProfile = environment.acceptsProfiles(Profiles.of("dev"));
         ensureUser("admin", "系统管理员", "ADMIN", null,
-                "app.bootstrap.admin-password（环境变量 APP_BOOTSTRAP_ADMIN_PASSWORD）", adminPassword, devProfile);
+                "app.bootstrap.admin-password（环境变量 APP_BOOTSTRAP_ADMIN_PASSWORD）", adminPassword, devProfile, true);
         if (devProfile) {
             String workshop = StringUtils.hasText(demoWorkshop) ? demoWorkshop.trim() : null;
             ensureUser("zhangsan", "张三", "USER", workshop,
-                    "app.bootstrap.demo-password（环境变量 DEMO_INIT_PASSWORD）", demoPassword, true);
+                    "app.bootstrap.demo-password（环境变量 DEMO_INIT_PASSWORD）", demoPassword, true, false);
         }
     }
 
@@ -77,9 +77,11 @@ public class DataInitializer implements CommandLineRunner {
      * @param passwordSource        口令配置来源，用于日志与错误提示
      * @param configuredValue       已配置的口令，可为空
      * @param allowGeneratedPassword 是否允许在缺省时生成一次性随机口令
+     * @param mustChangePassword    新建账号是否要求首次登录后立即改密（管理员为 true）
      */
     private void ensureUser(String username, String nickname, String role, String workshopScope,
-                            String passwordSource, String configuredValue, boolean allowGeneratedPassword) {
+                            String passwordSource, String configuredValue, boolean allowGeneratedPassword,
+                            boolean mustChangePassword) {
         Long count = userMapper.selectCount(
                 new LambdaQueryWrapper<SysUser>().eq(SysUser::getUsername, username));
         if (count != null && count > 0) {
@@ -101,6 +103,7 @@ public class DataInitializer implements CommandLineRunner {
         user.setRole(role);
         user.setEnabled(1);
         user.setTokenVersion(0);
+        user.setMustChangePassword(mustChangePassword ? 1 : 0);
         user.setWorkshopScope(workshopScope);
         userMapper.insert(user);
     }

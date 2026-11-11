@@ -7,6 +7,12 @@
       }
     },
     {
+      "path": "pages/changepassword/changepassword",
+      "style": {
+        "navigationBarTitleText": "修改初始密码"
+      }
+    },
+    {
       "path": "pages/workorder/list",
       "style": {
         "navigationBarTitleText": "生产工单"

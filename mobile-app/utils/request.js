@@ -30,6 +30,10 @@ export function request(options) {
           clearToken();
           uni.reLaunch({ url: '/pages/login/login' });
           reject(new Error('未登录'));
+        } else if (res.statusCode === 403 && body && body.code === 40301) {
+          uni.showToast({ title: '请先修改初始密码', icon: 'none' });
+          uni.reLaunch({ url: '/pages/changepassword/changepassword' });
+          reject(new Error('请先修改初始密码'));
         } else {
           const msg = (body && body.message) || '请求失败';
           uni.showToast({ title: msg, icon: 'none' });

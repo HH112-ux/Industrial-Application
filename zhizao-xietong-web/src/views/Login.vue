@@ -30,7 +30,7 @@ import { reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { User, Lock } from '@element-plus/icons-vue';
 import { authApi } from '@/api';
-import { setToken, setUser } from '@/api/request';
+import { setToken, setUser, setMustChangePassword } from '@/api/request';
 
 const router = useRouter();
 const loading = ref(false);
@@ -46,6 +46,13 @@ async function login() {
     const res = await authApi.login(form);
     setToken(res.token);
     setUser({ username: res.username, nickname: res.nickname, role: res.role });
+    if (res.mustChangePassword) {
+      setMustChangePassword(true);
+      ElMessage.warning('请先修改初始密码');
+      router.push('/change-password');
+      return;
+    }
+    setMustChangePassword(false);
     ElMessage.success('登录成功');
     router.push('/dashboard');
   } finally {

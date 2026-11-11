@@ -18,6 +18,7 @@ public class SysUser {
     private String role;
     private Integer enabled;
     private Integer tokenVersion;
+    private Integer mustChangePassword;
     private String workshopScope;
     private LocalDateTime createdAt;
     @TableLogic
@@ -37,6 +38,8 @@ public class SysUser {
     public void setEnabled(Integer enabled) { this.enabled = enabled; }
     public Integer getTokenVersion() { return tokenVersion; }
     public void setTokenVersion(Integer tokenVersion) { this.tokenVersion = tokenVersion; }
+    public Integer getMustChangePassword() { return mustChangePassword; }
+    public void setMustChangePassword(Integer mustChangePassword) { this.mustChangePassword = mustChangePassword; }
     public String getWorkshopScope() { return workshopScope; }
     public void setWorkshopScope(String workshopScope) { this.workshopScope = workshopScope; }
     public LocalDateTime getCreatedAt() { return createdAt; }
