@@ -91,6 +91,36 @@ class UserServiceTest {
     }
 
     @Test
+    void settingLocalPasswordOnSsoAccountSwitchesToBothAndForcesChange() {
+        SysUser sso = user();
+        sso.setAuthSource("SSO");
+        when(userMapper.selectById(1L)).thenReturn(sso);
+        when(passwordEncoder.encode("new-pass")).thenReturn("encoded-new");
+
+        userService.resetPassword(1L, "new-pass");
+
+        ArgumentCaptor<SysUser> captor = ArgumentCaptor.forClass(SysUser.class);
+        verify(userMapper).updateById(captor.capture());
+        assertEquals("BOTH", captor.getValue().getAuthSource());
+        assertEquals(Integer.valueOf(1), captor.getValue().getMustChangePassword());
+        assertEquals(Integer.valueOf(3), captor.getValue().getTokenVersion());
+    }
+
+    @Test
+    void resettingPasswordOnLocalAccountKeepsLocalSource() {
+        SysUser local = user();
+        local.setAuthSource("LOCAL");
+        when(userMapper.selectById(1L)).thenReturn(local);
+        when(passwordEncoder.encode("new-pass")).thenReturn("encoded-new");
+
+        userService.resetPassword(1L, "new-pass");
+
+        ArgumentCaptor<SysUser> captor = ArgumentCaptor.forClass(SysUser.class);
+        verify(userMapper).updateById(captor.capture());
+        assertEquals("LOCAL", captor.getValue().getAuthSource());
+    }
+
+    @Test
     void resettingPasswordRejectsPasswordContainingUsername() {
         when(userMapper.selectById(1L)).thenReturn(user());
 

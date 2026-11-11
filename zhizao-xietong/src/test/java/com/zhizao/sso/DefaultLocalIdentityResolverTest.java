@@ -2,6 +2,7 @@ package com.zhizao.sso;
 
 import com.zhizao.common.BusinessException;
 import com.zhizao.common.ForbiddenException;
+import com.zhizao.config.SsoProperties;
 import com.zhizao.entity.SysUser;
 import com.zhizao.entity.SysUserIdentity;
 import com.zhizao.mapper.SysUserIdentityMapper;
@@ -43,10 +44,13 @@ class DefaultLocalIdentityResolverTest {
     private PasswordEncoder passwordEncoder;
 
     private DefaultLocalIdentityResolver resolver;
+    private SsoProperties properties;
 
     @BeforeEach
     void setUp() {
-        resolver = new DefaultLocalIdentityResolver(userMapper, identityMapper, passwordEncoder);
+        properties = new SsoProperties();
+        properties.setJitEnabled(true);
+        resolver = new DefaultLocalIdentityResolver(userMapper, identityMapper, passwordEncoder, properties);
         when(passwordEncoder.encode(anyString())).thenReturn(HASH);
         when(userMapper.selectCount(any())).thenReturn(0L);
         when(userMapper.insert(any(SysUser.class))).thenAnswer(invocation -> {
@@ -111,6 +115,31 @@ class DefaultLocalIdentityResolverTest {
     void rejectsInactiveMemberOnFirstLogin() {
         assertThrows(ForbiddenException.class, () -> resolver.resolve(identity("u1002", "离职成员", false)));
         verify(userMapper, never()).insert(any(SysUser.class));
+    }
+
+    @Test
+    void jitDisabledRejectsUnknownUserWithoutCreatingAccount() {
+        properties.setJitEnabled(false);
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> resolver.resolve(identity("u1003", "新同事", true)));
+
+        assertEquals(403, error.getCode());
+        assertEquals("账号未开通，请联系管理员", error.getMessage());
+        verify(userMapper, never()).insert(any(SysUser.class));
+        verify(identityMapper, never()).insert(any(SysUserIdentity.class));
+    }
+
+    @Test
+    void jitDisabledStillAllowsBoundAccountToReuse() {
+        properties.setJitEnabled(false);
+        SysUser existing = user(9L, 1);
+        SysUserIdentity binding = new SysUserIdentity();
+        binding.setUserId(9L);
+        when(identityMapper.selectOne(any())).thenReturn(binding);
+        when(userMapper.selectById(9L)).thenReturn(existing);
+
+        assertSame(existing, resolver.resolve(identity("u1001", "张三", true)));
     }
 
     private SysUser user(Long id, int enabled) {

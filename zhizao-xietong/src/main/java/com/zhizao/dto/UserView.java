@@ -14,7 +14,7 @@ import java.time.LocalDateTime;
  * @param role           角色
  * @param enabled        是否启用
  * @param workshopScope  车间数据域，管理员为 null
- * @param authSource     账号来源：LOCAL 本地账号，SSO 企业统一身份
+ * @param authSource     账号来源：LOCAL 本地，SSO 仅企微，BOTH 双通道
  * @param departmentIds  企微部门 ID 快照，仅作车间分配的建议依据，不是授权值
  * @param createdAt      创建时间
  * @author Caspian
