@@ -2,6 +2,7 @@ package com.zhizao.controller;
 
 import com.zhizao.common.BadRequestException;
 import com.zhizao.common.BusinessException;
+import com.zhizao.common.ForbiddenException;
 import com.zhizao.common.GlobalExceptionHandler;
 import com.zhizao.dto.UserCreateResponse;
 import com.zhizao.dto.UserView;
@@ -25,9 +26,11 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.time.LocalDateTime;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -103,5 +106,27 @@ class UserCreateHttpTest {
                 .andExpect(jsonPath("$.message").value("用户名已存在，请更换后重试"));
         create().andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(400));
+    }
+
+    @Test
+    void deletingSelfReturns403() throws Exception {
+        authenticateAs("ADMIN");
+        doThrow(new ForbiddenException("不能删除当前登录账号")).when(userService).delete(1L, "operator");
+
+        mockMvc.perform(delete("/api/users/1").header("Authorization", "Bearer token"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(403));
+    }
+
+    @Test
+    void disablingSelfReturns403() throws Exception {
+        authenticateAs("ADMIN");
+        when(userService.setEnabled(1L, false, "operator"))
+                .thenThrow(new ForbiddenException("不能禁用当前登录账号"));
+
+        mockMvc.perform(post("/api/users/1/status").param("enabled", "false")
+                        .header("Authorization", "Bearer token"))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.code").value(403));
     }
 }
