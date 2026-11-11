@@ -16,6 +16,8 @@ import org.springframework.stereotype.Component;
 public class SsoProperties {
 
     private boolean enabled = false;
+    /** 是否允许首次扫码自动建号；本地为主后默认关闭，未知企微用户需管理员先开通。 */
+    private boolean jitEnabled = false;
     private String provider = "WEIXIN_WORK";
     private Wecom wecom = new Wecom();
 
@@ -25,6 +27,14 @@ public class SsoProperties {
 
     public void setEnabled(boolean enabled) {
         this.enabled = enabled;
+    }
+
+    public boolean isJitEnabled() {
+        return jitEnabled;
+    }
+
+    public void setJitEnabled(boolean jitEnabled) {
+        this.jitEnabled = jitEnabled;
     }
 
     public String getProvider() {

@@ -55,14 +55,16 @@ public class UserController {
      * @param pageNum  页码
      * @param pageSize 每页条数
      * @param keyword  用户名或昵称关键字
+     * @param ssoOnly  true 时只返回仍是纯 SSO、尚未开通本地密码的账号
      * @return 脱敏后的用户分页结果
      */
     @PreAuthorize("hasRole('ADMIN')")
     @GetMapping
     public Result<PageResult<UserView>> list(@RequestParam(defaultValue = "1") int pageNum,
                                              @RequestParam(defaultValue = "10") int pageSize,
-                                             @RequestParam(required = false) String keyword) {
-        return Result.ok(userService.list(pageNum, pageSize, keyword));
+                                             @RequestParam(required = false) String keyword,
+                                             @RequestParam(defaultValue = "false") boolean ssoOnly) {
+        return Result.ok(userService.list(pageNum, pageSize, keyword, ssoOnly));
     }
 
     /**
@@ -123,6 +125,8 @@ public class UserController {
 
     /**
      * 管理员重置用户密码，该用户所有旧令牌立即失效。
+     *
+     * <p>对纯 SSO 账号即开通本地密码通道：认证来源转 BOTH，扫码仍可用，首登强制改密。</p>
      *
      * @param id      用户主键
      * @param request 新密码

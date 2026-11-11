@@ -67,6 +67,7 @@ class SsoAuthServiceTest {
     void setUp() {
         properties = new SsoProperties();
         properties.setEnabled(true);
+        properties.setJitEnabled(true);
         properties.getWecom().setRedirectUri("https://mes.example.com/sso/callback");
         when(passwordEncoder.encode(anyString())).thenReturn("HASH");
         when(userMapper.selectCount(any())).thenReturn(0L);
@@ -77,7 +78,7 @@ class SsoAuthServiceTest {
         when(jwtUtil.generateToken(anyString(), anyString(), anyInt())).thenReturn("jwt-token");
         stateStore = new SsoStateStore(now::get);
         service = new SsoAuthService(properties, new FakeIdentityProvider(),
-                new DefaultLocalIdentityResolver(userMapper, identityMapper, passwordEncoder),
+                new DefaultLocalIdentityResolver(userMapper, identityMapper, passwordEncoder, properties),
                 jwtUtil, loginRateLimiter, stateStore);
     }
 
@@ -95,13 +96,14 @@ class SsoAuthServiceTest {
     }
 
     @Test
-    void secondLoginReusesExistingAccount() {
+    void bothAccountCanStillScanAndReusesLocalAccount() {
         SysUser existing = new SysUser();
         existing.setId(9L);
         existing.setUsername("u1001");
         existing.setRole("WORKER");
         existing.setEnabled(1);
         existing.setTokenVersion(3);
+        existing.setAuthSource("BOTH");
         SysUserIdentity binding = new SysUserIdentity();
         binding.setUserId(9L);
         when(identityMapper.selectOne(any())).thenReturn(binding);
@@ -112,6 +114,20 @@ class SsoAuthServiceTest {
         assertEquals("jwt-token", response.token());
         verify(userMapper, never()).insert(any(SysUser.class));
         verify(jwtUtil).generateToken("u1001", "WORKER", 3);
+    }
+
+    @Test
+    void jitDisabledRejectsUnknownWecomUserAndCreatesNothing() {
+        properties.setJitEnabled(false);
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> loginWithFreshState("fake-u1004", "10.0.0.11"));
+
+        assertEquals(403, error.getCode());
+        assertEquals("账号未开通，请联系管理员", error.getMessage());
+        verify(userMapper, never()).insert(any(SysUser.class));
+        verify(identityMapper, never()).insert(any(SysUserIdentity.class));
+        verify(jwtUtil, never()).generateToken(anyString(), anyString(), anyInt());
     }
 
     @Test

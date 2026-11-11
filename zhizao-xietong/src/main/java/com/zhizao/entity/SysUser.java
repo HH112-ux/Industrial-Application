@@ -20,7 +20,7 @@ public class SysUser {
     private Integer tokenVersion;
     private Integer mustChangePassword;
     private String workshopScope;
-    /** 账号来源：LOCAL 为本地密码账号，SSO 为统一身份建号，SSO 账号禁止本地密码登录。 */
+    /** 账号来源：LOCAL 本地密码，SSO 仅统一身份，BOTH 双通道（扫码与密码均可）。 */
     private String authSource;
     private LocalDateTime createdAt;
     @TableLogic

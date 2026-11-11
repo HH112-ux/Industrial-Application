@@ -44,6 +44,8 @@ public class UserService {
     private static final Set<String> ASSIGNABLE_ROLES = Set.of("ADMIN", "USER", "WORKER");
     private static final String ROLE_ADMIN = "ADMIN";
     private static final String AUTH_SOURCE_LOCAL = "LOCAL";
+    private static final String AUTH_SOURCE_SSO = "SSO";
+    private static final String AUTH_SOURCE_BOTH = "BOTH";
 
     /** 用户名规则：字母开头，3-32 位，仅字母数字点下划线短横线，天然不含空格。 */
     private static final Pattern USERNAME_PATTERN = Pattern.compile("^[A-Za-z][A-Za-z0-9._-]{2,31}$");
@@ -78,14 +80,16 @@ public class UserService {
      * @param pageNum  页码
      * @param pageSize 每页条数
      * @param keyword  用户名或昵称模糊匹配，可为空
+     * @param ssoOnly  仅看仍为纯 SSO 的账号，用于停用企业微信前的清空清单
      * @return 用户分页结果
      */
-    public PageResult<UserView> list(int pageNum, int pageSize, String keyword) {
+    public PageResult<UserView> list(int pageNum, int pageSize, String keyword, boolean ssoOnly) {
         Page<SysUser> page = new Page<>(pageNum, pageSize);
         LambdaQueryWrapper<SysUser> qw = new LambdaQueryWrapper<>();
         qw.and(StringUtils.hasText(keyword), w -> w
                 .like(SysUser::getUsername, keyword)
                 .or().like(SysUser::getNickname, keyword));
+        qw.eq(ssoOnly, SysUser::getAuthSource, AUTH_SOURCE_SSO);
         qw.orderByAsc(SysUser::getId);
         userMapper.selectPage(page, qw);
         Map<Long, SysUserIdentity> identities = identities(page.getRecords());
@@ -254,11 +258,11 @@ public class UserService {
     }
 
     /**
-     * 管理员重置密码：校验强度后写入新密码，递增令牌版本使该用户所有旧令牌立即失效，
-     * 并置「必须先改密」，让管理员掌握的临时密码只能使用一次。
+     * 管理员为用户设置本地密码；纯 SSO 账号借此转为双通道（BOTH），首登仍强制改密。
      *
-     * <p>强度规则与自助改密共用 {@link PasswordPolicy}，管理员不能设置比用户更弱的密码。
-     * 「必须先改密」的拦截沿用认证过滤器既有逻辑，不另造一套。</p>
+     * <p>LOCAL 与 BOTH 账号只重置密码，不改认证来源；BOTH 继续保留扫码通道。写入后递增
+     * 令牌版本使旧令牌立即失效，并置「必须先改密」，让管理员掌握的临时密码只能使用一次。
+     * 强度规则与自助改密共用 {@link PasswordPolicy}。</p>
      *
      * @param id          用户主键
      * @param newPassword 新密码
@@ -272,6 +276,9 @@ public class UserService {
         user.setPassword(passwordEncoder.encode(newPassword));
         user.setTokenVersion(tokenVersion(user) + 1);
         user.setMustChangePassword(1);
+        if (AUTH_SOURCE_SSO.equals(user.getAuthSource())) {
+            user.setAuthSource(AUTH_SOURCE_BOTH);
+        }
         userMapper.updateById(user);
     }
 

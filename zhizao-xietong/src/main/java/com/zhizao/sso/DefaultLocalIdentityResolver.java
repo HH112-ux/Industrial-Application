@@ -3,6 +3,7 @@ package com.zhizao.sso;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.zhizao.common.BusinessException;
 import com.zhizao.common.ForbiddenException;
+import com.zhizao.config.SsoProperties;
 import com.zhizao.entity.SysUser;
 import com.zhizao.entity.SysUserIdentity;
 import com.zhizao.mapper.SysUserIdentityMapper;
@@ -37,12 +38,14 @@ public class DefaultLocalIdentityResolver implements LocalIdentityResolver {
     private final SysUserMapper userMapper;
     private final SysUserIdentityMapper identityMapper;
     private final PasswordEncoder passwordEncoder;
+    private final SsoProperties properties;
 
     public DefaultLocalIdentityResolver(SysUserMapper userMapper, SysUserIdentityMapper identityMapper,
-                                        PasswordEncoder passwordEncoder) {
+                                        PasswordEncoder passwordEncoder, SsoProperties properties) {
         this.userMapper = userMapper;
         this.identityMapper = identityMapper;
         this.passwordEncoder = passwordEncoder;
+        this.properties = properties;
     }
 
     @Override
@@ -57,6 +60,9 @@ public class DefaultLocalIdentityResolver implements LocalIdentityResolver {
                 .eq(SysUserIdentity::getExternalId, identity.externalId()));
         if (binding != null) {
             return reuse(binding, identity);
+        }
+        if (!properties.isJitEnabled()) {
+            throw new BusinessException(403, "账号未开通，请联系管理员");
         }
         if (!identity.active()) {
             throw new ForbiddenException("企业账号已停用，无法登录");

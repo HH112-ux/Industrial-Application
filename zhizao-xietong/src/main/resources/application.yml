@@ -53,6 +53,8 @@ app:
   sso:
     # 总开关：默认关闭；关闭时登录行为与今天完全一致，接口返回明确拒绝
     enabled: ${SSO_ENABLED:false}
+    # 本地为主后默认关闭 JIT：未开通的企微用户不自动建号，需管理员先开通
+    jit-enabled: ${SSO_JIT_ENABLED:false}
     provider: ${SSO_PROVIDER:WEIXIN_WORK}
     # 以下四项开启时必填，缺失则启动失败；真实值只从环境变量注入，禁止写入仓库
     wecom:

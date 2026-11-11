@@ -108,6 +108,21 @@ class AuthServiceTest {
     }
 
     @Test
+    void loginOnBothAccountAcceptsPasswordAndReportsMustChange() {
+        SysUser both = user(1, 2);
+        both.setAuthSource("BOTH");
+        both.setMustChangePassword(1);
+        when(userMapper.selectOne(any())).thenReturn(both);
+        when(passwordEncoder.matches("new-pass", "encoded")).thenReturn(true);
+        when(jwtUtil.generateToken("admin", "ADMIN", 2)).thenReturn("token-both");
+
+        LoginResponse resp = authService.login(new LoginRequest("admin", "new-pass"));
+
+        assertEquals("token-both", resp.token());
+        assertTrue(resp.mustChangePassword());
+    }
+
+    @Test
     void loginOnSsoAccountKeepsGenericErrorWhenSsoSwitchedOff() {
         SysUser sso = user(1, 0);
         sso.setAuthSource("SSO");
