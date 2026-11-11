@@ -1,6 +1,6 @@
 # 接口契约
 
-现状接口以当前代码为准，共 65 个端点（S0 基线 46 个，S1 新增设备凭证 2 个，S2 新增遥测历史 1 个，S3 新增工单历史 1 个，S4 新增工序 4 个与版本复制 1 个并移除 BOM 版本端点 2 个，S5 新增排程 2 个，S6 新增用户管理 4 个、车间分配 1 个与审计查询 1 个，S7 新增指标概览 1 个，S8 新增 AI 旁路 3 个）。
+现状接口以当前代码为准，共 73 个端点（按 Controller 注解逐条统计，基线 `main @ 56b89a5`）。表格编号沿用历史值、只增不复用：原 BOM 版本端点 #26、#27 已于 S4 移除，新补登记使用 #66–#73。
 
 标注说明：`[代码实证]` 表示已在 Controller 中核对；`[工程判断]` 表示设计建议；`[待确认]` 表示需要用户拍板。
 
@@ -47,13 +47,15 @@
 
 两条判定线的区别是责任方：客户端把请求写错了属于前者；请求格式正确但当前业务状态不接受，属于后者。业务拒绝使用 HTTP 200 是为了让前端统一按 `code` 提示，而不是被浏览器或网关当成传输错误。
 
-已有接口维持现状：`BusinessException` 仍由全局处理器转成 HTTP 200 + `code=500`，参数错误也仍是 HTTP 200。这样避免一次性改动 65 个端点的响应语义、把现有 Web 与移动端打崩。新接口的新写法只对新代码生效。`[代码实证]`
+已有接口维持现状：`BusinessException` 仍由全局处理器转成 HTTP 200 + `code=500`，参数错误也仍是 HTTP 200。这样避免一次性改动 73 个端点的响应语义、把现有 Web 与移动端打崩。新接口的新写法只对新代码生效。`[代码实证]`
 
 ### 1.2 认证
 
 - 登录后返回 JWT，放在 `Authorization: Bearer <token>`。
-- 白名单：`/api/auth/**`、Swagger、`/actuator/health`、`/actuator/info`；其余端点均需登录。`[代码实证]`
+- 白名单：`/api/auth/**`、Swagger、`/actuator/health`、`/actuator/info`；设备鉴权开启时 `/api/integration/device-status` 也放行，由 HMAC 校验替代用户令牌；其余端点均需登录。`[代码实证]`
 - 管理类写操作使用 `@PreAuthorize("hasRole('ADMIN')")`；现场操作中开工、报工允许 `ADMIN` / `USER` / `WORKER`，质检只允许 `ADMIN` / `USER`。`[代码实证]`
+- 角色取值为 `ADMIN` / `USER` / `WORKER`；`USER` 与 `WORKER` 均非管理员，数据域仍由 `sys_user.workshop_scope` 决定。
+- SSO 三个端点位于 `/api/auth/sso/**`，随 `/api/auth/**` 一起放行；真正的防重放依赖服务端一次性 `state` 与 `sso_browser` Cookie，见 §4.7。`app.sso.enabled=false` 时授权跳转与回调均返回 503，`/config` 返回 `false`。`[代码实证]`
 - 目标增加两类主体：用户令牌（管理端/移动端）与设备凭证（设备上报）。设备上报不再复用用户令牌。`[工程判断]`
 
 ### 1.3 时间与命名
@@ -88,8 +90,12 @@
 
 | # | 方法 | 路径 | 现状鉴权 | 用途 | 处置 | 目标变更 |
 |---|---|---|---|---|---|---|
-| 1 | POST | `/api/auth/login` | 公开 | 登录并签发 JWT | 改行为 | 限流从单机内存迁到 Redis；记录失败次数与来源 |
-| 2 | POST | `/api/auth/refresh` | 公开 | 用旧令牌换新令牌 | 改行为 | 校验 `sys_user.enabled` 与 `token_version`，禁用用户立即失效 |
+| 1 | POST | `/api/auth/login` | 公开 | 登录并签发 JWT；SSO 账号走本地密码登录时返回「该账号需使用企业微信扫码登录」 | 已落地 | 限流按用户名分桶；SSO 账号提示不校验本地密码，但请求仍计数 |
+| 2 | POST | `/api/auth/refresh` | 公开（需带有效令牌） | 用旧令牌换新令牌 | 已落地 | 校验 `enabled` 与 `token_version`，禁用用户立即失效；前端目前未调用 |
+| 66 | POST | `/api/auth/logout` | 公开 | 统一登出入口 | 已落地 | 无状态 JWT，服务端不维护会话，由客户端丢弃令牌 |
+| 67 | GET | `/api/auth/sso/config` | 公开 | 查询 SSO 灰度开关，登录页据此显隐入口 | 已落地 | 关闭时仍返回 200 + `enabled=false` |
+| 68 | GET | `/api/auth/sso/wecom/authorize` | 公开 | 302 到企微扫码页，同时签发一次性 `state` 并下发 `sso_browser` Cookie | 已落地 | 已存在 Cookie 时复用，多标签页各自持有独立 `state`；开关关闭返回 503 |
+| 69 | POST | `/api/auth/sso/wecom/login` | 公开（需 `state` + `sso_browser`） | 用回调 `code` 换取本系统 JWT | 已落地 | 见 §4.7；`state` 一次性、5 分钟有效、与 Cookie 绑定，校验失败一律拒绝 |
 
 ### 2.2 设备
 
@@ -108,7 +114,7 @@
 |---|---|---|---|---|---|---|
 | 9 | GET | `/api/devices/{id}/telemetry` | 登录 | 实时遥测 | 改行为 | 无真实上报时不再返回随机数；模拟数据由开关控制并标记 `source=SIMULATED` |
 | 10 | POST | `/api/integration/device-status` | 登录 | REST 设备回传 | 改签名 | 改设备 HMAC 鉴权，增加 `ingestKey` 幂等 |
-| 11 | POST | `/api/integration/mqtt/publish` | 登录 | 发布测试消息 | 改行为 | 仅 ADMIN，非生产环境启用 |
+| 11 | POST | `/api/integration/mqtt/publish` | ADMIN | 发布测试消息 | 已落地 | S1 已收紧为仅 ADMIN，非生产环境启用 |
 | 47 | GET | `/api/devices/{id}/telemetry/history?from=&to=&limit=` | 登录 | 设备遥测历史，默认最近 24 小时，最多 1000 条 | 已落地 | S2 已实现，见 §4.4 |
 
 ### 2.4 物料
@@ -133,18 +139,20 @@
 | 22 | POST | `/api/processes/{id}/submit` | ADMIN | 提交审批 | 改行为 | 校验至少 1 道工序、BOM 至少 1 行；缺项返回 HTTP 200 + 业务码，message 说明缺什么 |
 | 23 | POST | `/api/processes/{id}/approve` | ADMIN | 审批发布 | 改行为 | 发布时冻结版本，写 `published_at` |
 | 24 | POST | `/api/processes/{id}/reject` | ADMIN | 驳回 | 保留 | 记录驳回原因 |
-| 58 | POST | `/api/processes/{id}/versions` | ADMIN | 复制下一版草稿 | 新增 | S4 已落地；复制基础信息、工序与 BOM，状态 `DRAFT` |
+| 58 | POST | `/api/processes/{id}/versions` | ADMIN | 复制下一版草稿 | 已落地 | S4 已落地；复制基础信息、工序与 BOM，状态 `DRAFT` |
+| 49 | GET | `/api/processes/{id}/operations` | 登录 | 工序列表 | 已落地 | S4 已落地，按 `seq` 升序返回 |
+| 50 | POST/PUT/DELETE | `/api/processes/{id}/operations[/{operationId}]` | ADMIN | 工序维护（3 个端点合并登记） | 已落地 | S4 已落地；重复序号拒绝、已发布只读 |
 
 ### 2.6 工艺物料清单
 
 | # | 方法 | 路径 | 现状鉴权 | 用途 | 处置 | 目标变更 |
 |---|---|---|---|---|---|---|
 | 25 | GET | `/api/processes/{processId}/bom` | 登录 | 读取 BOM | 改行为 | 按 `process_id` 读取该工艺版本的 BOM，不区分 `version` |
-| 26 | GET | `/api/processes/{processId}/bom/versions` | 登录 | 版本列表 | 移除 | S4 A 方案：BOM 不再单独版本化，版本由工艺行表达 |
-| 27 | POST | `/api/processes/{processId}/bom/version` | ADMIN | 复制新版本 | 移除 | 能力迁移到 `POST /api/processes/{id}/versions`（#58） |
 | 28 | POST | `/api/processes/{processId}/bom` | ADMIN | 新增 BOM 行 | 改行为 | 校验物料存在、用量大于 0、同一 `process_id` 下物料不重复 |
 | 29 | PUT | `/api/processes/{processId}/bom/{id}` | ADMIN | 更新 BOM 行 | 改行为 | 已发布版本只读 |
 | 30 | DELETE | `/api/processes/{processId}/bom/{id}` | ADMIN | 删除 BOM 行 | 改行为 | 已发布版本只读 |
+
+原 #26 `GET /api/processes/{processId}/bom/versions` 与原 #27 `POST /api/processes/{processId}/bom/version` 已在 S4 移除，能力由 `POST /api/processes/{id}/versions`（#58）承担；编号不复用。`[代码实证]`
 
 ### 2.7 生产计划
 
@@ -167,8 +175,9 @@
 | 40 | POST | `/api/work-orders/{id}/report` | ADMIN / USER / WORKER | 报工 | 已落地 | S3 已实现数量校验、累计上限与幂等键；多次累计至报满后转「待质检」，未报满保持「生产中」 |
 | 41 | POST | `/api/work-orders/{id}/qc` | ADMIN / USER | 质检 | 已落地 | S3 结论校验前置，非法结论不写质检记录 |
 | 48 | GET | `/api/work-orders/{id}/history` | 登录 | 状态流转历史 | 已落地 | S3 已实现，按发生时间升序返回 |
+| 73 | GET | `/api/work-orders/stats/status` | 登录 | 按状态统计工单数量，供工作台卡片使用 | 已落地 | 返回状态到数量的映射，空结果返回 0 而不是 null |
 
-工单没有独立的删除或流转端点：状态只能由开工、报工、质检三条链路驱动；下达工单（`POST /api/plans/{id}/dispatch`）由管理员执行。`[代码实证]`
+工单没有创建接口，也没有 `PUT` / `PATCH` 更新接口：工单由计划派工生成，状态只能由开工、报工、质检三条链路驱动；下达工单（`POST /api/plans/{id}/dispatch`）由管理员执行。`[代码实证]`
 
 ### 2.9 设备点检与维修
 
@@ -193,6 +202,7 @@
 |---|---|---|---|---|---|---|
 | 59 | POST | `/api/schedules/run` | ADMIN | 重算全部「待开工」工单的有限产能排程 | 已落地 | S5 已实现；幂等，只重排 `PENDING` 工单 |
 | 60 | GET | `/api/schedules/work-orders/{workOrderId}` | 登录 | 查询单张工单的排程依据 | 已落地 | S5 已实现；返回设备类型、时间窗、队列位置与依据 |
+| 72 | GET | `/api/schedules/devices?from=&to=` | 登录 | 设备维度排程时间轴 | 已落地 | 跨度最长 31 天；数据域内工单返回完整明细，其他车间只返回 `occupied=true` 的占用块 |
 
 ### 2.12 用户与审计
 
@@ -200,8 +210,10 @@
 |---|---|---|---|---|---|---|
 | 53 | GET | `/api/audit-logs` | ADMIN | 审计查询 | 已落地 | S6 已实现；支持操作人、路径、起止日期筛选，验证码与密码不入审计 |
 | 61 | GET | `/api/users` | ADMIN | 用户分页 | 已落地 | S6 已实现；返回脱敏视图，不包含密码 |
+| 70 | GET | `/api/users/me` | 登录 | 查询当前登录用户自身信息 | 已落地 | 强制改密期间仍可访问，供前端判断 `mustChangePassword` 与角色 |
 | 62 | POST | `/api/users/{id}/status` | ADMIN | 启用或禁用用户 | 已落地 | S6 已实现；同时递增令牌版本，旧令牌下一次请求即 401 |
 | 63 | POST | `/api/users/{id}/password` | ADMIN | 重置用户密码 | 已落地 | S6 已实现；递增令牌版本，该用户所有旧令牌立即失效 |
+| 71 | POST | `/api/users/{id}/role` | ADMIN | 调整用户角色 | 已落地 | 角色取值 `ADMIN` / `USER` / `WORKER`；变更写审计并递增令牌版本 |
 | 64 | POST | `/api/users/me/password` | 登录 | 自助改密 | 已落地 | S6 已实现；校验原密码，成功后当前令牌立即失效 |
 | 65 | POST | `/api/users/{id}/workshop` | ADMIN | 分配车间数据域 | 已落地 | S6 已实现；非管理员未分配时看不到任何车间数据，分配后下一次请求生效，不需要重新登录 |
 
@@ -219,24 +231,19 @@ S6 的即时失效口径：认证过滤器在**每次请求**读取数据库中�
 
 `ai.enabled` 默认 false，关闭时三个 AI 端点返回 HTTP 503 + 业务码 503，其他功能不受影响。模型超时、报错或返回非法内容时返回 `available=false` 与原因，不抛 500。所有 AI 测试使用离线假模型，CI 不联网、不需要密钥。`[代码实证]`
 
-端点合计：65（S0 基线 46 + S1 设备凭证 2 + S2 遥测历史 1 + S3 工单历史 1 + S4 工序 4 + S4 版本复制 1 + S5 排程 2 + S6 用户管理 4 + S6 车间分配 1 + S6 审计查询 1 + S7 指标概览 1 + S8 AI 旁路 3 − S4 移除 BOM 版本端点 2）。`[代码实证]`
+### 2.14 指标概览
+
+| # | 方法 | 路径 | 现状鉴权 | 用途 | 处置 | 目标变更 |
+|---|---|---|---|---|---|---|
+| 54 | GET | `/api/metrics/overview` | ADMIN | 设备在线率、遥测上报、报工、工单节拍、齐套率 | 已落地 | S7 已实现；空分母返回 `value=null` 与 `reason`，不伪造 0 或 100% |
+
+端点合计：73 个（按 Controller 注解读取；工序维护的 POST/PUT/DELETE 合并为 #50 一行，故表格数据行少于端点总数 2 行）。`[代码实证]`
 
 ---
 
-## 3. 目标新增端点
+## 3. 阶段新增端点
 
-| # | 方法 | 路径 | 鉴权 | 用途 | 阶段 |
-|---|---|---|---|---|---|
-| 49 | GET | `/api/processes/{id}/operations` | 登录 | 工序列表 | S4 已落地 |
-| 50 | POST/PUT/DELETE | `/api/processes/{id}/operations[/{opId}]` | ADMIN | 工序维护（重复序号拒绝、已发布只读） | S4 已落地 |
-| 59 | POST | `/api/schedules/run` | ADMIN | 重算待排工单的有限产能排程，返回成功与冲突明细 | S5 已落地 |
-| 60 | GET | `/api/schedules/work-orders/{workOrderId}` | 登录 | 查询工单排程依据（设备、时间窗、队列位置） | S5 已落地 |
-| 54 | GET | `/api/metrics/overview` | ADMIN | 设备在线率、遥测上报、报工、工单节拍、齐套率 | S7 已落地 |
-| 55 | POST | `/api/ai/device-issue/suggest` | 登录 | AI 异常归因建议，只读 | S8 已落地 |
-| 56 | POST | `/api/ai/report/draft` | 登录 | 自然语言转结构化报工草稿，不提交 | S8 已落地 |
-| 57 | POST | `/api/ai/query` | ADMIN | 生产数据问答，只读视图 | S8 已落地 |
-
-新增端点均遵循同一返回体与错误码约定。设备凭证的 2 个端点已在 S1 落地（§2.10），遥测历史已在 S2 落地（§2.3 与 §4.4），工单历史已在 S3 落地（§2.8），工序维护与版本复制已在 S4 落地（§2.5、§4.5），排程已在 S5 落地（§2.11、§4.6），指标概览已在 S7 落地，AI 旁路已在 S8 落地（§2.13）。空分母指标返回 `value=null` 并附 `reason`，不返回伪造的 0 或 100%。
+S4–S8 计划新增的端点均已落地，并已并入 §2 的现状清单，不再单独重复列出：工序与版本复制见 §2.5（#49、#50、#58），设备凭证见 §2.10（#51、#52），排程见 §2.11（#59、#60、#72），指标概览见 §2.14（#54），AI 旁路见 §2.13（#55–#57），遥测历史见 §2.3（#47），工单历史见 §2.8（#48）。空分母指标返回 `value=null` 并附 `reason`，不返回伪造的 0 或 100%。`[代码实证]`
 
 ---
 
@@ -399,6 +406,25 @@ POST /api/schedules/run
 | `CAPACITY_OVERLOAD` | 交期前该设备类型产能已被占满 |
 
 冲突不改变工单状态，也不静默挪期或拉长工期；需要人工调整交期、增加设备或拆分批量后重新运行。`[代码实证]`
+
+### 4.7 企业微信扫码登录（SSO）
+
+三个端点都在 `/api/auth/**` 白名单内，匿名可访问；「所需角色」是登录成功后拿到的本地角色，登录动作本身不要求令牌。
+
+| 端点 | 鉴权 | 关键约束 |
+|---|---|---|
+| `GET /api/auth/sso/config` | 公开 | 返回 `{enabled}`；`app.sso.enabled=false` 时仍返回 200，登录页据此隐藏入口 |
+| `GET /api/auth/sso/wecom/authorize` | 公开 | 302 到企微扫码页；`Set-Cookie: sso_browser=<随机值>; HttpOnly; SameSite=Lax; Path=/; Max-Age=1800`；服务端同时签发一次性 `state`（5 分钟）并绑定该 Cookie；开关关闭返回 503 |
+| `POST /api/auth/sso/wecom/login` | 公开，但需一次性 `state` + `sso_browser` Cookie | 请求体 `{code, state}`；`state` 一次性消费、5 分钟过期、与 Cookie 绑定。伪造、复用、跨浏览器、缺失 `state` 或 Cookie 一律拒绝并返回可读提示，不会降级为跳过校验继续登录 |
+
+流程是前端拿 `code` 与 `state` 直接换本地 JWT，没有 `sso_ticket` 中间票据，也没有票据表；code 的一次性由企业微信保证。登录成功后仍签发本系统 JWT（`sub` / `role` / `tv`），后续鉴权与本地登录完全一致。首次登录 JIT 建号：`auth_source=SSO`、`role=WORKER`、`workshop_scope=NULL`、`must_change_password=0`。SSO 账号不能用本地密码登录，`POST /api/auth/login` 返回「该账号需使用企业微信扫码登录」；回调按 `sso:<ip>` 限流。
+
+边界行为：
+
+- 同时打开两个登录页：复用同一 `sso_browser` Cookie，各自持有独立 `state`，两个都可完成。
+- 授权超时：超过 5 分钟的 `state` 被拒绝，提示重新扫码。
+- 重复回调：`state` 已被消费，第二次返回 400，不会重复签发令牌。
+- 直接访问回调页且无 `state`：前端在调用后端前提示「缺少登录会话标识，请从登录页重新扫码」。`[代码实证]`
 
 ---
 
