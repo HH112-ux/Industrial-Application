@@ -184,6 +184,9 @@ docker exec zhizao-mqtt mosquitto_pub -h localhost \
 | `AI_MODEL` | 模型名称 | `gpt-4o-mini` | 否 | `gpt-4o-mini` |
 | `AI_MAX_ROWS` | Text-to-SQL 返回行数上限 | `200` | 否 | `200` |
 | `AI_QUERY_TIMEOUT_SECONDS` | Text-to-SQL 语句超时 | `3` | 否 | `3` |
+| `AI_DATASOURCE_URL` | AI 专属只读数据源 JDBC 地址 | 空 | 否 | `jdbc:mysql://...` |
+| `AI_DATASOURCE_USERNAME` | AI 只读账号 | 空 | 配置 url 时建议填写 | `ai_reader` |
+| `AI_DATASOURCE_PASSWORD` | AI 只读账号口令 | 空 | 配置 url 时建议填写 | 由部署环境注入 |
 
 ## 打包与部署
 
@@ -379,7 +382,7 @@ mvn test
 - 已有 `/actuator/health`、`/actuator/info`、`/actuator/metrics` 与带 `traceId` 的标准输出日志；业务指标已覆盖设备在线、上报、报工、节拍与齐套率，但没有告警阈值与集中采集
 - 测试 140 个（137 单元 + 3 Testcontainers 集成）；集成用例覆盖状态机流转与真实并发冲突，仅在 Docker 可用时执行；移动端构建未纳入 CI
 - 完整 Docker Compose 五服务栈未在本机实测（本机端口被本地 MySQL/Redis 占用）
-- AI 能力已落地（S8），默认关闭：`AI_ENABLED=false` 时三个 `/api/ai/**` 端点返回 HTTP 503 + 业务码 503，其余功能不受影响；开启后默认使用离线假模型，CI 不需要网络与密钥。AI 只调用只读工具、只返回建议文本，自然语言报工只产出待确认草稿；Text-to-SQL 仅 ADMIN 可用，只允许查询 5 个只读视图并强制行数上限。模型超时或返回非法内容时降级为「建议暂不可用」，不影响主链路
+- AI 能力已落地（S8），默认关闭：`AI_ENABLED=false` 时三个 `/api/ai/**` 端点返回 HTTP 503 + 业务码 503，其余功能不受影响；开启后默认使用离线假模型，CI 不需要网络与密钥。AI 只调用只读工具、只返回建议文本，自然语言报工只产出待确认草稿；Text-to-SQL 仅 ADMIN 可用，只允许查询 5 个只读视图并强制行数上限。配置 `AI_DATASOURCE_URL` 后使用独立只读账号；未配置时回落主数据源，但查询强制只读会话并在启动时输出 WARN，不会假装已隔离。模型超时或返回非法内容时降级为「建议暂不可用」，不影响主链路
 
 ## 许可
 
