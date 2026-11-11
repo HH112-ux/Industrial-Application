@@ -5,6 +5,7 @@ import com.zhizao.controller.AuthController;
 import com.zhizao.dto.LoginResponse;
 import com.zhizao.mapper.SysUserMapper;
 import com.zhizao.service.AuthService;
+import com.zhizao.sso.SsoAuthService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringBootConfiguration;
@@ -51,6 +52,9 @@ class CorsHttpTest {
 
     @MockBean
     private AuthService authService;
+
+    @MockBean
+    private SsoAuthService ssoAuthService;
 
     @MockBean
     private LoginRateLimiter loginRateLimiter;
