@@ -50,6 +50,9 @@ logging:
 app:
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:8081}
+  sso:
+    # 假身份提供方仅用于 dev/test，且必须显式开启；生产环境不装配该 Bean
+    fake-provider-enabled: ${SSO_FAKE_PROVIDER_ENABLED:false}
 
 mqtt:
   enabled: ${MQTT_ENABLED:false}
