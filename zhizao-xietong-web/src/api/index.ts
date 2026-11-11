@@ -158,6 +158,7 @@ export interface ScheduleEntry {
   deviceId?: number;
   deviceNo?: string;
   deviceName?: string;
+  deviceWorkshop?: string;
   startTime?: string;
   endTime?: string;
   durationHours?: number;

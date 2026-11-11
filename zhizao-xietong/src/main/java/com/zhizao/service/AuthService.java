@@ -101,7 +101,7 @@ public class AuthService {
      *
      * @param username 当前登录用户名
      * @param req      改密请求
-     * @throws BadRequestException 原密码为空或新口令不满足强度要求时抛出，返回 HTTP 400
+     * @throws BadRequestException 原密码为空、新口令不满足强度要求或与原口令相同时抛出，返回 HTTP 400
      * @throws BusinessException   用户不存在、原密码错误或新密码为空时抛出
      */
     @Transactional
@@ -121,6 +121,9 @@ public class AuthService {
         }
         if (req.newPassword().length() < MIN_PASSWORD_LENGTH) {
             throw new BadRequestException("新密码长度不能少于 " + MIN_PASSWORD_LENGTH + " 位");
+        }
+        if (passwordEncoder.matches(req.newPassword(), user.getPassword())) {
+            throw new BadRequestException("新密码不能与原密码相同");
         }
         user.setPassword(passwordEncoder.encode(req.newPassword()));
         user.setTokenVersion(tokenVersion(user) + 1);

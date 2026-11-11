@@ -1,5 +1,7 @@
 package com.zhizao.ai;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.jdbc.core.ColumnMapRowMapper;
 import org.springframework.jdbc.core.JdbcTemplate;
 
@@ -20,9 +22,15 @@ import java.util.Map;
  * <p>配置了独立只读账号时使用专属连接池，会话保持只读；未配置时回落主数据源，
  * 查询结束后必须恢复 {@code READ WRITE}，避免只读状态污染业务连接。</p>
  *
+ * <p>已知限制：回落主数据源时，如果恢复语句本身失败，连接可能带着只读会话状态回到连接池。
+ * 这里只记录告警，不做关闭或驱逐：连接池无法可靠验证会话状态，强行清理可能误伤正常连接。
+ * 生产环境应配置独立只读账号，从源头上避免共享连接的会话状态污染。</p>
+ *
  * @author Caspian
  */
 public class AiQueryExecutor {
+
+    private static final Logger log = LoggerFactory.getLogger(AiQueryExecutor.class);
 
     private static final String READ_ONLY = "SET SESSION TRANSACTION READ ONLY";
     private static final String READ_WRITE = "SET SESSION TRANSACTION READ WRITE";
@@ -75,10 +83,29 @@ public class AiQueryExecutor {
                 }
             } finally {
                 if (!dedicatedReadOnlyAccount) {
-                    execute(con, READ_WRITE);
+                    restoreReadWrite(con, sql);
                 }
             }
         });
+    }
+
+    /**
+     * 恢复共享连接的读写状态。
+     *
+     * <p>恢复失败只告警、不抛出：此处已在 {@code finally} 中，抛出会覆盖查询本身的异常，
+     * 调用方将看不到真正的失败原因。恢复失败的连接可能以只读状态回到连接池，
+     * 当前没有可靠手段验证或精确驱逐该连接，因此不做额外清理。</p>
+     *
+     * @param con 连接
+     * @param sql 本次查询 SQL，仅用于告警定位
+     */
+    private void restoreReadWrite(Connection con, String sql) {
+        try {
+            execute(con, READ_WRITE);
+        } catch (SQLException ex) {
+            log.warn("AI 查询恢复 READ WRITE 失败，连接可能以只读状态回池，"
+                    + "建议配置独立只读数据源。sql={}", sql, ex);
+        }
     }
 
     private void execute(Connection con, String sql) throws SQLException {

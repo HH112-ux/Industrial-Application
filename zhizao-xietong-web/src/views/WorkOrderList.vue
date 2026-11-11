@@ -91,8 +91,12 @@
         <el-table-column label="工序" width="140">
           <template #default="{ row }">{{ row.operationSeq }} · {{ row.operationName || '—' }}</template>
         </el-table-column>
-        <el-table-column label="设备" min-width="130">
-          <template #default="{ row }">{{ row.deviceName || row.deviceNo || row.deviceType || '—' }}</template>
+        <el-table-column label="设备" min-width="150">
+          <template #default="{ row }">
+            {{ row.deviceName || row.deviceNo || row.deviceType || '—' }}
+            <span v-if="row.deviceWorkshop && row.workshop && row.deviceWorkshop !== row.workshop"
+              class="cross-workshop">跨车间 · {{ row.deviceWorkshop }}</span>
+          </template>
         </el-table-column>
         <el-table-column label="占用时间" min-width="220">
           <template #default="{ row }">{{ formatWindow(row.startTime, row.endTime) }}</template>
@@ -330,6 +334,11 @@ onMounted(load);
   padding: 24px 0;
 }
 .estimate-tag {
+  color: var(--zhizao-accent2);
+  font-size: 12px;
+  margin-left: 4px;
+}
+.cross-workshop {
   color: var(--zhizao-accent2);
   font-size: 12px;
   margin-left: 4px;

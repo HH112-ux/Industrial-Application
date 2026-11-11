@@ -22,7 +22,9 @@
           <div v-for="row in rows" :key="row.deviceId" class="row">
             <div class="device-col">
               <div class="device-no">{{ row.deviceNo || `#${row.deviceId}` }}</div>
-              <div class="device-name">{{ row.deviceName || row.deviceType || '' }}</div>
+              <div class="device-name">
+                {{ row.deviceName || row.deviceType || '' }}<span v-if="row.workshop"> · {{ row.workshop }}</span>
+              </div>
             </div>
             <div class="track">
               <div v-for="bar in row.bars" :key="bar.entry.id" class="bar"
@@ -58,6 +60,7 @@ interface DeviceRow {
   deviceNo?: string;
   deviceName?: string;
   deviceType?: string;
+  workshop?: string;
   bars: Bar[];
 }
 
@@ -101,6 +104,7 @@ const rows = computed<DeviceRow[]>(() => {
         deviceNo: entry.deviceNo,
         deviceName: entry.deviceName,
         deviceType: entry.deviceType,
+        workshop: entry.deviceWorkshop,
         bars: []
       };
       grouped.set(entry.deviceId, row);
@@ -135,9 +139,10 @@ function formatTime(value?: string): string {
 
 function barTitle(entry: ScheduleEntry): string {
   const device = entry.deviceName || entry.deviceNo || entry.deviceType || '—';
+  const deviceLabel = entry.deviceWorkshop ? `${device}（${entry.deviceWorkshop}）` : device;
   const source = entry.hoursSource === 'ESTIMATED' ? '估算工时' : '标准工时';
   return `${entry.orderNo || `工单 ${entry.workOrderId}`}｜${entry.productName || ''}`
-    + `｜工序 ${entry.operationSeq} ${entry.operationName || ''}｜${device}`
+    + `｜工序 ${entry.operationSeq} ${entry.operationName || ''}｜${deviceLabel}`
     + `｜${formatTime(entry.startTime)} ~ ${formatTime(entry.endTime)}`
     + `｜${entry.durationHours ?? '—'} 小时（${source}）｜队列第 ${entry.queueRank} 位：${entry.rankBasis}`;
 }

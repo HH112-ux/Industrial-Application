@@ -167,6 +167,16 @@ class AuthServiceTest {
     }
 
     @Test
+    void changePasswordRejectsSameAsOldPassword() {
+        when(userMapper.selectOne(any())).thenReturn(user(1, 2));
+        when(passwordEncoder.matches("old-pass", "encoded")).thenReturn(true);
+
+        assertThrows(BadRequestException.class,
+                () -> authService.changePassword("admin", new PasswordChangeRequest("old-pass", "old-pass")));
+        verify(userMapper, never()).updateById(any(SysUser.class));
+    }
+
+    @Test
     void changePasswordRejectsBlankOldPasswordAsBadRequest() {
         when(userMapper.selectOne(any())).thenReturn(user(1, 2));
 

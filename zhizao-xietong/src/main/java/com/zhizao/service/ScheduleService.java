@@ -210,11 +210,15 @@ public class ScheduleService {
     }
 
     /**
-     * 查询所选日期范围内、当前用户车间可见设备的排程占用。
+     * 查询所选日期范围内、当前用户车间可见工单的设备占用。
      *
-     * <p>只返回已排入（有设备与时间窗）的记录，无法排入的冲突记录不占用设备，
-     * 不进入设备时间轴。日期范围按工单车间设备过滤后再取排程记录，
-     * 非管理员不会看到其他车间的设备占用。</p>
+     * <p>数据域按工单归属判断，而不是按设备归属：排程允许把工单落到其他车间的同类型设备上。
+     * 若先按设备车间缩小范围，本车间工单排到外车间设备时会在本车间时间轴里消失，造成漏数据；
+     * 只按设备过滤还会把外车间工单显示在本车间设备上，造成越权。因此这里先取时间窗内的
+     * 排程记录，再用带车间条件的工单查询过滤，只展示本人数据域内的工单；设备按实际落位展示，
+     * 并通过 {@code deviceWorkshop} 标注设备所属车间，跨车间时前端负责提示。</p>
+     *
+     * <p>只返回已排入（有设备与时间窗）的记录，无法排入的冲突记录不占用设备，不进入时间轴。</p>
      *
      * @param from 起始日期（含）
      * @param to   结束日期（含）
@@ -232,27 +236,26 @@ public class ScheduleService {
             throw new BadRequestException("设备时间轴最多查询 " + MAX_TIMELINE_DAYS + " 天");
         }
         String workshop = dataScope.workshopFilter();
-        List<Device> devices = deviceMapper.selectList(new LambdaQueryWrapper<Device>()
-                .eq(workshop != null, Device::getWorkshop, workshop)
-                .orderByAsc(Device::getDeviceNo)
-                .orderByAsc(Device::getId));
-        if (devices.isEmpty()) {
+        if (workshop != null && !StringUtils.hasText(workshop)) {
             return List.of();
         }
-        Map<Long, Device> deviceById = devices.stream()
-                .collect(toMap(Device::getId, device -> device, (a, b) -> a, LinkedHashMap::new));
         List<ScheduleEntry> entries = scheduleEntryMapper.selectList(new LambdaQueryWrapper<ScheduleEntry>()
-                .in(ScheduleEntry::getDeviceId, deviceById.keySet())
                 .eq(ScheduleEntry::getStatus, ScheduleStatus.SCHEDULED.name())
                 .ge(ScheduleEntry::getEndTime, from.atStartOfDay())
                 .lt(ScheduleEntry::getStartTime, to.plusDays(1).atStartOfDay())
-                .orderByAsc(ScheduleEntry::getDeviceId)
                 .orderByAsc(ScheduleEntry::getStartTime));
         if (entries.isEmpty()) {
             return List.of();
         }
-        Map<Long, WorkOrder> orders = loadOrders(entries);
-        return entries.stream()
+        Map<Long, WorkOrder> orders = loadOrders(entries, workshop);
+        List<ScheduleEntry> visible = workshop == null ? entries : entries.stream()
+                .filter(entry -> orders.containsKey(entry.getWorkOrderId()))
+                .toList();
+        if (visible.isEmpty()) {
+            return List.of();
+        }
+        Map<Long, Device> deviceById = loadDevices(visible);
+        return visible.stream()
                 .map(entry -> toView(entry, orders.get(entry.getWorkOrderId()),
                         deviceById.get(entry.getDeviceId())))
                 .sorted(Comparator.comparing(ScheduleEntryView::deviceNo,
@@ -263,18 +266,22 @@ public class ScheduleService {
     }
 
     /**
-     * 批量读取排程记录涉及的工单，避免逐条反查。
+     * 批量读取排程记录涉及的工单，并按车间数据域过滤，避免逐条反查。
      *
-     * @param entries 排程记录
-     * @return 工单主键到工单
+     * @param entries  排程记录
+     * @param workshop 车间数据域；null 表示不限制
+     * @return 数据域内工单主键到工单
      */
-    private Map<Long, WorkOrder> loadOrders(List<ScheduleEntry> entries) {
+    private Map<Long, WorkOrder> loadOrders(List<ScheduleEntry> entries, String workshop) {
         List<Long> orderIds = entries.stream().map(ScheduleEntry::getWorkOrderId)
                 .filter(Objects::nonNull).distinct().toList();
         if (orderIds.isEmpty()) {
             return Map.of();
         }
-        return workOrderMapper.selectBatchIds(orderIds).stream()
+        return workOrderMapper.selectList(new LambdaQueryWrapper<WorkOrder>()
+                        .in(WorkOrder::getId, orderIds)
+                        .eq(workshop != null, WorkOrder::getWorkshop, workshop))
+                .stream()
                 .collect(toMap(WorkOrder::getId, order -> order, (a, b) -> a));
     }
 
@@ -311,6 +318,7 @@ public class ScheduleService {
                 entry.getOperationSeq(), entry.getOperationName(), entry.getDeviceType(),
                 entry.getDeviceId(), device == null ? null : device.getDeviceNo(),
                 device == null ? null : device.getDeviceName(),
+                device == null ? null : device.getWorkshop(),
                 entry.getStartTime(), entry.getEndTime(), entry.getDurationHours(),
                 entry.getHoursSource(), entry.getQueueRank(), entry.getRankBasis(),
                 entry.getStatus(), entry.getConflictCode(), entry.getMessage());
