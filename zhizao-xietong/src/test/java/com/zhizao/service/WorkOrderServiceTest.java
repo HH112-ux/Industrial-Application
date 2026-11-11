@@ -80,6 +80,8 @@ class WorkOrderServiceTest {
     private CodeGenerator codeGenerator;
     @Mock
     private BusinessMetrics businessMetrics;
+    @Mock
+    private FinishedGoodsInboundService finishedGoodsInboundService;
 
     private WorkOrderService workOrderService;
 
@@ -88,7 +90,7 @@ class WorkOrderServiceTest {
         workOrderService = new WorkOrderService(
                 workOrderMapper, workOrderReportMapper, qualityRecordMapper, planMapper,
                 statusHistoryMapper, scheduleEntryMapper, deviceMapper, new WorkOrderStateMachine(), kitCheckService,
-                processService, codeGenerator, new DataScope(), businessMetrics);
+                processService, codeGenerator, new DataScope(), businessMetrics, finishedGoodsInboundService);
     }
 
     @AfterEach
@@ -481,6 +483,57 @@ class WorkOrderServiceTest {
         assertEquals("PENDING_QC", history.getFromStatus());
         assertEquals("FINISHED", history.getToStatus());
         assertEquals("lisi", history.getOperator());
+    }
+
+    @Test
+    void qcPassGeneratesPendingInboundAfterFinish() {
+        WorkOrder order = order("PENDING_QC");
+        order.setQtyQualified(8);
+        when(workOrderMapper.selectById(1L)).thenReturn(order);
+        when(codeGenerator.next("QC")).thenReturn("QC-202609-0001");
+        when(workOrderMapper.updateById(order)).thenReturn(1);
+        when(workOrderMapper.selectCount(any())).thenReturn(1L);
+
+        workOrderService.qc(1L, new QcRequest("PASS", null), "lisi");
+
+        verify(finishedGoodsInboundService).generateFor(order);
+    }
+
+    @Test
+    void qcFailResetsCurrentRoundQualifiedQuantity() {
+        WorkOrder order = order("PENDING_QC");
+        order.setQtyDone(10);
+        order.setQtyQualified(8);
+        order.setQtyDefect(2);
+        when(workOrderMapper.selectById(1L)).thenReturn(order);
+        when(codeGenerator.next("QC")).thenReturn("QC-202609-0001");
+        when(workOrderMapper.updateById(order)).thenReturn(1);
+
+        WorkOrder result = workOrderService.qc(1L, new QcRequest("FAIL", "尺寸超差"), "lisi");
+
+        assertEquals(0, result.getQtyQualified(), "质检失败整轮退回，本轮合格数应清零");
+        assertEquals(10, result.getQtyRework());
+        verify(finishedGoodsInboundService, never()).generateFor(any());
+    }
+
+    @Test
+    void reworkRoundDoesNotDoubleCountQualifiedQuantity() {
+        WorkOrder order = order("PENDING_QC");
+        order.setQtyDone(10);
+        order.setQtyQualified(10);
+        when(workOrderMapper.selectById(1L)).thenReturn(order);
+        when(codeGenerator.next("QC")).thenReturn("QC-202609-0001", "QC-202609-0002");
+        when(workOrderMapper.updateById(order)).thenReturn(1);
+
+        workOrderService.qc(1L, new QcRequest("FAIL", "尺寸超差"), "lisi");
+        when(codeGenerator.next("RP")).thenReturn("RP-202609-0001");
+        workOrderService.report(1L, new ReportRequest(10, 10, 0, null, null), "zhangsan");
+        assertEquals(10, order.getQtyQualified(), "返工重报后本轮合格数应为 10，而不是 20");
+
+        when(workOrderMapper.selectCount(any())).thenReturn(1L);
+        workOrderService.qc(1L, new QcRequest("PASS", null), "lisi");
+        assertEquals(10, order.getQtyQualified(), "返工重报后本轮合格数应为 10，而不是 20");
+        verify(finishedGoodsInboundService).generateFor(order);
     }
 
     @Test
