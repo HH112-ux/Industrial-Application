@@ -35,7 +35,7 @@
               <span><el-button link type="primary" disabled>报工</el-button></span>
             </el-tooltip>
             <el-button v-else-if="row.status === 'IN_PRODUCTION'" link type="primary" @click="openReport(row)">报工</el-button>
-            <el-button v-if="row.status === 'PENDING_QC'" link type="warning" @click="openQc(row)">质检</el-button>
+            <el-button v-if="row.status === 'PENDING_QC' && canQc()" link type="warning" @click="openQc(row)">质检</el-button>
             <el-button link type="primary" @click="openSchedule(row)">排程</el-button>
             <el-button link type="info" @click="openHistory(row)">流转记录</el-button>
           </template>
@@ -135,6 +135,7 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue';
 import { scheduleApi, workOrderApi, type ScheduleEntry, type WorkOrder, type WorkOrderHistory } from '@/api';
+import { getUser } from '@/api/request';
 import { workOrderStatusMap } from '@/utils/dict';
 import StatusTag from '@/components/StatusTag.vue';
 
@@ -176,6 +177,11 @@ function formatWindow(start?: string, end?: string): string {
 
 function newIdempotencyKey(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
+// 质检是判定动作，后端只放行 ADMIN / USER；WORKER 隐藏按钮，避免点了才报 403。
+function canQc(): boolean {
+  return getUser()?.role !== 'WORKER';
 }
 
 // 报工累计口径在返工场景会超过计划数量，进度条封顶 100%，绝对数另行展示。
