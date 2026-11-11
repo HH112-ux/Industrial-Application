@@ -9,6 +9,7 @@ import com.zhizao.common.BusinessException;
 import com.zhizao.entity.FinishedGoodsInbound;
 import com.zhizao.entity.WorkOrder;
 import com.zhizao.mapper.FinishedGoodsInboundMapper;
+import com.zhizao.mapper.FinishedGoodsStockMapper;
 import com.zhizao.security.DataScope;
 import com.zhizao.security.UserPrincipal;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
@@ -33,6 +34,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -44,6 +46,9 @@ class FinishedGoodsInboundServiceTest {
     @Mock
     private FinishedGoodsInboundMapper inboundMapper;
 
+    @Mock
+    private FinishedGoodsStockMapper stockMapper;
+
     private FinishedGoodsInboundService inboundService;
 
     @BeforeAll
@@ -54,7 +59,7 @@ class FinishedGoodsInboundServiceTest {
 
     @BeforeEach
     void setUp() {
-        inboundService = new FinishedGoodsInboundService(inboundMapper, new DataScope());
+        inboundService = new FinishedGoodsInboundService(inboundMapper, stockMapper, new DataScope());
     }
 
     @AfterEach
@@ -161,9 +166,52 @@ class FinishedGoodsInboundServiceTest {
         assertEquals("zhangsan", result.getOperator());
     }
 
+    @Test
+    void confirmAccumulatesStockAfterConditionalUpdate() {
+        FinishedGoodsInbound confirmed = pendingInbound();
+        confirmed.setStatus("INBOUND");
+        when(inboundMapper.selectById(1L)).thenReturn(pendingInbound(), confirmed);
+        when(inboundMapper.confirm(1L, "B-9", "zhangsan")).thenReturn(1);
+
+        FinishedGoodsInbound result = inboundService.confirm(1L, "B-9", "zhangsan");
+
+        assertEquals("INBOUND", result.getStatus());
+        verify(stockMapper).accumulate("P-100", "一车间", 8);
+    }
+
+    @Test
+    void confirmReportsConflictWhenAlreadyHandled() {
+        FinishedGoodsInbound cancelled = pendingInbound();
+        cancelled.setStatus("CANCELLED");
+        when(inboundMapper.selectById(1L)).thenReturn(pendingInbound(), cancelled);
+        when(inboundMapper.confirm(1L, "", "zhangsan")).thenReturn(0);
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> inboundService.confirm(1L, null, "zhangsan"));
+
+        assertEquals(409, error.getCode());
+        assertTrue(error.getMessage().contains("已确认或已取消"));
+        verify(stockMapper, never()).accumulate(any(), any(), anyInt());
+    }
+
+    @Test
+    void confirmReportsConflictWhenQuantityExceedsQualified() {
+        when(inboundMapper.selectById(1L)).thenReturn(pendingInbound());
+        when(inboundMapper.confirm(1L, "", "zhangsan")).thenReturn(0);
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> inboundService.confirm(1L, null, "zhangsan"));
+
+        assertEquals(409, error.getCode());
+        assertTrue(error.getMessage().contains("超过"));
+        verify(stockMapper, never()).accumulate(any(), any(), anyInt());
+    }
+
     private FinishedGoodsInbound pendingInbound() {
         FinishedGoodsInbound record = new FinishedGoodsInbound();
         record.setId(1L);
+        record.setProductCode("P-100");
+        record.setQty(8);
         record.setWorkshop("一车间");
         record.setStatus("PENDING");
         return record;

@@ -7,9 +7,11 @@ import com.zhizao.common.BadRequestException;
 import com.zhizao.common.BusinessException;
 import com.zhizao.common.PageResult;
 import com.zhizao.entity.FinishedGoodsInbound;
+import com.zhizao.entity.FinishedGoodsStock;
 import com.zhizao.entity.WorkOrder;
 import com.zhizao.enums.WorkOrderStatus;
 import com.zhizao.mapper.FinishedGoodsInboundMapper;
+import com.zhizao.mapper.FinishedGoodsStockMapper;
 import com.zhizao.security.DataScope;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
@@ -33,10 +35,14 @@ public class FinishedGoodsInboundService {
     private static final DateTimeFormatter BATCH_DATE = DateTimeFormatter.ofPattern("yyyyMMdd");
 
     private final FinishedGoodsInboundMapper inboundMapper;
+    private final FinishedGoodsStockMapper stockMapper;
     private final DataScope dataScope;
 
-    public FinishedGoodsInboundService(FinishedGoodsInboundMapper inboundMapper, DataScope dataScope) {
+    public FinishedGoodsInboundService(FinishedGoodsInboundMapper inboundMapper,
+                                       FinishedGoodsStockMapper stockMapper,
+                                       DataScope dataScope) {
         this.inboundMapper = inboundMapper;
+        this.stockMapper = stockMapper;
         this.dataScope = dataScope;
     }
 
@@ -121,6 +127,49 @@ public class FinishedGoodsInboundService {
             throw new BusinessException(409, "入库单已确认或已取消，请刷新后重试");
         }
         return inboundMapper.selectById(id);
+    }
+
+    /**
+     * 确认入库：条件更新成功后再原子累加成品库存，两步在同一事务内。
+     *
+     * <p>条件更新同时约束「待入库」与「不超过 min(计划数, 合格数) - 已入库数」，
+     * 命中 0 行时回读单据区分原因：已处理或数量超额，均返回业务码 409。</p>
+     */
+    @Transactional
+    public FinishedGoodsInbound confirm(Long id, String batch, String operator) {
+        FinishedGoodsInbound record = inboundMapper.selectById(id);
+        if (record == null) {
+            throw new BusinessException("入库单不存在");
+        }
+        dataScope.requireWorkshop(record.getWorkshop());
+        String trimmed = batch == null ? "" : batch.trim();
+        if (trimmed.length() > 64) {
+            throw new BadRequestException("批次号不能超过 64 字");
+        }
+        int updated = inboundMapper.confirm(id, trimmed, operator);
+        if (updated == 0) {
+            FinishedGoodsInbound current = inboundMapper.selectById(id);
+            if (current == null || !FinishedGoodsInbound.STATUS_PENDING.equals(current.getStatus())) {
+                throw new BusinessException(409, "入库单已确认或已取消，请刷新后重试");
+            }
+            throw new BusinessException(409, "入库数量超过计划数或合格数，无法确认");
+        }
+        stockMapper.accumulate(record.getProductCode(), record.getWorkshop(), qtyValue(record.getQty()));
+        return inboundMapper.selectById(id);
+    }
+
+    /**
+     * 分页查询成品库存，按车间数据域过滤；未配置车间的账号返回空列表。
+     */
+    public PageResult<FinishedGoodsStock> stockList(int pageNum, int pageSize, String keyword) {
+        Page<FinishedGoodsStock> page = new Page<>(pageNum, pageSize);
+        LambdaQueryWrapper<FinishedGoodsStock> qw = new LambdaQueryWrapper<>();
+        qw.like(StringUtils.hasText(keyword), FinishedGoodsStock::getProductCode, keyword);
+        String scope = dataScope.workshopFilter();
+        qw.eq(scope != null, FinishedGoodsStock::getWorkshop, scope);
+        qw.orderByDesc(FinishedGoodsStock::getQty).orderByAsc(FinishedGoodsStock::getProductCode);
+        stockMapper.selectPage(page, qw);
+        return PageResult.of(page.getTotal(), page.getRecords());
     }
 
     private static int qtyValue(Integer qty) {
