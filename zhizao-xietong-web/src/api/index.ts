@@ -274,10 +274,24 @@ export interface UserAccount {
   nickname?: string;
   role: string;
   enabled: boolean;
+  mustChangePassword?: boolean;
   workshopScope?: string | null;
   authSource?: string;
   departmentIds?: string | null;
   createdAt?: string;
+}
+
+export interface UserCreatePayload {
+  username: string;
+  nickname: string;
+  role: string;
+  workshopScope?: string;
+  password?: string;
+}
+
+export interface UserCreateResult {
+  user: UserAccount;
+  initialPassword?: string | null;
 }
 
 export const userApi = {
@@ -285,6 +299,8 @@ export const userApi = {
   changePassword: (oldPassword: string, newPassword: string) =>
     request.post('/users/me/password', { oldPassword, newPassword }),
   list: (params: Record<string, any>) => request.get<any, PageResult<UserAccount>>('/users', { params }),
+  create: (data: UserCreatePayload) => request.post<any, UserCreateResult>('/users', data),
+  delete: (id: number) => request.delete(`/users/${id}`),
   changeStatus: (id: number, enabled: boolean) =>
     request.post(`/users/${id}/status`, null, { params: { enabled } }),
   resetPassword: (id: number, newPassword: string) =>

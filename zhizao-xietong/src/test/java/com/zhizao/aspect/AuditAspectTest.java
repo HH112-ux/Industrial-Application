@@ -42,7 +42,7 @@ class AuditAspectTest {
     @Test
     void createAccountPasswordFieldsAreMaskedBeforePersisting() {
         AuditAspect aspect = new AuditAspect(null, new ObjectMapper(), transactionManager());
-        UserView view = new UserView(7L, "wangwu", "王五", "USER", true, "一车间", "LOCAL", null, null);
+        UserView view = new UserView(7L, "wangwu", "王五", "USER", true, false, "一车间", "LOCAL", null, null);
         String json = aspect.serializeArgs(new Object[]{
                 new UserCreateRequest("wangwu", "王五", "USER", "一车间", "given-secret"),
                 new UserCreateResponse(view, "generated-secret")});
