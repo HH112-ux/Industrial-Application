@@ -183,7 +183,8 @@ class FinishedGoodsInboundServiceTest {
     void confirmReportsConflictWhenAlreadyHandled() {
         FinishedGoodsInbound cancelled = pendingInbound();
         cancelled.setStatus("CANCELLED");
-        when(inboundMapper.selectById(1L)).thenReturn(pendingInbound(), cancelled);
+        when(inboundMapper.selectById(1L)).thenReturn(pendingInbound());
+        when(inboundMapper.selectByIdForUpdate(1L)).thenReturn(cancelled);
         when(inboundMapper.confirm(1L, "", "zhangsan")).thenReturn(0);
 
         BusinessException error = assertThrows(BusinessException.class,
@@ -197,6 +198,7 @@ class FinishedGoodsInboundServiceTest {
     @Test
     void confirmReportsConflictWhenQuantityExceedsQualified() {
         when(inboundMapper.selectById(1L)).thenReturn(pendingInbound());
+        when(inboundMapper.selectByIdForUpdate(1L)).thenReturn(pendingInbound());
         when(inboundMapper.confirm(1L, "", "zhangsan")).thenReturn(0);
 
         BusinessException error = assertThrows(BusinessException.class,

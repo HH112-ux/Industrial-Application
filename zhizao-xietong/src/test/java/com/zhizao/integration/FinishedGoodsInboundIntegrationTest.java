@@ -212,30 +212,32 @@ class FinishedGoodsInboundIntegrationTest {
         FinishedGoodsInbound inbound = createPendingInbound(productCode);
         ExecutorService pool = Executors.newFixedThreadPool(2);
         CountDownLatch ready = new CountDownLatch(1);
-        List<Integer> codes = new ArrayList<>();
+        List<String> results = new ArrayList<>();
         try {
-            List<Future<Integer>> futures = new ArrayList<>();
+            List<Future<String>> futures = new ArrayList<>();
             for (int i = 0; i < 2; i++) {
                 futures.add(pool.submit(() -> {
                     ready.await();
                     try {
                         inboundService.confirm(inbound.getId(), null, "operator");
-                        return 200;
+                        return "OK";
                     } catch (BusinessException e) {
-                        return e.getCode();
+                        return e.getCode() + ":" + e.getMessage();
                     }
                 }));
             }
             ready.countDown();
-            for (Future<Integer> future : futures) {
-                codes.add(future.get(30, TimeUnit.SECONDS));
+            for (Future<String> future : futures) {
+                results.add(future.get(30, TimeUnit.SECONDS));
             }
         } finally {
             pool.shutdownNow();
         }
 
-        assertEquals(1, codes.stream().filter(code -> code == 200).count(), "并发确认只能成功一次");
-        assertEquals(1, codes.stream().filter(code -> code == 409).count(), "另一次必须返回 409");
+        assertEquals(1, results.stream().filter("OK"::equals).count(), "并发确认只能成功一次");
+        String conflict = results.stream().filter(r -> r.startsWith("409:"))
+                .findFirst().orElseThrow(() -> new AssertionError("并发确认必须有一次返回 409"));
+        assertTrue(conflict.contains("已确认或已取消"), "并发失败方应提示已被处理");
         assertEquals("INBOUND", inboundMapper.selectById(inbound.getId()).getStatus());
         assertEquals(10, stockOf(productCode).getQty(), "库存只累加一次");
     }

@@ -46,4 +46,15 @@ public interface FinishedGoodsInboundMapper extends BaseMapper<FinishedGoodsInbo
             + "WHERE i.id = #{id} AND i.status = 'PENDING' "
             + "  AND i.qty + COALESCE(s.inbound_qty, 0) <= LEAST(w.qty, COALESCE(w.qty_qualified, 0))")
     int confirm(@Param("id") Long id, @Param("batch") String batch, @Param("operator") String operator);
+
+    /**
+     * 以当前读（加锁）重新读取单据，用于条件更新命中 0 行后区分失败原因。
+     *
+     * <p>普通 SELECT 在可重复读隔离级别下会复用事务快照，可能读不到并发事务刚提交的状态。</p>
+     *
+     * @param id 入库单主键
+     * @return 最新已提交的单据，不存在时返回 null
+     */
+    @Select("SELECT * FROM fg_inbound_order WHERE id = #{id} FOR UPDATE")
+    FinishedGoodsInbound selectByIdForUpdate(@Param("id") Long id);
 }

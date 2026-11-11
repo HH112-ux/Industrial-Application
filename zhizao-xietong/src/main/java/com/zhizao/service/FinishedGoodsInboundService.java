@@ -148,7 +148,7 @@ public class FinishedGoodsInboundService {
         }
         int updated = inboundMapper.confirm(id, trimmed, operator);
         if (updated == 0) {
-            FinishedGoodsInbound current = inboundMapper.selectById(id);
+            FinishedGoodsInbound current = inboundMapper.selectByIdForUpdate(id);
             if (current == null || !FinishedGoodsInbound.STATUS_PENDING.equals(current.getStatus())) {
                 throw new BusinessException(409, "入库单已确认或已取消，请刷新后重试");
             }
