@@ -215,8 +215,13 @@ public class ScheduleService {
      * <p>数据域按工单归属判断，而不是按设备归属：排程允许把工单落到其他车间的同类型设备上。
      * 若先按设备车间缩小范围，本车间工单排到外车间设备时会在本车间时间轴里消失，造成漏数据；
      * 只按设备过滤还会把外车间工单显示在本车间设备上，造成越权。因此这里先取时间窗内的
-     * 排程记录，再用带车间条件的工单查询过滤，只展示本人数据域内的工单；设备按实际落位展示，
-     * 并通过 {@code deviceWorkshop} 标注设备所属车间，跨车间时前端负责提示。</p>
+     * 排程记录，再用带车间条件的工单查询过滤。</p>
+     *
+     * <p>数据域内的工单返回完整明细；数据域外的工单只返回占用块（{@code occupied=true}）：
+     * 仅含设备、起止时间与占用标记，工单主键、排程主键、工单号、产品、工序、工时、队列依据
+     * 一律为 null，避免通过时间轴侧推外车间单据。本车间工单跨车间落位时仍完整可见，设备按
+     * 实际落位展示并由 {@code deviceWorkshop} 标注所属车间。空闲时段不会被排程记录表示，
+     * 因此占用块本身就是「该设备在这一时段不可用」的完整信息。</p>
      *
      * <p>只返回已排入（有设备与时间窗）的记录，无法排入的冲突记录不占用设备，不进入时间轴。</p>
      *
@@ -248,16 +253,16 @@ public class ScheduleService {
             return List.of();
         }
         Map<Long, WorkOrder> orders = loadOrders(entries, workshop);
-        List<ScheduleEntry> visible = workshop == null ? entries : entries.stream()
-                .filter(entry -> orders.containsKey(entry.getWorkOrderId()))
-                .toList();
-        if (visible.isEmpty()) {
-            return List.of();
-        }
-        Map<Long, Device> deviceById = loadDevices(visible);
-        return visible.stream()
-                .map(entry -> toView(entry, orders.get(entry.getWorkOrderId()),
-                        deviceById.get(entry.getDeviceId())))
+        Map<Long, Device> deviceById = loadDevices(entries);
+        return entries.stream()
+                .map(entry -> {
+                    WorkOrder order = orders.get(entry.getWorkOrderId());
+                    Device device = deviceById.get(entry.getDeviceId());
+                    // 非管理员且工单不在数据域内（含工单已不存在）：只暴露设备占用，不暴露单据内容。
+                    return order == null && workshop != null
+                            ? occupiedView(entry, device)
+                            : toView(entry, order, device);
+                })
                 .sorted(Comparator.comparing(ScheduleEntryView::deviceNo,
                                 Comparator.nullsLast(Comparator.naturalOrder()))
                         .thenComparing(ScheduleEntryView::startTime,
@@ -321,7 +326,26 @@ public class ScheduleService {
                 device == null ? null : device.getWorkshop(),
                 entry.getStartTime(), entry.getEndTime(), entry.getDurationHours(),
                 entry.getHoursSource(), entry.getQueueRank(), entry.getRankBasis(),
-                entry.getStatus(), entry.getConflictCode(), entry.getMessage());
+                entry.getStatus(), entry.getConflictCode(), entry.getMessage(), false);
+    }
+
+    /**
+     * 构造数据域外工单的占用块：只保留设备与起止时间。
+     *
+     * <p>排程主键、工单主键、计划主键、工单号、产品、工序、工时、队列位置与说明全部置空，
+     * 不给前端留下可用于反推外车间单据的字段。</p>
+     *
+     * @param entry  排程记录
+     * @param device 设备，可为 null
+     * @return 占用块视图
+     */
+    private ScheduleEntryView occupiedView(ScheduleEntry entry, Device device) {
+        return new ScheduleEntryView(null, null, null, null, null, null, null, null, null, null,
+                entry.getDeviceId(), device == null ? null : device.getDeviceNo(),
+                device == null ? null : device.getDeviceName(),
+                device == null ? null : device.getWorkshop(),
+                entry.getStartTime(), entry.getEndTime(), null, null, null, null, null, null, null,
+                true);
     }
 
     /**

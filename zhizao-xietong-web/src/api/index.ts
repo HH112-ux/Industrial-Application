@@ -169,6 +169,8 @@ export interface ScheduleEntry {
   status: string;
   conflictCode?: string;
   message?: string;
+  /** 占用块：该时段被其他车间工单占用，除设备与起止时间外不携带任何工单内容 */
+  occupied?: boolean;
 }
 
 export interface ScheduleRunResult {
