@@ -85,6 +85,11 @@ ai:
   model: ${AI_MODEL:gpt-4o-mini}
   max-rows: ${AI_MAX_ROWS:200}
   query-timeout-seconds: ${AI_QUERY_TIMEOUT_SECONDS:3}
+  # 可选：AI 专属只读数据源；url 留空时回落主数据源，并以只读会话 + SQL 正则兜底
+  datasource:
+    url: ${AI_DATASOURCE_URL:}
+    username: ${AI_DATASOURCE_USERNAME:}
+    password: ${AI_DATASOURCE_PASSWORD:}
 
 schedule:
   daily-hours: ${SCHEDULE_DAILY_HOURS:8}
