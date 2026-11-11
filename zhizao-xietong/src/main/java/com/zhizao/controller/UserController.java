@@ -16,6 +16,7 @@ import com.zhizao.service.UserService;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -90,14 +91,34 @@ public class UserController {
     /**
      * 启用或禁用用户。禁用后该用户的已签发令牌在下一次请求即被拒绝。
      *
-     * @param id      用户主键
-     * @param enabled true 启用，false 禁用
+     * <p>不能禁用自己，也不能禁用最后一个启用的本地管理员。</p>
+     *
+     * @param id             用户主键
+     * @param enabled        true 启用，false 禁用
+     * @param authentication 当前认证信息，用于自身保护
      * @return 更新后的用户视图
      */
     @PreAuthorize("hasRole('ADMIN')")
     @PostMapping("/{id}/status")
-    public Result<UserView> changeStatus(@PathVariable Long id, @RequestParam boolean enabled) {
-        return Result.ok(userService.setEnabled(id, enabled));
+    public Result<UserView> changeStatus(@PathVariable Long id, @RequestParam boolean enabled,
+                                         Authentication authentication) {
+        return Result.ok(userService.setEnabled(id, enabled, principal(authentication).username()));
+    }
+
+    /**
+     * 软删除用户：禁用并保留用户名，同名账号不能再次创建。
+     *
+     * <p>不能删除自己，也不能删除最后一个启用的本地管理员。</p>
+     *
+     * @param id             用户主键
+     * @param authentication 当前认证信息，用于自身保护
+     * @return 空响应
+     */
+    @PreAuthorize("hasRole('ADMIN')")
+    @DeleteMapping("/{id}")
+    public Result<Void> delete(@PathVariable Long id, Authentication authentication) {
+        userService.delete(id, principal(authentication).username());
+        return Result.ok();
     }
 
     /**
