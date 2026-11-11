@@ -23,6 +23,7 @@ import java.time.LocalDateTime;
  * @param deviceId      设备主键
  * @param deviceNo      设备编号
  * @param deviceName    设备名称
+ * @param deviceWorkshop 设备所属车间；与工单车间不同表示跨车间落位
  * @param startTime     占用开始时间
  * @param endTime       占用结束时间
  * @param durationHours 占用工时（含换型）
@@ -37,7 +38,7 @@ import java.time.LocalDateTime;
 public record ScheduleEntryView(Long id, Long workOrderId, String orderNo, Long planId,
                                 String productCode, String productName, String workshop,
                                 Integer operationSeq, String operationName, String deviceType,
-                                Long deviceId, String deviceNo, String deviceName,
+                                Long deviceId, String deviceNo, String deviceName, String deviceWorkshop,
                                 LocalDateTime startTime, LocalDateTime endTime,
                                 BigDecimal durationHours, String hoursSource,
                                 Integer queueRank, String rankBasis, String status,

@@ -1,5 +1,8 @@
 package com.zhizao.service;
 
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.zhizao.common.BadRequestException;
 import com.zhizao.dto.ScheduleEntryView;
 import com.zhizao.dto.ScheduleRunResult;
@@ -16,9 +19,12 @@ import com.zhizao.mapper.ProcessOperationMapper;
 import com.zhizao.mapper.ScheduleEntryMapper;
 import com.zhizao.mapper.WorkOrderMapper;
 import com.zhizao.security.DataScope;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
@@ -67,6 +73,13 @@ class ScheduleServiceTest {
     private DataScope dataScope;
 
     private ScheduleService scheduleService;
+
+    @BeforeAll
+    static void initTableInfo() {
+        // 纯 Mockito 用例没有 MyBatis 启动流程，渲染 LambdaQueryWrapper 前需先注册实体元数据。
+        TableInfoHelper.initTableInfo(
+                new MapperBuilderAssistant(new MybatisConfiguration(), "schedule-service-test"), WorkOrder.class);
+    }
 
     @BeforeEach
     void setUp() {
@@ -329,6 +342,7 @@ class ScheduleServiceTest {
         Device device = device(1L, TYPE, "RUNNING");
         device.setDeviceNo("D-01");
         device.setDeviceName("加工中心 1");
+        device.setWorkshop("一车间");
         when(deviceMapper.selectBatchIds(any())).thenReturn(List.of(device));
 
         List<ScheduleEntryView> views = scheduleService.entries(order);
@@ -340,21 +354,21 @@ class ScheduleServiceTest {
         assertEquals("一车间", view.workshop());
         assertEquals("D-01", view.deviceNo());
         assertEquals("加工中心 1", view.deviceName());
+        assertEquals("一车间", view.deviceWorkshop());
         assertEquals("STANDARD", view.hoursSource());
         assertEquals(DAY.atTime(8, 0), view.startTime());
     }
 
     @Test
-    void deviceTimelineIncludesScopedDeviceOccupancy() {
+    void deviceTimelineIncludesScopedWorkOrderOccupancy() {
         when(dataScope.workshopFilter()).thenReturn("一车间");
+        WorkOrder order = order(101L, 1L, 5L, 8);
+        order.setOrderNo("WO-101");
+        when(workOrderMapper.selectList(any())).thenReturn(List.of(order));
         Device device = device(1L, TYPE, "RUNNING");
         device.setDeviceNo("D-01");
         device.setWorkshop("一车间");
-        when(deviceMapper.selectList(any())).thenReturn(List.of(device));
         when(deviceMapper.selectBatchIds(any())).thenReturn(List.of(device));
-        WorkOrder order = order(101L, 1L, 5L, 8);
-        order.setOrderNo("WO-101");
-        when(workOrderMapper.selectBatchIds(any())).thenReturn(List.of(order));
         ScheduleEntry entry = new ScheduleEntry();
         entry.setWorkOrderId(101L);
         entry.setPlanId(1L);
@@ -369,12 +383,60 @@ class ScheduleServiceTest {
         assertEquals(1, views.size());
         assertEquals("WO-101", views.get(0).orderNo());
         assertEquals("D-01", views.get(0).deviceNo());
+        assertEquals("一车间", views.get(0).deviceWorkshop());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void deviceTimelineHidesOtherWorkshopWorkOrders() {
+        when(dataScope.workshopFilter()).thenReturn("一车间");
+        ScheduleEntry own = scheduledEntry(101L, 1L);
+        ScheduleEntry foreign = scheduledEntry(202L, 1L);
+        when(scheduleEntryMapper.selectList(any())).thenReturn(List.of(own, foreign));
+        WorkOrder ownOrder = order(101L, 1L, 5L, 8);
+        ownOrder.setOrderNo("WO-101");
+        ownOrder.setWorkshop("一车间");
+        when(workOrderMapper.selectList(any())).thenReturn(List.of(ownOrder));
+        Device device = device(1L, TYPE, "RUNNING");
+        device.setWorkshop("一车间");
+        when(deviceMapper.selectBatchIds(any())).thenReturn(List.of(device));
+
+        List<ScheduleEntryView> views = scheduleService.deviceTimeline(DAY, DAY);
+
+        assertEquals(1, views.size(), "外车间工单不得出现在本车间用户的时间轴");
+        assertEquals(101L, views.get(0).workOrderId());
+        ArgumentCaptor<LambdaQueryWrapper<WorkOrder>> captor =
+                ArgumentCaptor.forClass(LambdaQueryWrapper.class);
+        verify(workOrderMapper).selectList(captor.capture());
+        assertTrue(captor.getValue().getSqlSegment().contains("workshop"), "工单查询必须带车间条件");
+        assertTrue(captor.getValue().getParamNameValuePairs().containsValue("一车间"));
+    }
+
+    @Test
+    void deviceTimelineShowsOwnWorkOrderOnOtherWorkshopDevice() {
+        when(dataScope.workshopFilter()).thenReturn("一车间");
+        ScheduleEntry own = scheduledEntry(101L, 9L);
+        when(scheduleEntryMapper.selectList(any())).thenReturn(List.of(own));
+        WorkOrder ownOrder = order(101L, 1L, 5L, 8);
+        ownOrder.setOrderNo("WO-101");
+        ownOrder.setWorkshop("一车间");
+        when(workOrderMapper.selectList(any())).thenReturn(List.of(ownOrder));
+        Device foreignDevice = device(9L, TYPE, "RUNNING");
+        foreignDevice.setDeviceNo("D-09");
+        foreignDevice.setWorkshop("二车间");
+        when(deviceMapper.selectBatchIds(any())).thenReturn(List.of(foreignDevice));
+
+        List<ScheduleEntryView> views = scheduleService.deviceTimeline(DAY, DAY);
+
+        assertEquals(1, views.size(), "本车间工单落到外车间设备时也必须可见");
+        assertEquals("D-09", views.get(0).deviceNo());
+        assertEquals("二车间", views.get(0).deviceWorkshop());
+        verify(deviceMapper, never()).selectList(any());
     }
 
     @Test
     void deviceTimelineReturnsNothingWhenWorkshopScopeIsEmpty() {
         when(dataScope.workshopFilter()).thenReturn("");
-        when(deviceMapper.selectList(any())).thenReturn(List.of());
 
         assertTrue(scheduleService.deviceTimeline(DAY, DAY).isEmpty());
         verify(scheduleEntryMapper, never()).selectList(any());
@@ -446,6 +508,17 @@ class ScheduleServiceTest {
         operation.setDeviceType(deviceType);
         operation.setEstHours(estHours == null ? null : new BigDecimal(estHours));
         return operation;
+    }
+
+    private ScheduleEntry scheduledEntry(long workOrderId, long deviceId) {
+        ScheduleEntry entry = new ScheduleEntry();
+        entry.setWorkOrderId(workOrderId);
+        entry.setPlanId(1L);
+        entry.setDeviceId(deviceId);
+        entry.setStartTime(DAY.atTime(8, 0));
+        entry.setEndTime(DAY.atTime(16, 0));
+        entry.setStatus(ScheduleStatus.SCHEDULED.name());
+        return entry;
     }
 
     private Device device(long id, String type, String status) {
