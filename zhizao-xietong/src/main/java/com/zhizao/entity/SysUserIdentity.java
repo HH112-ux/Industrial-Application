@@ -9,8 +9,8 @@ import java.time.LocalDateTime;
 /**
  * 外部身份映射：一个外部身份只对应一个本地账号，同一提供方下也只有一个身份。
  *
- * <p>外部唯一标识只认企微 userid 这类稳定值；姓名、手机号、邮箱仅作快照展示；
- * {@code suggestedWorkshop} 是部门推导的建议值，不是授权值。</p>
+ * <p>外部唯一标识只认企微 userid 这类稳定值；姓名、手机号、邮箱与部门仅作快照展示，
+ * 不产生任何授权值。</p>
  *
  * @author Caspian
  */
@@ -27,7 +27,6 @@ public class SysUserIdentity {
     private String mobile;
     private String email;
     private String departmentIds;
-    private String suggestedWorkshop;
     private LocalDateTime lastLoginAt;
 
     public Long getId() { return id; }
@@ -48,8 +47,6 @@ public class SysUserIdentity {
     public void setEmail(String email) { this.email = email; }
     public String getDepartmentIds() { return departmentIds; }
     public void setDepartmentIds(String departmentIds) { this.departmentIds = departmentIds; }
-    public String getSuggestedWorkshop() { return suggestedWorkshop; }
-    public void setSuggestedWorkshop(String suggestedWorkshop) { this.suggestedWorkshop = suggestedWorkshop; }
     public LocalDateTime getLastLoginAt() { return lastLoginAt; }
     public void setLastLoginAt(LocalDateTime lastLoginAt) { this.lastLoginAt = lastLoginAt; }
 }
