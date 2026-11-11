@@ -3,6 +3,7 @@ package com.zhizao.service;
 import com.zhizao.common.BadRequestException;
 import com.zhizao.common.BusinessException;
 import com.zhizao.entity.SysUser;
+import com.zhizao.mapper.DeviceMapper;
 import com.zhizao.mapper.SysUserIdentityMapper;
 import com.zhizao.mapper.SysUserMapper;
 import org.junit.jupiter.api.Test;
@@ -28,6 +29,9 @@ class UserServiceTest {
 
     @Mock
     private SysUserIdentityMapper identityMapper;
+
+    @Mock
+    private DeviceMapper deviceMapper;
 
     @Mock
     private PasswordEncoder passwordEncoder;
