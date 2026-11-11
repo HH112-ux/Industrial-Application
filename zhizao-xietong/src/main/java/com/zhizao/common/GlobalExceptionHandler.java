@@ -13,6 +13,10 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 /**
  * 全局异常处理：统一转 Result。
@@ -111,6 +115,37 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public Result<Void> handleNotReadable(HttpMessageNotReadableException e) {
         return Result.error("请求体格式错误");
+    }
+
+    /**
+     * 处理查询参数类型或格式错误，返回 HTTP 400，避免客户端错误落到兜底 500。
+     *
+     * <p>典型场景是时间参数：`from=2026-11-01` 传给需要 {@code yyyy-MM-ddTHH:mm:ss} 的
+     * {@link java.time.LocalDateTime} 参数。所有入口共用该处理，不需要逐个控制器捕获。</p>
+     *
+     * @param e 参数类型不匹配异常
+     * @return 带 HTTP 400 状态码的错误响应
+     */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<Result<Void>> handleTypeMismatch(MethodArgumentTypeMismatchException e) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                .body(Result.error(400, "参数 " + e.getName() + " 格式不正确" + expectedFormat(e.getRequiredType())));
+    }
+
+    /**
+     * 给出时间参数的期望格式，其他类型只提示格式不正确。
+     *
+     * @param type 目标类型，可能为 null
+     * @return 追加到错误文案后的格式说明
+     */
+    private String expectedFormat(Class<?> type) {
+        if (type == LocalDateTime.class) {
+            return "，时间格式应为 yyyy-MM-ddTHH:mm:ss";
+        }
+        if (type == LocalDate.class) {
+            return "，日期格式应为 yyyy-MM-dd";
+        }
+        return "";
     }
 
     @ExceptionHandler(AccessDeniedException.class)

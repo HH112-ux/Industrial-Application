@@ -79,7 +79,7 @@
 ```bash
 cp .env.example .env
 # 本地启动：编辑 .env，至少填写 DB_PASSWORD 与 JWT_SECRET（JWT_SECRET 至少 32 字节）
-# docker compose：还必须填写 MYSQL_ROOT_PASSWORD 与 JWT_SECRET，未设置会直接启动失败
+# docker compose：还必须填写 MYSQL_ROOT_PASSWORD、JWT_SECRET 与 CORS_ALLOWED_ORIGINS，未设置会直接启动失败
 ```
 
 ### 2. 创建数据库
@@ -161,7 +161,7 @@ docker exec zhizao-mqtt mosquitto_pub -h localhost \
 | `JWT_EXPIRATION` | 令牌有效期（毫秒） | `86400000` | 否 | `3600000` |
 | `REDIS_HOST` / `REDIS_PORT` | Redis 地址 | `localhost` / `6379` | 否 | `redis` / `6379` |
 | `REDIS_PASSWORD` | Redis 密码 | 空 | 否 | 由部署环境注入 |
-| `CORS_ALLOWED_ORIGINS` | 允许的前端源，逗号分隔 | `http://localhost:5173,http://localhost:8081` | 否 | `https://mes.example.com` |
+| `CORS_ALLOWED_ORIGINS` | 允许的前端源，逗号分隔 | `http://localhost:5173,http://localhost:8081` | docker compose 必填 | `https://mes.example.com` |
 | `MQTT_ENABLED` | 是否启用 MQTT 网关 | `false` | 否 | `true` |
 | `MQTT_BROKER_URL` | Broker 地址 | `tcp://localhost:1883` | 否 | `tcp://mqtt:1883` |
 | `MQTT_USERNAME` / `MQTT_PASSWORD` | Broker 账号 | 空 | 否 | 由部署环境注入 |
@@ -231,7 +231,8 @@ npm run build
 
 ```bash
 cp .env.example .env
-# 填写 MYSQL_ROOT_PASSWORD 与 JWT_SECRET
+# 填写 MYSQL_ROOT_PASSWORD、JWT_SECRET 与 CORS_ALLOWED_ORIGINS
+# CORS_ALLOWED_ORIGINS 必须包含浏览器实际访问前端的地址（协议+主机+端口），否则登录会被 403 拦截
 docker compose up -d --build
 ```
 
@@ -242,7 +243,7 @@ docker compose up -d --build
 # 成功后保留现场：./scripts/verify.sh --keep
 ```
 
-脚本使用 `13306/16379/11883/18080/18081` 避开本机端口，依次执行：登录 → 建计划 → 下达工单 → 开工 → 报工 → 质检 → 查状态历史 → 查遥测历史 → 查指标，每步输出 PASS/FAIL，失败时打印日志尾部并保留现场，成功后自动 `docker compose down -v` 清理。
+脚本使用 `13306/16379/11883/18080/18081` 避开本机端口，依次执行：带浏览器 Origin 登录（校验 CORS 白名单）→ 建计划 → 下达工单 → 开工 → 部分报工（状态不变）→ 报满转待质检 → 质检 → 查状态历史 → 查遥测历史 → 查指标，每步输出 PASS/FAIL，失败时打印日志尾部并保留现场，成功后自动 `docker compose down -v` 清理。
 
 ## 接口与文档
 
@@ -330,7 +331,7 @@ lsof -nP -iTCP:8080 -sTCP:LISTEN
 
 现象：页面请求 `/api/...` 返回 404，或浏览器提示 CORS 错误。
 
-开发环境确认前端通过 Vite 启动（5173），由 `vite.config.ts` 代理 `/api` 到 8080；直接打开 `dist/index.html` 或换用其他端口会导致代理失效。生产环境由 Nginx 代理 `/api`，并把前端域名加入 `CORS_ALLOWED_ORIGINS`。
+开发环境确认前端通过 Vite 启动（5173），由 `vite.config.ts` 代理 `/api` 到 8080；直接打开 `dist/index.html` 或换用其他端口会导致代理失效。生产环境由 Nginx 代理 `/api`，并把前端域名加入 `CORS_ALLOWED_ORIGINS`；该变量在 docker compose 中为必填，未注入时 compose 直接启动失败，不会再静默回落 `localhost`。
 
 **MQTT 连不上**
 
