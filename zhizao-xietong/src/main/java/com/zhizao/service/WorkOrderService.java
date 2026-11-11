@@ -66,6 +66,7 @@ public class WorkOrderService {
     private final CodeGenerator codeGenerator;
     private final DataScope dataScope;
     private final BusinessMetrics businessMetrics;
+    private final FinishedGoodsInboundService finishedGoodsInboundService;
 
     /**
      * 构造工单服务。
@@ -83,6 +84,7 @@ public class WorkOrderService {
      * @param codeGenerator        业务编号生成器
      * @param dataScope            车间数据域
      * @param businessMetrics      业务指标
+     * @param finishedGoodsInboundService 成品入库服务，完工后生成待入库单
      */
     public WorkOrderService(WorkOrderMapper workOrderMapper, WorkOrderReportMapper workOrderReportMapper,
                             QualityRecordMapper qualityRecordMapper, PlanMapper planMapper,
@@ -90,7 +92,8 @@ public class WorkOrderService {
                             ScheduleEntryMapper scheduleEntryMapper, DeviceMapper deviceMapper,
                             WorkOrderStateMachine stateMachine,
                             KitCheckService kitCheckService, ProcessService processService,
-                            CodeGenerator codeGenerator, DataScope dataScope, BusinessMetrics businessMetrics) {
+                            CodeGenerator codeGenerator, DataScope dataScope, BusinessMetrics businessMetrics,
+                            FinishedGoodsInboundService finishedGoodsInboundService) {
         this.workOrderMapper = workOrderMapper;
         this.workOrderReportMapper = workOrderReportMapper;
         this.qualityRecordMapper = qualityRecordMapper;
@@ -104,6 +107,7 @@ public class WorkOrderService {
         this.codeGenerator = codeGenerator;
         this.dataScope = dataScope;
         this.businessMetrics = businessMetrics;
+        this.finishedGoodsInboundService = finishedGoodsInboundService;
     }
 
     /**
@@ -357,6 +361,10 @@ public class WorkOrderService {
      * 避免满额报工后质检失败导致工单永久卡在「生产中」。本轮指上一次质检之后、
      * 当前生产阶段内的全部报工；释放后剩余可报数量回到计划数量，不会超过计划数。</p>
      *
+     * <p>{@code qtyQualified} 是「当前生产轮次的合格数」：报工时按轮次累加，
+     * FAIL 时整轮退回并清零，因此 PASS 后它就是质检通过的合格数，供成品入库使用。
+     * 这样返工重报不会把上一轮的不良批次重复计入合格数。</p>
+     *
      * <p>结论不是 PASS 或 FAIL 时在落库前拒绝，不产生质检记录。</p>
      *
      * @param id       工单主键
@@ -391,12 +399,15 @@ public class WorkOrderService {
             transitionWithHistory(order, WorkOrderStatus.FINISHED, operator, remark);
             kitCheckService.consume(order);
             maybeFinishPlan(order.getPlanId());
+            finishedGoodsInboundService.generateFor(order);
         } else {
             long rework = (long) qtyValue(order.getQtyRework()) + unreleasedReportQty(order);
             if (rework > Integer.MAX_VALUE) {
                 throw new BusinessException("可返工额度超出系统上限");
             }
             order.setQtyRework((int) rework);
+            // 整轮退回：清零本轮合格数，返工重报后从 0 重新累计，避免重复计入成品入库
+            order.setQtyQualified(0);
             transitionWithHistory(order, WorkOrderStatus.IN_PRODUCTION, operator, remark);
         }
         return order;
