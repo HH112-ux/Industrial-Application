@@ -98,13 +98,15 @@
     </el-dialog>
 
     <el-dialog v-model="resetDialog.visible" title="重置密码" width="460px">
-      <div class="dialog-hint">重置后该用户的所有旧令牌立即失效，需要用新密码重新登录。</div>
+      <div class="dialog-hint">
+        重置后该用户下次登录必须先修改密码，所有旧令牌立即失效，需要用新密码重新登录。
+      </div>
       <el-form label-width="90px">
         <el-form-item label="用户">
           <span class="cell-code">{{ resetDialog.username }}</span>
         </el-form-item>
         <el-form-item label="新密码" required>
-          <el-input v-model="resetDialog.newPassword" type="password" show-password placeholder="至少 6 位" />
+          <el-input v-model="resetDialog.newPassword" type="password" show-password placeholder="8-64 位，且不能包含用户名" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -212,8 +214,8 @@ function openReset(row: UserAccount) {
 }
 
 async function submitReset() {
-  if (resetDialog.newPassword.length < 6) {
-    ElMessage.warning('新密码至少 6 位');
+  if (resetDialog.newPassword.length < 8 || resetDialog.newPassword.length > 64) {
+    ElMessage.warning('新密码需为 8-64 位');
     return;
   }
   await userApi.resetPassword(resetDialog.id, resetDialog.newPassword);
