@@ -9,10 +9,8 @@ import com.zhizao.common.PasswordPolicy;
 import com.zhizao.dto.UserCreateRequest;
 import com.zhizao.dto.UserCreateResponse;
 import com.zhizao.dto.UserView;
-import com.zhizao.entity.Device;
 import com.zhizao.entity.SysUser;
 import com.zhizao.entity.SysUserIdentity;
-import com.zhizao.mapper.DeviceMapper;
 import com.zhizao.mapper.SysUserIdentityMapper;
 import com.zhizao.mapper.SysUserMapper;
 import org.springframework.dao.DuplicateKeyException;
@@ -57,7 +55,6 @@ public class UserService {
 
     private final SysUserMapper userMapper;
     private final SysUserIdentityMapper identityMapper;
-    private final DeviceMapper deviceMapper;
     private final PasswordEncoder passwordEncoder;
 
     /**
@@ -65,14 +62,12 @@ public class UserService {
      *
      * @param userMapper      用户数据访问
      * @param identityMapper  外部身份映射，用于展示企微部门建议值
-     * @param deviceMapper    设备数据访问，用于校验车间是否为系统现有车间
      * @param passwordEncoder 密码编码器
      */
     public UserService(SysUserMapper userMapper, SysUserIdentityMapper identityMapper,
-                       DeviceMapper deviceMapper, PasswordEncoder passwordEncoder) {
+                       PasswordEncoder passwordEncoder) {
         this.userMapper = userMapper;
         this.identityMapper = identityMapper;
-        this.deviceMapper = deviceMapper;
         this.passwordEncoder = passwordEncoder;
     }
 
@@ -155,19 +150,23 @@ public class UserService {
         return new UserCreateResponse(UserView.of(user), generated ? rawPassword : null);
     }
 
-    /** 车间以设备归属为“现有车间”口径，未维护设备的车间写入后也看不到数据，直接拒绝。 */
+    /** 车间为自由字符串：去空白、限长 32；管理员不分配车间。 */
     private String requireWorkshop(String value, String role) {
-        if (!StringUtils.hasText(value)) {
+        if (value == null) {
             return null;
+        }
+        String workshop = value.trim();
+        if (workshop.isEmpty()) {
+            if (value.isEmpty()) {
+                return null;
+            }
+            throw new BadRequestException("车间不能只包含空白字符");
+        }
+        if (workshop.length() > 32) {
+            throw new BadRequestException("车间长度不能超过 32 位");
         }
         if (ROLE_ADMIN.equals(role)) {
             throw new BadRequestException("管理员不受车间数据域限制，无需指定车间");
-        }
-        String workshop = value.trim();
-        Long count = deviceMapper.selectCount(
-                new LambdaQueryWrapper<Device>().eq(Device::getWorkshop, workshop));
-        if (count == null || count == 0) {
-            throw new BadRequestException("车间「" + workshop + "」不存在，请先在设备管理中维护该车间");
         }
         return workshop;
     }
