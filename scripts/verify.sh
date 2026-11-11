@@ -22,6 +22,8 @@ export REDIS_PORT="${REDIS_PORT:-16379}"
 export MQTT_PORT="${MQTT_PORT:-11883}"
 export BACKEND_PORT="${BACKEND_PORT:-18080}"
 export FRONTEND_PORT="${FRONTEND_PORT:-18081}"
+# CORS 白名单必须是浏览器实际访问前端的地址，验证栈默认用 127.0.0.1:前端端口
+export CORS_ALLOWED_ORIGINS="${CORS_ALLOWED_ORIGINS:-http://127.0.0.1:${FRONTEND_PORT}}"
 export MYSQL_ROOT_PASSWORD="${MYSQL_ROOT_PASSWORD:-verify-root}"
 export JWT_SECRET="${JWT_SECRET:-verify-only-jwt-secret-0123456789abcdef}"
 # 每次验证使用一次性随机管理员口令，脚本内不保存固定明文口令
@@ -99,14 +101,20 @@ else
   fail "前端不可访问（${FRONTEND_URL}）"
 fi
 
-echo "== 3. 登录 =="
-LOGIN="$(curl -sS -X POST "${BASE_URL}/api/auth/login" \
+echo "== 3. 登录（带浏览器 Origin，验证 CORS 白名单生效） =="
+LOGIN_RAW="$(curl -sS -X POST "${BASE_URL}/api/auth/login" \
   -H 'Content-Type: application/json' \
+  -H "Origin: ${FRONTEND_URL}" \
+  -w '\n%{http_code}' \
   -d '{"username":"admin","password":"'"${APP_BOOTSTRAP_ADMIN_PASSWORD}"'"}')"
+LOGIN_STATUS="${LOGIN_RAW##*$'\n'}"
+LOGIN="${LOGIN_RAW%$'\n'*}"
+[[ "$LOGIN_STATUS" == "200" ]] \
+  || fail "带 Origin 的登录请求返回 ${LOGIN_STATUS}，CORS 白名单未生效" "$LOGIN"
 TOKEN="$(printf '%s' "$LOGIN" | jq -r '.data.token // empty')"
 [[ "$(printf '%s' "$LOGIN" | jq -r '.code')" == "0" && -n "$TOKEN" ]] \
   || fail "管理员登录失败" "$LOGIN"
-pass "管理员登录并取得 JWT"
+pass "管理员登录并取得 JWT（Origin=${FRONTEND_URL}）"
 
 echo "== 4. 建计划 =="
 PLAN_BODY='{"productCode":"P-VERIFY","productName":"验证产品","planQty":50,
@@ -130,33 +138,42 @@ WO_STATUS="$(printf '%s' "$START" | jq -r '.data.status // empty')"
 [[ "$WO_STATUS" == "IN_PRODUCTION" ]] || fail "开工失败" "$START"
 pass "开工成功 状态=${WO_STATUS}"
 
-echo "== 7. 报工 =="
+echo "== 7. 部分报工（10/50，状态保持不变） =="
 REPORT="$(api POST "/api/work-orders/${WO_ID}/report" \
-  '{"qty":10,"qualifiedQty":9,"defectQty":1,"deviceId":1,"operator":"verify","idempotencyKey":"verify-'"${WO_ID}"'"}')"
+  '{"qty":10,"qualifiedQty":9,"defectQty":1,"deviceId":1,"operator":"verify","idempotencyKey":"verify-'"${WO_ID}"'-1"}')"
 WO_STATUS="$(printf '%s' "$REPORT" | jq -r '.data.status // empty')"
-[[ "$WO_STATUS" == "PENDING_QC" ]] || fail "报工失败" "$REPORT"
-pass "报工成功 状态=${WO_STATUS}"
+[[ "$WO_STATUS" == "IN_PRODUCTION" ]] || fail "部分报工后状态应为 IN_PRODUCTION" "$REPORT"
+REPORTED="$(printf '%s' "$REPORT" | jq -r '.data.qtyDone // empty')"
+[[ "$REPORTED" == "10" ]] || fail "部分报工累计数量应为 10" "$REPORT"
+pass "部分报工成功 状态=${WO_STATUS} 累计=${REPORTED}/50"
 
-echo "== 8. 质检 =="
+echo "== 8. 报满转待质检 =="
+REPORT2="$(api POST "/api/work-orders/${WO_ID}/report" \
+  '{"qty":40,"qualifiedQty":40,"defectQty":0,"deviceId":1,"operator":"verify","idempotencyKey":"verify-'"${WO_ID}"'-2"}')"
+WO_STATUS="$(printf '%s' "$REPORT2" | jq -r '.data.status // empty')"
+[[ "$WO_STATUS" == "PENDING_QC" ]] || fail "报满后状态应为 PENDING_QC" "$REPORT2"
+pass "报满转待质检 状态=${WO_STATUS}"
+
+echo "== 9. 质检 =="
 QC="$(api POST "/api/work-orders/${WO_ID}/qc" '{"result":"PASS","inspector":"verify"}')"
 WO_STATUS="$(printf '%s' "$QC" | jq -r '.data.status // empty')"
 [[ "$WO_STATUS" == "FINISHED" ]] || fail "质检失败" "$QC"
 pass "质检通过 状态=${WO_STATUS}"
 
-echo "== 9. 查状态历史 =="
+echo "== 10. 查状态历史 =="
 HISTORY="$(api GET "/api/work-orders/${WO_ID}/history")"
 HISTORY_COUNT="$(printf '%s' "$HISTORY" | jq -r '.data | length' 2>/dev/null)"
-[[ "${HISTORY_COUNT:-0}" -ge 3 ]] || fail "状态历史记录不足" "$HISTORY"
+[[ "${HISTORY_COUNT:-0}" -ge 4 ]] || fail "状态历史记录不足" "$HISTORY"
 pass "状态历史 ${HISTORY_COUNT} 条"
 
-echo "== 10. 查遥测历史 =="
+echo "== 11. 查遥测历史 =="
 TELEMETRY="$(api GET "/api/devices/1/telemetry/history?limit=10")"
 TELEMETRY_CODE="$(printf '%s' "$TELEMETRY" | jq -r '.code // empty')"
 [[ "$TELEMETRY_CODE" == "0" ]] || fail "遥测历史查询失败" "$TELEMETRY"
 TELEMETRY_COUNT="$(printf '%s' "$TELEMETRY" | jq -r '.data | length')"
 pass "遥测历史查询成功 样本数=${TELEMETRY_COUNT}"
 
-echo "== 11. 查指标 =="
+echo "== 12. 查指标 =="
 METRICS="$(api GET "/api/metrics/overview")"
 METRICS_CODE="$(printf '%s' "$METRICS" | jq -r '.code // empty')"
 [[ "$METRICS_CODE" == "0" ]] || fail "指标查询失败" "$METRICS"
