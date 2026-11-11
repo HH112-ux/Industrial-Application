@@ -1,6 +1,6 @@
 # 数据模型设计
 
-本文档描述现状数据库结构与重构目标模型。现状结构来自 `zhizao-xietong/src/main/resources/db/migration/V1__init.sql` 至 `V31__finished_goods_stock.sql`，共 **25 张表 + 5 个只读视图**；目标结构为待评审设计，不包含未执行的迁移。
+本文档描述现状数据库结构与重构目标模型。现状结构来自 `zhizao-xietong/src/main/resources/db/migration/V1__init.sql` 至 `V32__auth_event.sql`，共 **26 张表 + 5 个只读视图**（迁移号到 V32，其中 V27、V28 为空号）；目标结构为待评审设计，不包含未执行的迁移。
 
 标注说明：`[代码实证]` 表示可从当前代码或迁移脚本直接核对；`[工程判断]` 表示基于现有规模与约束提出的设计取舍；`[待确认]` 表示需要用户拍板。
 
@@ -61,6 +61,7 @@ erDiagram
 | `sys_user_identity` | `SysUserIdentity` | `SysUserIdentityMapper` | 外部身份映射（SSO） | `uk_provider_external (provider, external_id)`、`uk_user_provider (user_id, provider)`；`department_ids` 仅作展示，`suggested_workshop` 已由 V25 删除 |
 | `sys_sequence` | `Sequence` | `SequenceMapper` | 编号序列 | 主键 `seq_name` |
 | `sys_audit_log` | `AuditLog` | `AuditLogMapper` | 写操作审计 | `created_at`、`(username, created_at)`、`uri` 索引；`success`、`error_message` 由 V20 增加；无保留策略 |
+| `sys_auth_event` | 无实体，`JdbcTemplate` | — | 认证事件审计：登录、登出、SSO 换票的成功与失败 | `(created_at)`、`(username, created_at)`、`result_code` 索引；只记事件类型、结果码、原因摘要与 IP，不存请求体（V32） |
 | `ai_suggestion_log` | 无实体，`JdbcTemplate` | — | AI 建议留痕 | `(scene, created_at)` 索引；只存场景、目标、证据数与摘要，不存 prompt 原文 |
 | `ai_query_audit` | 无实体，`JdbcTemplate` | — | AI 数据问答审计 | `created_at`、`username` 索引；问题只存 SHA-256 摘要，保存实际执行的只读 SQL |
 
@@ -241,7 +242,59 @@ V9 为存量工艺回填一条「默认工序」（`seq = 1`），保证迁移�
 
 索引：`uk_stock_product_workshop (product_code, workshop)`、`idx_stock_workshop (workshop)`。库存不做历史回填，只统计本模块上线后的确认入库。`[代码实证]`
 
-迁移编号说明：V27/V28 未使用，V29/V30 为设备报警规则与记录，成品库存顺延到 V31，以保持 Flyway 单调追加、不改写已在线上执行过的版本。`[已决策]`
+迁移编号说明：V27/V28 未使用，V29/V30 为设备报警规则与记录，成品库存顺延到 V31，认证事件表为 V32，以保持 Flyway 单调追加、不改写已在线上执行过的版本。`[已决策]`
+
+#### 2.1.9 设备报警与认证事件（已落地，V29 / V30 / V32）
+
+`eq_alarm_rule`：
+
+| 字段 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| `id` | BIGINT | PK | 代理键 |
+| `device_id` | BIGINT | NOT NULL | `eq_device.id` |
+| `metric` | VARCHAR(32) | NOT NULL DEFAULT '' | 阈值指标 `temperature/rpm/current`；离线规则为空串 |
+| `rule_type` | VARCHAR(16) | NOT NULL | `THRESHOLD` 阈值越界 / `OFFLINE` 设备离线 |
+| `upper_limit` / `lower_limit` | DOUBLE | NULL | 触发边界，超过上限或低于下限 |
+| `consecutive_times` | INT | NOT NULL DEFAULT 3 | 连续越界多少次才触发 |
+| `current_streak` | INT | NOT NULL DEFAULT 0 | 当前连续越界次数，由判定逻辑维护 |
+| `enabled` | TINYINT | NOT NULL DEFAULT 1 | 1 启用 / 0 停用 |
+| `created_at` / `updated_at` | DATETIME | NOT NULL | 创建与更新时间 |
+
+索引：`uk_rule_device_type_metric (device_id, rule_type, metric)` 保证同一设备同一规则类型同一指标只有一条规则；`idx_rule_type_enabled (rule_type, enabled)` 支撑按类型扫描启用规则。迁移不预置任何规则。`[代码实证]`
+
+`eq_alarm_record`：
+
+| 字段 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| `id` | BIGINT | PK | 代理键 |
+| `device_id` | BIGINT | NOT NULL | `eq_device.id` |
+| `metric` | VARCHAR(32) | NOT NULL DEFAULT '' | 指标；离线报警为空串 |
+| `rule_type` | VARCHAR(16) | NOT NULL | `THRESHOLD` / `OFFLINE` |
+| `trigger_value` | DOUBLE | NULL | 最近一次触发值，未恢复期间持续刷新 |
+| `threshold_snapshot` | VARCHAR(128) | NOT NULL DEFAULT '' | 创建时的阈值快照，规则改动不影响已有记录 |
+| `start_time` | DATETIME | NOT NULL | 报警开始时间 |
+| `recover_time` | DATETIME | NULL | 恢复时间 |
+| `status` | VARCHAR(16) | NOT NULL | `OPEN / ACKNOWLEDGED / RECOVERED` |
+| `ack_user` / `ack_time` | VARCHAR(64) / DATETIME | NULL | 确认人与确认时间 |
+| `active_flag` | TINYINT | DEFAULT 1 | 未恢复为 1，恢复后置 `NULL`，配合唯一键去重 |
+| `created_at` / `updated_at` | DATETIME | NOT NULL | 创建与更新时间 |
+
+索引：`uk_alarm_active (device_id, rule_type, metric, active_flag)` 保证同一指标同时只有一条活动报警（MySQL 唯一索引允许多个 `NULL`，恢复后即可再次触发）；`idx_alarm_status_start (status, start_time)`、`idx_alarm_device_metric (device_id, metric)` 支撑列表与设备维度查询。`[代码实证]`
+
+`sys_auth_event`：
+
+| 字段 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| `id` | BIGINT | PK | 代理键 |
+| `event_type` | VARCHAR(16) | NOT NULL | `LOGIN / LOGOUT / SSO_LOGIN` |
+| `username` | VARCHAR(64) | NULL | 登录名，失败时取提交值 |
+| `success` | TINYINT(1) | NOT NULL | 1 成功 / 0 失败 |
+| `result_code` | VARCHAR(32) | NOT NULL | `SUCCESS / BAD_CREDENTIALS / ACCOUNT_DISABLED / SSO_REQUIRED / RATE_LIMITED / INVALID_STATE / INVALID_TICKET / SSO_DISABLED / SSO_REJECTED / SSO_FAILED` |
+| `reason` | VARCHAR(255) | NULL | 失败原因摘要 |
+| `ip` | VARCHAR(64) | NULL | 客户端 IP |
+| `created_at` | DATETIME | NOT NULL DEFAULT CURRENT_TIMESTAMP | 事件时间 |
+
+索引：`idx_auth_event_time (created_at)`、`idx_auth_event_user_time (username, created_at)`、`idx_auth_event_result (result_code)`。该表只记事件类型、结果码、原因摘要与来源 IP，不记请求体，避免口令、授权码与 `state` 入库；与写操作审计 `sys_audit_log` 分表，互不影响。`[代码实证]`
 
 ### 2.2 调整现有表
 
@@ -346,6 +399,9 @@ V9 为存量工艺回填一条「默认工序」（`seq = 1`），保证迁移�
 
 | 迁移 | 内容 | 依赖 |
 |---|---|---|
+| `V1__init.sql` | 基线 12 张表、索引与约束（S0 基线）；只读视图由后续迁移创建 | 无 |
+| `V2__seed.sql` | 演示种子数据（设备等），仅用于本地与演示环境 | 晚于 V1 |
+| `V3__bom_version.sql` | `pr_bom.version` 列（该列已由 V21 删除） | 晚于 V1 |
 | `V4__device_online.sql` | `eq_device.last_seen_at`（S1 已落地）；`workshop` 由 `V11` 补充 | 无 |
 | `V5__device_credential.sql` | 新建 `eq_device_credential` | 无 |
 | `V6__device_telemetry.sql` | 新建 `eq_telemetry`（S2 已落地） | `V4` 可并行 |
@@ -372,8 +428,9 @@ V9 为存量工艺回填一条「默认工序」（`seq = 1`），保证迁移�
 | `V29__device_alarm_rule.sql` | 新建 `eq_alarm_rule`，按设备 + 规则类型 + 指标唯一 | 无 |
 | `V30__device_alarm_record.sql` | 新建 `eq_alarm_record`，活动报警由 `active_flag` 唯一约束 | 必须晚于 `V29` |
 | `V31__finished_goods_stock.sql` | 新建 `fg_finished_stock`，按成品编码 + 车间累计入库；编号顺延避开已占用的 V29/V30，不回填历史库存 | 必须晚于 `V26` |
+| `V32__auth_event.sql` | 新建 `sys_auth_event`，记录登录、登出、SSO 换票的成功与失败；只存结果码与原因摘要，不存请求体 | 无 |
 
-编号说明：V27、V28 未被使用（当时为并行切片预留后废弃），Flyway 允许跳号但不允许重排或改写已执行版本；因此成品库存使用 V31，而不是回头补 V27。`[已决策]`
+编号说明：V27、V28 未被使用（当时为并行切片预留后废弃），Flyway 允许跳号但不允许重排或改写已执行版本；因此成品库存使用 V31，认证事件表顺延到 V32，而不是回头补 V27。`[已决策]`
 
 每个迁移可单独回滚到上一版本；结构变更与回填放在同一迁移时，回填必须幂等并在 PR 中单独说明。生产环境执行前先备份。`[工程判断]`
 
