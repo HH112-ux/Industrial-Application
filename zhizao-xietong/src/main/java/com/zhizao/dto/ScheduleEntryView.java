@@ -33,6 +33,8 @@ import java.time.LocalDateTime;
  * @param status        排程状态
  * @param conflictCode  无法排入时的业务码
  * @param message       落位说明或无法排入原因
+ * @param occupied      是否为占用块：true 时表示该时段被数据域外工单占用，除设备与起止时间外
+ *                      一律为 null，不携带任何工单内容
  * @author Caspian
  */
 public record ScheduleEntryView(Long id, Long workOrderId, String orderNo, Long planId,
@@ -42,5 +44,5 @@ public record ScheduleEntryView(Long id, Long workOrderId, String orderNo, Long 
                                 LocalDateTime startTime, LocalDateTime endTime,
                                 BigDecimal durationHours, String hoursSource,
                                 Integer queueRank, String rankBasis, String status,
-                                String conflictCode, String message) {
+                                String conflictCode, String message, boolean occupied) {
 }

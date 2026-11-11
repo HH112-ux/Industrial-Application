@@ -27,16 +27,19 @@
               </div>
             </div>
             <div class="track">
-              <div v-for="bar in row.bars" :key="bar.entry.id" class="bar"
-                :class="{ estimated: bar.entry.hoursSource === 'ESTIMATED' }"
+              <div v-for="bar in row.bars" :key="bar.key" class="bar"
+                :class="{ estimated: bar.entry.hoursSource === 'ESTIMATED', occupied: bar.entry.occupied }"
                 :style="{ left: bar.left + '%', width: bar.width + '%' }" :title="barTitle(bar.entry)">
-                {{ bar.entry.orderNo || `工单 ${bar.entry.workOrderId}` }}
+                <template v-if="!bar.entry.occupied">
+                  {{ bar.entry.orderNo || `工单 ${bar.entry.workOrderId}` }}
+                </template>
               </div>
             </div>
           </div>
           <div class="legend">
             <span><i class="dot" />标准工时</span>
             <span><i class="dot estimated" />估算工时</span>
+            <span><i class="dot occupied" />其他车间占用（仅显示占用时段，不含工单信息）</span>
             <span class="legend-hint">时间轴按 {{ range[0] }} 至 {{ range[1] }} 全时段展开</span>
           </div>
         </template>
@@ -51,6 +54,8 @@ import { scheduleApi, type ScheduleEntry } from '@/api';
 
 interface Bar {
   entry: ScheduleEntry;
+  /** 占用块没有排程主键，用设备与时间窗组合出稳定 key */
+  key: string;
   left: number;
   width: number;
 }
@@ -111,6 +116,7 @@ const rows = computed<DeviceRow[]>(() => {
     }
     row.bars.push({
       entry,
+      key: entry.occupied ? `occupied-${entry.deviceId}-${entry.startTime}-${entry.endTime}` : `${entry.id}`,
       left: ((start - fromMs.value) / spanMs.value) * 100,
       width: Math.max(((end - start) / spanMs.value) * 100, 0.4)
     });
@@ -138,6 +144,9 @@ function formatTime(value?: string): string {
 }
 
 function barTitle(entry: ScheduleEntry): string {
+  if (entry.occupied) {
+    return `该时段已被其他车间占用｜${formatTime(entry.startTime)} ~ ${formatTime(entry.endTime)}`;
+  }
   const device = entry.deviceName || entry.deviceNo || entry.deviceType || '—';
   const deviceLabel = entry.deviceWorkshop ? `${device}（${entry.deviceWorkshop}）` : device;
   const source = entry.hoursSource === 'ESTIMATED' ? '估算工时' : '标准工时';
@@ -242,6 +251,12 @@ onMounted(load);
 .bar.estimated {
   background: var(--zhizao-accent2);
 }
+/* 占用块：斜纹灰块，与空闲底色和本车间工单色块都能明显区分 */
+.bar.occupied {
+  background: repeating-linear-gradient(45deg, #d9dde3 0 6px, #c4c9d1 6px 12px);
+  border: 1px solid #b4bac3;
+  cursor: help;
+}
 .legend {
   display: flex;
   gap: 16px;
@@ -260,6 +275,10 @@ onMounted(load);
 }
 .legend .dot.estimated {
   background: var(--zhizao-accent2);
+}
+.legend .dot.occupied {
+  background: repeating-linear-gradient(45deg, #d9dde3 0 4px, #c4c9d1 4px 8px);
+  border: 1px solid #b4bac3;
 }
 .legend-hint {
   margin-left: auto;

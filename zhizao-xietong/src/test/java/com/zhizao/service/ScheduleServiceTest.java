@@ -37,6 +37,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -357,6 +358,7 @@ class ScheduleServiceTest {
         assertEquals("一车间", view.deviceWorkshop());
         assertEquals("STANDARD", view.hoursSource());
         assertEquals(DAY.atTime(8, 0), view.startTime());
+        assertFalse(view.occupied(), "数据域内工单不得标记为占用块");
     }
 
     @Test
@@ -384,27 +386,68 @@ class ScheduleServiceTest {
         assertEquals("WO-101", views.get(0).orderNo());
         assertEquals("D-01", views.get(0).deviceNo());
         assertEquals("一车间", views.get(0).deviceWorkshop());
+        assertFalse(views.get(0).occupied());
     }
 
     @Test
     @SuppressWarnings("unchecked")
-    void deviceTimelineHidesOtherWorkshopWorkOrders() {
+    void deviceTimelineMasksOtherWorkshopWorkOrderAsOccupiedBlock() {
         when(dataScope.workshopFilter()).thenReturn("一车间");
         ScheduleEntry own = scheduledEntry(101L, 1L);
         ScheduleEntry foreign = scheduledEntry(202L, 1L);
+        foreign.setId(901L);
+        foreign.setOperationSeq(2);
+        foreign.setOperationName("精加工");
+        foreign.setDeviceType(TYPE);
+        foreign.setDurationHours(new BigDecimal("6.00"));
+        foreign.setEstimated(0);
+        foreign.setQueueRank(3);
+        foreign.setRankBasis("交期 " + DAY + "，优先级 LOW(1)");
+        foreign.setMessage("设备类型「" + TYPE + "」第 3 位落位");
         when(scheduleEntryMapper.selectList(any())).thenReturn(List.of(own, foreign));
         WorkOrder ownOrder = order(101L, 1L, 5L, 8);
         ownOrder.setOrderNo("WO-101");
         ownOrder.setWorkshop("一车间");
         when(workOrderMapper.selectList(any())).thenReturn(List.of(ownOrder));
         Device device = device(1L, TYPE, "RUNNING");
+        device.setDeviceNo("D-01");
+        device.setDeviceName("加工中心 1");
         device.setWorkshop("一车间");
         when(deviceMapper.selectBatchIds(any())).thenReturn(List.of(device));
 
         List<ScheduleEntryView> views = scheduleService.deviceTimeline(DAY, DAY);
 
-        assertEquals(1, views.size(), "外车间工单不得出现在本车间用户的时间轴");
-        assertEquals(101L, views.get(0).workOrderId());
+        assertEquals(2, views.size(), "外车间工单应以占用块形式出现，而不是整条丢弃");
+        ScheduleEntryView masked = views.stream().filter(ScheduleEntryView::occupied)
+                .findFirst().orElseThrow();
+        assertEquals(Long.valueOf(1L), masked.deviceId());
+        assertEquals("D-01", masked.deviceNo());
+        assertEquals("加工中心 1", masked.deviceName());
+        assertEquals(DAY.atTime(8, 0), masked.startTime());
+        assertEquals(DAY.atTime(16, 0), masked.endTime());
+        assertNull(masked.id(), "占用块不得返回排程主键");
+        assertNull(masked.workOrderId(), "占用块不得返回工单主键");
+        assertNull(masked.orderNo(), "占用块不得返回工单号");
+        assertNull(masked.planId(), "占用块不得返回计划主键");
+        assertNull(masked.productCode());
+        assertNull(masked.productName());
+        assertNull(masked.workshop());
+        assertNull(masked.operationSeq());
+        assertNull(masked.operationName());
+        assertNull(masked.deviceType());
+        assertNull(masked.durationHours());
+        assertNull(masked.hoursSource());
+        assertNull(masked.queueRank());
+        assertNull(masked.rankBasis());
+        assertNull(masked.status());
+        assertNull(masked.conflictCode());
+        assertNull(masked.message());
+
+        ScheduleEntryView visible = views.stream().filter(view -> !view.occupied())
+                .findFirst().orElseThrow();
+        assertEquals(Long.valueOf(101L), visible.workOrderId());
+        assertEquals("WO-101", visible.orderNo());
+
         ArgumentCaptor<LambdaQueryWrapper<WorkOrder>> captor =
                 ArgumentCaptor.forClass(LambdaQueryWrapper.class);
         verify(workOrderMapper).selectList(captor.capture());
@@ -431,6 +474,7 @@ class ScheduleServiceTest {
         assertEquals(1, views.size(), "本车间工单落到外车间设备时也必须可见");
         assertEquals("D-09", views.get(0).deviceNo());
         assertEquals("二车间", views.get(0).deviceWorkshop());
+        assertFalse(views.get(0).occupied());
         verify(deviceMapper, never()).selectList(any());
     }
 
