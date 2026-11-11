@@ -78,6 +78,13 @@ device:
   alarm:
     # 离线扫描周期，毫秒
     offline-scan-ms: ${DEVICE_ALARM_OFFLINE_SCAN_MS:60000}
+    notify:
+      # 企业微信应用消息默认关闭；未配置 corpId/agentId/secret 时静默跳过
+      wecom:
+        enabled: ${DEVICE_ALARM_WECOM_ENABLED:false}
+        corp-id: ${DEVICE_ALARM_WECOM_CORP_ID:}
+        agent-id: ${DEVICE_ALARM_WECOM_AGENT_ID:}
+        secret: ${DEVICE_ALARM_WECOM_SECRET:}
   simulation:
     enabled: ${DEVICE_SIMULATION_ENABLED:false}
   auth:

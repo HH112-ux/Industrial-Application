@@ -26,10 +26,13 @@ public class AlarmEvaluationService {
 
     private final AlarmRuleMapper ruleMapper;
     private final AlarmRecordMapper recordMapper;
+    private final WeComAlarmNotifier notifier;
 
-    public AlarmEvaluationService(AlarmRuleMapper ruleMapper, AlarmRecordMapper recordMapper) {
+    public AlarmEvaluationService(AlarmRuleMapper ruleMapper, AlarmRecordMapper recordMapper,
+                                  WeComAlarmNotifier notifier) {
         this.ruleMapper = ruleMapper;
         this.recordMapper = recordMapper;
+        this.notifier = notifier;
     }
 
     public void evaluateThreshold(Long deviceId, DeviceGatewayReport report) {
@@ -124,6 +127,7 @@ public class AlarmEvaluationService {
         record.setActiveFlag(1);
         try {
             recordMapper.insert(record);
+            notifier.notify(record);
         } catch (DuplicateKeyException e) {
             AlarmRecord active = findActive(rule);
             if (active != null) {

@@ -8,6 +8,7 @@ import com.zhizao.entity.Device;
 import com.zhizao.mapper.AlarmRecordMapper;
 import com.zhizao.mapper.AlarmRuleMapper;
 import com.zhizao.mapper.DeviceMapper;
+import com.zhizao.service.WeComAlarmNotifier;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -46,12 +47,14 @@ class OfflineAlarmJobTest {
     private AlarmRecordMapper recordMapper;
     @Mock
     private DeviceMapper deviceMapper;
+    @Mock
+    private WeComAlarmNotifier notifier;
 
     private OfflineAlarmJob job;
 
     @BeforeEach
     void setUp() {
-        job = new OfflineAlarmJob(ruleMapper, recordMapper, deviceMapper);
+        job = new OfflineAlarmJob(ruleMapper, recordMapper, deviceMapper, notifier);
     }
 
     private AlarmRule offlineRule() {
@@ -87,6 +90,7 @@ class OfflineAlarmJobTest {
         assertEquals("OPEN", saved.getStatus());
         assertEquals(1, saved.getActiveFlag());
         assertTrue(saved.getThresholdSnapshot().contains("offlineSeconds=90"));
+        verify(notifier).notify(saved);
     }
 
     @Test
@@ -107,6 +111,7 @@ class OfflineAlarmJobTest {
 
         assertEquals(0, job.scan(CLOCK));
         verify(recordMapper, never()).insert(any(AlarmRecord.class));
+        verify(notifier, never()).notify(any());
     }
 
     @Test
@@ -118,6 +123,7 @@ class OfflineAlarmJobTest {
 
         assertEquals(0, job.scan(CLOCK));
         verify(recordMapper, never()).insert(any(AlarmRecord.class));
+        verify(notifier, never()).notify(any());
     }
 
     @Test
@@ -129,5 +135,6 @@ class OfflineAlarmJobTest {
         when(recordMapper.insert(any(AlarmRecord.class))).thenThrow(new DuplicateKeyException("uk_alarm_active"));
 
         assertEquals(0, job.scan(CLOCK));
+        verify(notifier, never()).notify(any());
     }
 }
