@@ -11,7 +11,6 @@ import com.zhizao.dto.LoginResponse;
 import com.zhizao.dto.UserCreateRequest;
 import com.zhizao.dto.UserCreateResponse;
 import com.zhizao.entity.SysUser;
-import com.zhizao.mapper.DeviceMapper;
 import com.zhizao.mapper.SysUserIdentityMapper;
 import com.zhizao.mapper.SysUserMapper;
 import com.zhizao.security.JwtAuthenticationFilter;
@@ -49,8 +48,6 @@ class UserCreateServiceTest {
     @Mock
     private SysUserIdentityMapper identityMapper;
     @Mock
-    private DeviceMapper deviceMapper;
-    @Mock
     private JwtUtil jwtUtil;
 
     private final PasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
@@ -60,9 +57,8 @@ class UserCreateServiceTest {
 
     @BeforeEach
     void setUp() {
-        userService = new UserService(userMapper, identityMapper, deviceMapper, passwordEncoder);
+        userService = new UserService(userMapper, identityMapper, passwordEncoder);
         authService = new AuthService(userMapper, passwordEncoder, jwtUtil, new SsoProperties());
-        lenient().when(deviceMapper.selectCount(any())).thenReturn(1L);
         lenient().when(userMapper.insert(any(SysUser.class))).thenAnswer(invocation -> {
             inserted = invocation.getArgument(0);
             inserted.setId(7L);
@@ -125,14 +121,23 @@ class UserCreateServiceTest {
         assertEquals(409, error.getCode());
         assertTrue(error.getMessage().contains("用户名已存在"));
     }
+
+    /** 车间为自由字符串：设备表里没有该车间也应允许分配。 */
+    @Test
+    void workshopWithoutDevicesIsAccepted() {
+        userService.create(new UserCreateRequest("wangwu", "王五", "USER", "九车间", null));
+
+        assertEquals("九车间", inserted.getWorkshopScope());
+    }
+
     @Test
     void invalidInputIsRejectedWith400() {
-        when(deviceMapper.selectCount(any())).thenReturn(0L);
         List<UserCreateRequest> bad = List.of(
                 new UserCreateRequest("wangwu", "王五", "ROOT", null, null),
                 new UserCreateRequest("wang wu", "王五", "USER", null, null),
                 new UserCreateRequest("wangwu", "王五", "USER", null, "short"),
-                new UserCreateRequest("wangwu", "王五", "USER", "九车间", null));
+                new UserCreateRequest("wangwu", "王五", "USER", "   ", null),
+                new UserCreateRequest("wangwu", "王五", "USER", "车".repeat(33), null));
 
         for (UserCreateRequest request : bad) {
             assertThrows(BadRequestException.class, () -> userService.create(request));
