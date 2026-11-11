@@ -42,12 +42,12 @@
 │   │   └── common/ config/ aspect/
 │   ├── src/main/resources/
 │   │   ├── application.yml          # 配置，全部支持环境变量覆盖
-│   │   └── db/migration/            # Flyway 迁移 V1–V14
-│   └── src/test/java/               # 140 个测试（137 单元 + 3 集成）
+│   │   └── db/migration/            # Flyway 迁移 V1–V25
+│   └── src/test/java/               # 280 个测试（269 单元 + 11 集成）
 ├── zhizao-xietong-web/              # Vue 3 管理端
-│   ├── src/views/                   # 9 个业务页面
+│   ├── src/views/                   # 12 个页面组件
 │   └── vite.config.ts               # 开发服务器 5173，代理 /api
-├── mobile-app/                      # uni-app 移动端（3 个页面）
+├── mobile-app/                      # uni-app 移动端（4 个页面）
 ├── docs/                            # 工程文档
 ├── .githooks/                       # commit-msg 与 pre-commit 钩子
 ├── docker-compose.yml               # MySQL / Redis / Mosquitto / 后端 / 前端
@@ -90,7 +90,7 @@ mysql -h127.0.0.1 -u"$DB_USERNAME" -p"$DB_PASSWORD" \
   -e "CREATE DATABASE IF NOT EXISTS zhizao_xietong DEFAULT CHARSET utf8mb4;"
 ```
 
-表结构由 Flyway 在后端启动时自动执行 `db/migration/V1`–`V5`，不需要手工建表。
+表结构由 Flyway 在后端启动时自动执行 `db/migration/V1`–`V25`，不需要手工建表。
 
 ### 3. 启动后端
 
@@ -263,7 +263,7 @@ docker compose up -d --build
 ## 测试与 CI
 
 ```bash
-# 后端全量测试（137 个单元测试 + 3 个 Testcontainers 集成测试）
+# 后端全量测试（269 个单元测试 + 11 个 Testcontainers 集成测试）
 cd zhizao-xietong && mvn test
 
 # 管理端生产构建（同时覆盖 TypeScript 编译与打包）
@@ -273,7 +273,7 @@ cd zhizao-xietong-web && npm ci && npm run build
 npx --no -- commitlint --from HEAD~1 --to HEAD
 ```
 
-集成测试类 `WorkOrderConsistencyIntegrationTest` 使用 Testcontainers 启动 `mysql:8.4`，覆盖工单状态机合法/非法流转与乐观锁并发冲突。Docker 不可用时该类由 `@Testcontainers(disabledWithoutDocker = true)` 自动跳过，其余测试照常执行、构建仍然成功；首次运行需拉取镜像，本机约 60–90 秒，CI 约 1 分钟。
+集成测试使用 Testcontainers 启动 `mysql:8.4`，覆盖工单状态机合法/非法流转、真实并发冲突、工艺版本隔离、遥测入库与 AI 只读会话。Docker 不可用时这些类由 `@Testcontainers(disabledWithoutDocker = true)` 自动跳过，其余测试照常执行、构建仍然成功；首次运行需拉取镜像，本机约 60–90 秒，CI 约 1 分钟。
 
 本机使用 Colima 时，Testcontainers 不读取 colima 的 Docker context，且 virtiofs 不支持把 unix socket 挂载进 Ryuk 容器。跑集成测试需要显式指定 socket 并关闭 Ryuk：
 
@@ -373,15 +373,15 @@ mvn test
 ## 已知限制
 
 - 遥测历史已落库（`eq_telemetry`，S2），单表保留 90 天；管理端设备详情可选 1 小时/24 小时/7 天查看，无数据时显示空态而不是补点（S7）
-- 上报幂等由进程内缓存与 `eq_telemetry.ingest_key` 唯一索引共同保证；模拟数据不写入时序表
+- 上报幂等由进程内缓存与 `eq_telemetry` 的 `uk_device_ingest_key (device_id, ingest_key)` 联合唯一索引共同保证；模拟数据不写入时序表
 - 工单开工、报工、质检使用乐观锁与状态历史：并发重复流转会被拒绝，每次流转留痕（S3）
 - 报工数量已做正数、合计与累计上限校验；报工幂等键已落地（`wo_report.idempotency_key`，同工单唯一，重试返回首次结果）
-- 工艺已支持版本化与单级工序路线；BOM 不单独版本化，`pr_bom.version` 列保留但已废弃（S4）
+- 工艺已支持版本化与单级工序路线；BOM 不单独版本化，`pr_bom.version` 列已由 V21 删除（S4）
 - 排产为有限产能贪心（S5）：按交期与优先级排队，使用运行中设备的时间窗；不做 APS 最优解。标准工时缺失时直接拒绝排程并返回 `STANDARD_HOURS_MISSING`，不生成假工时；只有显式开启 `schedule.estimate-fallback-hours` 才按估算工时排程并明确标记
-- 权限为 ADMIN/USER 两级，非管理员按 `workshop_scope` 过滤设备、计划与工单；未分配车间时看不到任何车间数据（deny-by-default），由管理员在用户管理页显式分配；禁用用户与改密通过令牌版本在下一次请求即失效（S6）
+- 权限为 `ADMIN`/`USER`/`WORKER` 三级取值，非管理员按 `workshop_scope` 过滤设备、计划与工单；未分配车间时看不到任何车间数据（deny-by-default），由管理员在用户管理页显式分配；禁用用户与改密通过令牌版本在下一次请求即失效（S6）。工单写操作：开工/报工允许三种角色，质检仅 `ADMIN`/`USER`，计划派工与其余管理动作仅 `ADMIN`
 - 登录限流已抽成 `LoginRateLimiter` 端口，当前为单实例本地实现；多实例部署必须替换为共享存储实现（S6）
 - 已有 `/actuator/health`、`/actuator/info`、`/actuator/metrics` 与带 `traceId` 的标准输出日志；业务指标已覆盖设备在线、上报、报工、节拍与齐套率，但没有告警阈值与集中采集
-- 测试 140 个（137 单元 + 3 Testcontainers 集成）；集成用例覆盖状态机流转与真实并发冲突，仅在 Docker 可用时执行；移动端构建未纳入 CI
+- 测试 280 个（269 单元 + 11 Testcontainers 集成）；集成用例覆盖状态机流转、真实并发冲突、工艺版本隔离、遥测入库与 AI 只读会话，仅在 Docker 可用时执行；移动端构建未纳入 CI
 - 完整 Docker Compose 五服务栈未在本机实测（本机端口被本地 MySQL/Redis 占用）
 - AI 能力已落地（S8），默认关闭：`AI_ENABLED=false` 时三个 `/api/ai/**` 端点返回 HTTP 503 + 业务码 503，其余功能不受影响；开启后默认使用离线假模型，CI 不需要网络与密钥。AI 只调用只读工具、只返回建议文本，自然语言报工只产出待确认草稿；Text-to-SQL 仅 ADMIN 可用，只允许查询 5 个只读视图并强制行数上限。配置 `AI_DATASOURCE_URL` 后使用独立只读账号；未配置时回落主数据源，但查询强制只读会话并在启动时输出 WARN，不会假装已隔离。模型超时或返回非法内容时降级为「建议暂不可用」，不影响主链路
 
