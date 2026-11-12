@@ -29,9 +29,9 @@ services:
     image: redis:7-alpine
     environment:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set, see .env.example}
-    # 用 sh -c 展开容器内环境变量（compose 中 $$ 转义为 $），口令不进入 compose 渲染结果
-    entrypoint: ["/bin/sh", "-c"]
-    command: ["exec redis-server --appendonly yes --requirepass \"$$REDIS_PASSWORD\""]
+    # 保留镜像自带 entrypoint：由它修正 /data 属主、setpriv 降权到 redis 用户并收紧 umask
+    entrypoint: ["/usr/local/bin/docker-entrypoint.sh"]
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD must be set, see .env.example}"]
     volumes:
       - redis-data:/data
     healthcheck:
