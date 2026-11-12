@@ -17,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -75,7 +76,7 @@ public class AlarmRuleService {
         }
         return rule;
     }
-    /** 更新规则，设备归属不可修改；停用时同时闭合在途报警记录。 */
+    /** 更新规则，设备归属不可修改；停用或改变监控对象时同时闭合原在途报警记录。 */
     @Transactional
     public AlarmRule update(Long id, AlarmRule rule) {
         AlarmRule existing = require(id);
@@ -89,21 +90,29 @@ public class AlarmRuleService {
         }
         normalize(rule);
         ensureUnique(rule, id);
+        boolean disabled = !Boolean.TRUE.equals(rule.getEnabled());
+        // 监控对象变了，旧指标上的在途记录不会再被判定链路命中，streak 也不应沿用。
+        boolean identityChanged = !Objects.equals(existing.getRuleType(), rule.getRuleType())
+                || !Objects.equals(existing.getMetric(), rule.getMetric());
+        // 只写管理员可配置的列：current_streak 由判定链路原子维护，
+        // 整实体回写会用旧快照覆盖并发自增，也会把阈值改回提交前的值。
+        LambdaUpdateWrapper<AlarmRule> update = new LambdaUpdateWrapper<AlarmRule>()
+                .eq(AlarmRule::getId, id)
+                .set(AlarmRule::getMetric, rule.getMetric())
+                .set(AlarmRule::getRuleType, rule.getRuleType())
+                .set(AlarmRule::getUpperLimit, rule.getUpperLimit())
+                .set(AlarmRule::getLowerLimit, rule.getLowerLimit())
+                .set(AlarmRule::getConsecutiveTimes, rule.getConsecutiveTimes())
+                .set(AlarmRule::getEnabled, rule.getEnabled());
+        if (identityChanged) {
+            update.setSql("current_streak = 0");
+        }
         try {
-            // 只写管理员可配置的列：current_streak 由判定链路原子维护，
-            // 整实体回写会用旧快照覆盖并发自增，也会把阈值改回提交前的值。
-            ruleMapper.update(null, new LambdaUpdateWrapper<AlarmRule>()
-                    .eq(AlarmRule::getId, id)
-                    .set(AlarmRule::getMetric, rule.getMetric())
-                    .set(AlarmRule::getRuleType, rule.getRuleType())
-                    .set(AlarmRule::getUpperLimit, rule.getUpperLimit())
-                    .set(AlarmRule::getLowerLimit, rule.getLowerLimit())
-                    .set(AlarmRule::getConsecutiveTimes, rule.getConsecutiveTimes())
-                    .set(AlarmRule::getEnabled, rule.getEnabled()));
+            ruleMapper.update(null, update);
         } catch (DuplicateKeyException e) {
             throw duplicateRule();
         }
-        if (!Boolean.TRUE.equals(rule.getEnabled())) {
+        if (disabled || identityChanged) {
             closeActiveRecords(existing.getDeviceId(), existing.getRuleType(), existing.getMetric());
         }
         return ruleMapper.selectById(id);

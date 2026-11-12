@@ -84,7 +84,9 @@ public class AlarmEvaluationService {
         }
     }
     private void handleRecovered(AlarmRule rule, AlarmRecord active) {
-        resetStreak(rule.getId());
+        if (rule.getCurrentStreak() != null && rule.getCurrentStreak() != 0) {
+            resetStreak(rule.getId());
+        }
         if (active != null) {
             recover(active.getId());
         }

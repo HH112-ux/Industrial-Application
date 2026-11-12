@@ -136,6 +136,8 @@ class AlarmRuleServiceTest {
         AlarmRule existing = new AlarmRule();
         existing.setId(5L);
         existing.setDeviceId(1L);
+        existing.setRuleType("THRESHOLD");
+        existing.setMetric("temperature");
         existing.setEnabled(false);
         existing.setConsecutiveTimes(7);
         AlarmRule reloaded = thresholdRule();
@@ -166,6 +168,23 @@ class AlarmRuleServiceTest {
         service().update(5L, input);
 
         verify(recordMapper, never()).update(isNull(), any());
+    }
+    @Test
+    void changingMetricClosesOldRecordsAndResetsStreak() {
+        AlarmRule existing = thresholdRule();
+        existing.setId(5L);
+        existing.setEnabled(true);
+        existing.setConsecutiveTimes(3);
+        when(ruleMapper.selectById(5L)).thenReturn(existing, existing);
+        when(ruleMapper.selectCount(any())).thenReturn(0L);
+        AlarmRule input = thresholdRule();
+        input.setMetric("rpm");
+        input.setEnabled(true);
+
+        service().update(5L, input);
+
+        assertTrue(captureRuleUpdate().getSqlSet().contains("current_streak = 0"));
+        assertTrue(captureRecordUpdate().getSqlSet().contains("active_flag = NULL"));
     }
     @Test
     void deletingRuleClosesActiveRecords() {
