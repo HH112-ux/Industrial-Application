@@ -80,7 +80,8 @@
 ```bash
 cp .env.example .env
 # 本地启动：编辑 .env，至少填写 DB_PASSWORD 与 JWT_SECRET（JWT_SECRET 至少 32 字节）
-# docker compose：还必须填写 MYSQL_ROOT_PASSWORD、JWT_SECRET 与 CORS_ALLOWED_ORIGINS，未设置会直接启动失败
+# docker compose：还必须填写 MYSQL_ROOT_PASSWORD、JWT_SECRET、CORS_ALLOWED_ORIGINS、REDIS_PASSWORD
+# 以及 MQTT_USERNAME / MQTT_PASSWORD，任一项缺失会直接启动失败
 ```
 
 ### 2. 创建数据库
@@ -134,15 +135,19 @@ npm run dev:h5
 
 ### 6. 启用 MQTT（可选）
 
+Broker 已关闭匿名接入，必须先准备账号（compose 会用 `MQTT_USERNAME` / `MQTT_PASSWORD` 生成口令文件）：
+
 ```bash
 docker compose up -d mqtt
-MQTT_ENABLED=true MQTT_BROKER_URL=tcp://localhost:1883 mvn spring-boot:run
+MQTT_ENABLED=true MQTT_BROKER_URL=tcp://localhost:1883 \
+  MQTT_USERNAME="$MQTT_USERNAME" MQTT_PASSWORD="$MQTT_PASSWORD" mvn spring-boot:run
 ```
 
 发布一条未签名上报（`DEVICE_AUTH_ENABLED=false` 时可用）：
 
 ```bash
 docker exec zhizao-mqtt mosquitto_pub -h localhost \
+  -u "$MQTT_USERNAME" -P "$MQTT_PASSWORD" \
   -t 'factory/devices/EQ-202609-0001/status' -q 1 \
   -m '{"deviceNo":"EQ-202609-0001","status":"RUNNING","temperature":45.2,"rpm":1500,"current":8.5}'
 ```
@@ -161,11 +166,11 @@ docker exec zhizao-mqtt mosquitto_pub -h localhost \
 | `JWT_SECRET` | JWT 签名密钥 | 无 | 是 | 至少 32 字节的随机串 |
 | `JWT_EXPIRATION` | 令牌有效期（毫秒） | `86400000` | 否 | `3600000` |
 | `REDIS_HOST` / `REDIS_PORT` | Redis 地址 | `localhost` / `6379` | 否 | `redis` / `6379` |
-| `REDIS_PASSWORD` | Redis 密码 | 空 | 否 | 由部署环境注入 |
+| `REDIS_PASSWORD` | Redis 密码（compose 中开启 `requirepass`） | 空 | docker compose 必填 | 由部署环境注入 |
 | `CORS_ALLOWED_ORIGINS` | 允许的前端源，逗号分隔 | `http://localhost:5173,http://localhost:8081` | docker compose 必填 | `https://mes.example.com` |
 | `MQTT_ENABLED` | 是否启用 MQTT 网关 | `false` | 否 | `true` |
 | `MQTT_BROKER_URL` | Broker 地址 | `tcp://localhost:1883` | 否 | `tcp://mqtt:1883` |
-| `MQTT_USERNAME` / `MQTT_PASSWORD` | Broker 账号 | 空 | 否 | 由部署环境注入 |
+| `MQTT_USERNAME` / `MQTT_PASSWORD` | Broker 账号（compose 中关闭匿名，必填） | 空 | docker compose 必填 | 由部署环境注入 |
 | `MQTT_TOPIC` | 设备上报主题 | `factory/devices/+/status` | 否 | 同上 |
 | `MQTT_CLIENT_ID` | 客户端标识 | `zhizao-backend` | 否 | 多实例必须各不相同 |
 | `MQTT_QOS` | 订阅与发布 QoS | `1` | 否 | `1` |
@@ -199,7 +204,7 @@ docker exec zhizao-mqtt mosquitto_pub -h localhost \
 
 ### docker compose 环境变量透传
 
-`docker-compose.yml` 的 `backend.environment` 只透传有限几类变量：`DB_URL`、`DB_USERNAME`、`DB_PASSWORD`、`JWT_SECRET`、`CORS_ALLOWED_ORIGINS`、`APP_BOOTSTRAP_ADMIN_PASSWORD`、`REDIS_HOST`、`REDIS_PORT`、`MQTT_ENABLED`、`MQTT_BROKER_URL` 与 `TZ`。`.env` 只参与 compose 的变量替换，**不会自动进入容器**。
+`docker-compose.yml` 的 `backend.environment` 只透传有限几类变量：`DB_URL`、`DB_USERNAME`、`DB_PASSWORD`、`JWT_SECRET`、`CORS_ALLOWED_ORIGINS`、`APP_BOOTSTRAP_ADMIN_PASSWORD`、`REDIS_HOST`、`REDIS_PORT`、`REDIS_PASSWORD`、`MQTT_ENABLED`、`MQTT_BROKER_URL`、`MQTT_USERNAME`、`MQTT_PASSWORD` 与 `TZ`。`.env` 只参与 compose 的变量替换，**不会自动进入容器**。
 
 因此 `SSO_*`、`AI_*`、`DEVICE_ALARM_*` 即使写进 `.env`，容器内仍取 `application.yml` 的默认值（均为关闭）。需要启用时，手工把对应变量追加到 `docker-compose.yml` 的 `backend.environment`，示例：
 
@@ -224,7 +229,7 @@ docker exec zhizao-mqtt mosquitto_pub -h localhost \
       AI_PROVIDER: ${AI_PROVIDER:-fake}
 ```
 
-真实凭据仍只放在部署环境的 `.env` 或密钥管理里，不要写进 `docker-compose.yml` 本身；仓库中的 compose 必填项逻辑（`MYSQL_ROOT_PASSWORD`、`JWT_SECRET`、`CORS_ALLOWED_ORIGINS`）不因本说明改变。
+真实凭据仍只放在部署环境的 `.env` 或密钥管理里，不要写进 `docker-compose.yml` 本身；仓库中的 compose 必填项逻辑（`MYSQL_ROOT_PASSWORD`、`REDIS_PASSWORD`、`MQTT_USERNAME`、`MQTT_PASSWORD`、`JWT_SECRET`、`CORS_ALLOWED_ORIGINS`）不因本说明改变。
 
 ### 后端
 
@@ -241,6 +246,8 @@ java -jar target/zhizao-xietong-1.0.0.jar
 - `server.port` 固定为 8080，如需改端口请在反向代理层处理，或修改 `application.yml`
 - JWT 密钥、数据库密码、`DEVICE_CREDENTIAL_KEY` 必须由部署环境注入；启用外部模型时 `AI_API_KEY` 同样只能由环境变量注入，不得写入配置文件或日志
 - 日志输出到标准输出，每行带 `traceId`，可用响应头 `X-Request-Id` 串联一次请求；文件日志与集中采集尚未接入
+- 默认日志级别为 `INFO`，MyBatis SQL 与参数**只在 `dev` profile 下输出**（`SPRING_PROFILES_ACTIVE=dev`），生产不会把业务数据打进日志
+- 容器方式运行时各服务已配置 `json-file` 日志轮转（`max-size=10m`、`max-file=5`），避免容器日志无限增长
 
 ### 数据库迁移
 
@@ -263,11 +270,11 @@ npm run build
 
 ### Docker Compose
 
-`docker-compose.yml` 定义了 MySQL、Redis、Mosquitto、后端、前端五个服务，宿主机端口分别为 `3306`、`6379`、`1883`、`8080`、`8081`，可用环境变量覆盖（`MYSQL_PORT`、`REDIS_PORT`、`MQTT_PORT`、`BACKEND_PORT`、`FRONTEND_PORT`）。
+`docker-compose.yml` 定义了 MySQL、Redis、Mosquitto、后端、前端五个服务（另有一次性 `mqtt-init` 用于生成口令文件）。宿主机端口：后端 `8080`、前端 `8081`、MQTT `1883` 对内网发布，可用环境变量覆盖（`BACKEND_PORT`、`FRONTEND_PORT`、`MQTT_PORT`）；MySQL `3306` 与 Redis `6379` **只绑 `127.0.0.1`** 供本机调试，不向内网发布，生产环境可删除这两条端口映射。
 
 ```bash
 cp .env.example .env
-# 填写 MYSQL_ROOT_PASSWORD、JWT_SECRET 与 CORS_ALLOWED_ORIGINS
+# 填写 MYSQL_ROOT_PASSWORD、REDIS_PASSWORD、MQTT_USERNAME、MQTT_PASSWORD、JWT_SECRET 与 CORS_ALLOWED_ORIGINS
 # CORS_ALLOWED_ORIGINS 必须包含浏览器实际访问前端的地址（协议+主机+端口），否则登录会被 403 拦截
 docker compose up -d --build
 ```
@@ -374,7 +381,7 @@ lsof -nP -iTCP:8080 -sTCP:LISTEN
 
 现象：日志反复出现 `MQTT 连接失败`。
 
-确认 Broker 已启动、1883 端口可达、`MQTT_BROKER_URL` 使用 `tcp://` 前缀。多实例部署时 `MQTT_CLIENT_ID` 必须各不相同，否则新连接会把旧连接的持久会话顶掉。
+确认 Broker 已启动、1883 端口可达、`MQTT_BROKER_URL` 使用 `tcp://` 前缀；Broker 已关闭匿名接入，`MQTT_USERNAME` / `MQTT_PASSWORD` 必须与 compose 生成的口令文件一致，否则会返回 `Connection Refused: not authorised`。多实例部署时 `MQTT_CLIENT_ID` 必须各不相同，否则新连接会把旧连接的持久会话顶掉。
 
 **设备上报被拒绝**
 
