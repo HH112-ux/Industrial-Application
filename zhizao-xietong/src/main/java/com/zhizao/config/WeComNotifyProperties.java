@@ -4,9 +4,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 /**
- * 企业微信报警通知配置：默认关闭，外部调用超时、异步队列与 token 续期策略均可调。
- *
- * <p>刻意不实现 {@code toString()}，避免 secret 因对象打印进入日志。</p>
+ * 企业微信报警通知配置：默认关闭，连接/读取超时与队列容量可调；不实现 {@code toString()} 以免 secret 进日志。
  *
  * @author Caspian
  */
@@ -21,8 +19,6 @@ public class WeComNotifyProperties {
     private int connectTimeoutMs = 2000;
     private int readTimeoutMs = 3000;
     private int queueCapacity = 200;
-    private int tokenRenewSkewSeconds = 300;
-    private int tokenFailureBackoffSeconds = 30;
 
     public boolean isEnabled() { return enabled; }
     public void setEnabled(boolean enabled) { this.enabled = enabled; }
@@ -38,8 +34,4 @@ public class WeComNotifyProperties {
     public void setReadTimeoutMs(int readTimeoutMs) { this.readTimeoutMs = readTimeoutMs; }
     public int getQueueCapacity() { return queueCapacity; }
     public void setQueueCapacity(int queueCapacity) { this.queueCapacity = queueCapacity; }
-    public int getTokenRenewSkewSeconds() { return tokenRenewSkewSeconds; }
-    public void setTokenRenewSkewSeconds(int seconds) { this.tokenRenewSkewSeconds = seconds; }
-    public int getTokenFailureBackoffSeconds() { return tokenFailureBackoffSeconds; }
-    public void setTokenFailureBackoffSeconds(int seconds) { this.tokenFailureBackoffSeconds = seconds; }
 }

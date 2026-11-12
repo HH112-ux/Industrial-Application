@@ -29,8 +29,10 @@ import java.util.concurrent.TimeUnit;
 /**
  * 企业微信应用消息通知：唯一发送入口，默认关闭。
  *
- * <p>通知是遥测入库的旁路：超时由配置控制，推送在独立有界队列线程池中执行，有活动事务时挂到提交之后；
- * 外部失败只记 WARN 与审计（{@code sys_audit_log}），不向调用方抛出。</p>
+ * <p>开关关闭或未配置 corpId/agentId/secret 时静默跳过，只记 debug；
+ * 发送失败只记 WARN 并返回，不向调用方抛出，避免影响遥测入库与离线判定。</p>
+ *
+ * <p>外部调用超时由配置控制，推送在独立有界队列线程池异步执行并挂到事务提交之后，失败只补记审计，不占用上报线程。</p>
  *
  * @author Caspian
  */
@@ -40,9 +42,13 @@ public class WeComAlarmNotifier {
     private static final Logger log = LoggerFactory.getLogger(WeComAlarmNotifier.class);
     private static final String TOKEN_URL = "https://qyapi.weixin.qq.com/cgi-bin/gettoken";
     private static final String SEND_URL = "https://qyapi.weixin.qq.com/cgi-bin/message/send";
+    /** 未返回 expires_in 时的兜底有效期，以及提前续期后至少保留的缓存时长（秒）。 */
     private static final long DEFAULT_EXPIRES_IN_SECONDS = 7200L;
     private static final long MIN_TOKEN_TTL_SECONDS = 60L;
-    /** access_token 失效/过期的错误码，命中后只重新取一次 token。 */
+    /** access_token 提前续期秒数与获取失败后的退避秒数，避免外部异常时被持续重试。 */
+    private static final long TOKEN_RENEW_SKEW_SECONDS = 300L;
+    private static final long TOKEN_FAILURE_BACKOFF_SECONDS = 30L;
+    /** access_token 失效/过期错误码，命中后只重新取一次 token。 */
     private static final Set<Integer> INVALID_TOKEN_CODES = Set.of(40014, 42001);
     private static final int MAX_ERROR_LENGTH = 255;
 
@@ -52,16 +58,10 @@ public class WeComAlarmNotifier {
     private final Executor executor;
     private final Object tokenLock = new Object();
 
-    /** access_token 缓存；value 为 null 表示上次获取失败，retryAt 之前不再重试。 */
+    /** 缓存的 access_token；value 为 null 表示上次获取失败，retryAt 之前不再重试。 */
     private volatile CachedToken token;
 
-    /**
-     * 构造通知器：固定外部调用超时，并创建单线程有界队列用于异步推送。
-     *
-     * @param builder        Spring 提供的 RestClient 构建器
-     * @param auditLogMapper 审计日志写入
-     * @param properties     通知配置
-     */
+    /** 固定外部调用超时，并创建单线程有界队列用于异步推送。 */
     public WeComAlarmNotifier(RestClient.Builder builder, AuditLogMapper auditLogMapper,
                               WeComNotifyProperties properties) {
         this(buildClient(builder, properties), auditLogMapper, properties,
@@ -76,7 +76,11 @@ public class WeComAlarmNotifier {
         this.executor = executor;
     }
 
-    /** 投递一条报警通知；开关关闭、配置缺失或队列已满时静默跳过，任何情况都不抛出。 */
+    /**
+     * 投递一条报警通知；开关关闭、配置缺失或队列已满时静默跳过，任何情况都不抛出。
+     *
+     * <p>存在活动事务时在提交后投递，回滚则不发送。</p>
+     */
     public void notify(AlarmRecord record) {
         if (!properties.isEnabled()) {
             return;
@@ -86,17 +90,12 @@ public class WeComAlarmNotifier {
             log.debug("企业微信报警通知未配置 corpId/agentId/secret，已跳过：deviceId={}", record.getDeviceId());
             return;
         }
-        String content = "设备报警：设备ID=" + record.getDeviceId()
-                + "，类型=" + record.getRuleType()
-                + "，指标=" + (StringUtils.hasText(record.getMetric()) ? record.getMetric() : "-")
-                + "，触发值=" + (record.getTriggerValue() == null ? "-" : record.getTriggerValue())
-                + "，阈值=" + record.getThresholdSnapshot();
+        String content = content(record);
         Long deviceId = record.getDeviceId();
         if (!TransactionSynchronizationManager.isSynchronizationActive()) {
             submit(deviceId, content);
             return;
         }
-        // 有活动事务时挂到提交之后：回滚则不发，避免外部 HTTP 调用与数据库写入同事务
         TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
             @Override
             public void afterCommit() {
@@ -105,7 +104,6 @@ public class WeComAlarmNotifier {
         });
     }
 
-    /** 释放异步线程池。 */
     @PreDestroy
     void shutdown() {
         if (executor instanceof ExecutorService pool) {
@@ -164,23 +162,15 @@ public class WeComAlarmNotifier {
         return result == null ? new SendResult(-1, "empty response") : result;
     }
 
-    /** 取 access_token：命中缓存直接复用并按 expires_in 提前续期；获取失败进入退避期，退避期内不再请求。 */
+    /** 命中缓存直接复用并按 expires_in 提前续期；获取失败进入退避期，退避期内不再请求。 */
     private String accessToken() {
-        CachedToken cached = token;
-        long now = System.currentTimeMillis();
-        if (cached != null && (cached.usable(now) || cached.backingOff(now))) {
-            return cached.usable(now) ? cached.value() : null;
-        }
         synchronized (tokenLock) {
-            cached = token;
-            now = System.currentTimeMillis();
-            if (cached != null) {
-                if (cached.usable(now)) {
-                    return cached.value();
-                }
-                if (cached.backingOff(now)) {
-                    return null;
-                }
+            long now = System.currentTimeMillis();
+            if (token != null && token.usable(now)) {
+                return token.value();
+            }
+            if (token != null && token.backingOff(now)) {
+                return null;
             }
             return fetchToken();
         }
@@ -199,20 +189,19 @@ public class WeComAlarmNotifier {
                 return null;
             }
             long expiresIn = response.expiresIn() > 0 ? response.expiresIn() : DEFAULT_EXPIRES_IN_SECONDS;
-            long ttlSeconds = Math.max(expiresIn - properties.getTokenRenewSkewSeconds(), MIN_TOKEN_TTL_SECONDS);
+            long ttlSeconds = Math.max(expiresIn - TOKEN_RENEW_SKEW_SECONDS, MIN_TOKEN_TTL_SECONDS);
             token = new CachedToken(response.accessToken(), System.currentTimeMillis() + ttlSeconds * 1000L, 0L);
             return response.accessToken();
         } catch (RuntimeException e) {
             token = failedToken();
             log.warn("企业微信 access_token 获取失败，{} 秒内不再重试：{}",
-                    Math.max(properties.getTokenFailureBackoffSeconds(), 0), e.getMessage());
+                    TOKEN_FAILURE_BACKOFF_SECONDS, e.getMessage());
             return null;
         }
     }
 
     private CachedToken failedToken() {
-        long backoff = Math.max(properties.getTokenFailureBackoffSeconds(), 0) * 1000L;
-        return new CachedToken(null, 0L, System.currentTimeMillis() + backoff);
+        return new CachedToken(null, 0L, System.currentTimeMillis() + TOKEN_FAILURE_BACKOFF_SECONDS * 1000L);
     }
 
     private void auditFailure(Long deviceId, String reason) {
@@ -233,6 +222,14 @@ public class WeComAlarmNotifier {
         }
     }
 
+    private String content(AlarmRecord record) {
+        return "设备报警：设备ID=" + record.getDeviceId()
+                + "，类型=" + record.getRuleType()
+                + "，指标=" + (StringUtils.hasText(record.getMetric()) ? record.getMetric() : "-")
+                + "，触发值=" + (record.getTriggerValue() == null ? "-" : record.getTriggerValue())
+                + "，阈值=" + record.getThresholdSnapshot();
+    }
+
     private static RestClient buildClient(RestClient.Builder builder, WeComNotifyProperties properties) {
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
         factory.setConnectTimeout(Duration.ofMillis(Math.max(properties.getConnectTimeoutMs(), 1)));
@@ -249,9 +246,7 @@ public class WeComAlarmNotifier {
                 });
     }
 
-    /** 缓存的 access_token 与续期/退避时间点。 */
     private record CachedToken(String value, long expiresAt, long retryAt) {
-
         boolean usable(long now) {
             return value != null && now < expiresAt;
         }
@@ -260,7 +255,6 @@ public class WeComAlarmNotifier {
         }
     }
 
-    /** 企业微信 access_token 响应。 */
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record TokenResponse(@JsonProperty("access_token") String accessToken,
                                  @JsonProperty("expires_in") long expiresIn,
@@ -268,7 +262,6 @@ public class WeComAlarmNotifier {
                                  @JsonProperty("errmsg") String errmsg) {
     }
 
-    /** 企业微信消息发送响应。 */
     @JsonIgnoreProperties(ignoreUnknown = true)
     private record SendResult(@JsonProperty("errcode") int errcode, @JsonProperty("errmsg") String errmsg) {
     }
