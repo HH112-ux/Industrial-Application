@@ -33,6 +33,34 @@ class PasswordPolicyTest {
     }
 
     @Test
+    void acceptsPasswordAtSeventyTwoUtf8Bytes() {
+        // 24 个三字节汉字正好 72 字节，字符数也在 8-64 范围内。
+        assertDoesNotThrow(() -> PasswordPolicy.validate("工业互联网平台安全生产管理监控预警系统测试用例集", "zhangsan"));
+    }
+
+    @Test
+    void rejectsPasswordAboveSeventyTwoUtf8Bytes() {
+        // 25 个三字节汉字为 75 字节，字符数只有 25，旧规则会放行并被 BCrypt 截断。
+        String password = "工业互联网平台安全生产管理监控预警系统测试用例集合";
+
+        BadRequestException error = assertThrows(BadRequestException.class,
+                () -> PasswordPolicy.validate(password, "zhangsan"));
+
+        assertTrue(error.getMessage().contains("72"), error.getMessage());
+        assertTrue(error.getMessage().contains("字节"), error.getMessage());
+    }
+
+    @Test
+    void rejectsEmojiPasswordAboveSeventyTwoUtf8Bytes() {
+        String password = "😀😁😂🤣😃😄😅😆😉😊😋😎😍😘🥰😗😙😚🙂";
+
+        BadRequestException error = assertThrows(BadRequestException.class,
+                () -> PasswordPolicy.validate(password, "zhangsan"));
+
+        assertTrue(error.getMessage().contains("72"), error.getMessage());
+    }
+
+    @Test
     void rejectsPasswordMadeOfOneRepeatedCharacter() {
         BadRequestException error = assertThrows(BadRequestException.class,
                 () -> PasswordPolicy.validate("aaaaaaaa", "zhangsan"));
