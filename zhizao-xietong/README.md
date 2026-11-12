@@ -27,14 +27,15 @@ zhizao-xietong/
     │   └── aspect/         # 写操作审计
     └── resources/
         ├── application.yml
-        └── db/migration/   # Flyway 建表与种子数据
+        ├── db/migration/   # Flyway 建表
+        └── db/seed/        # 演示种子数据，默认不加载
 ```
 
 ## 快速开始
 
 ```bash
 # 1. 准备 MySQL 8（本机需先建库 zhizao_xietong，或用默认账号 root/root）
-# 2. 编译并启动（Flyway 自动建表 + 灌入种子数据，无需手工执行 SQL）
+# 2. 编译并启动（Flyway 自动建表；演示数据默认不灌入）
 mvn spring-boot:run
 
 # 3. 访问
@@ -43,7 +44,7 @@ mvn spring-boot:run
 #   Actuator 健康检查：http://localhost:8080/actuator/health
 ```
 
-> 表结构由 Flyway 管理（`src/main/resources/db/migration/`）。首次接入需空库，已有旧库请先 `DROP DATABASE zhizao_xietong` 后重建。
+> 表结构由 Flyway 管理（`src/main/resources/db/migration/`）。演示种子数据在 `db/seed/`，默认不加载；需要演示环境时用 `APP_SEED_DEMO_ENABLED=true mvn spring-boot:run`。首次接入需空库；已有库按增量迁移直接升级即可，`DROP DATABASE zhizao_xietong` 只用于本地开发想从头重来。
 
 ## 运行测试
 
@@ -102,6 +103,8 @@ mosquitto_pub -h localhost -t 'factory/devices/EQ-202609-0001/status' \
 
 ## 演示核心闭环
 
+以下示例依赖演示种子数据，启动时需设置 `APP_SEED_DEMO_ENABLED=true`。
+
 ```bash
 # 计划下达 → 工单
 curl -X POST http://localhost:8080/api/plans/1/dispatch
@@ -135,5 +138,5 @@ curl -X POST http://localhost:8080/api/work-orders/1/qc \
 - **编号生成**：基于数据库序列表 `sys_sequence`，按月分段、行级锁原子自增，并发安全、跨重启不重复。
 - **物料齐套校验**：基于独立 BOM 表 `pr_bom`，按「单件用量 × 工单数量」核算所需物料，库存不足判缺料。
 - **接口级鉴权**：已接入 Spring Security + JWT 与 `@PreAuthorize` 角色鉴权（ADMIN 管理 / USER 现场操作）。
-- **BOM 管理**：`pr_bom` 目前通过种子数据初始化，BOM 的增删改查接口与页面可后续补充。
+- **BOM 管理**：`pr_bom` 目前通过演示种子数据初始化（需 `APP_SEED_DEMO_ENABLED=true`），BOM 的增删改查接口与页面可后续补充。
 - **设备数据接入**：提供模拟遥测与状态回传接口，可替换为真实设备网关推送。

@@ -43,7 +43,8 @@
 │   │   └── common/ config/ aspect/
 │   ├── src/main/resources/
 │   │   ├── application.yml          # 配置，全部支持环境变量覆盖
-│   │   └── db/migration/            # Flyway 迁移 V1–V32（V27、V28 为空号）
+│   │   ├── db/migration/            # Flyway 迁移 V1–V33（V27、V28 为空号）
+│   │   └── db/seed/                 # 演示种子数据，默认不加载
 │   └── src/test/java/               # 366 个测试（5 个 Testcontainers 集成类）
 ├── zhizao-xietong-web/              # Vue 3 管理端
 │   ├── src/views/                   # 15 个页面组件
@@ -92,7 +93,7 @@ mysql -h127.0.0.1 -u"$DB_USERNAME" -p"$DB_PASSWORD" \
   -e "CREATE DATABASE IF NOT EXISTS zhizao_xietong DEFAULT CHARSET utf8mb4;"
 ```
 
-表结构由 Flyway 在后端启动时自动执行 `db/migration/V1`–`V25`，不需要手工建表。
+表结构由 Flyway 在后端启动时自动执行 `db/migration/V1`–`V33`，不需要手工建表。演示种子数据位于 `db/seed`，默认不加载，需要演示环境时显式设置 `APP_SEED_DEMO_ENABLED=true`（见「数据库迁移」）。
 
 ### 3. 启动后端
 
@@ -252,6 +253,20 @@ java -jar target/zhizao-xietong-1.0.0.jar
 ### 数据库迁移
 
 后端启动时由 Flyway 自动执行 `src/main/resources/db/migration`。升级前先备份；已执行过迁移的环境不要修改历史迁移文件，Flyway 会因 checksum 变化拒绝启动，修复只能追加新版本。
+
+#### 演示种子数据
+
+`V2__seed.sql` 提供演示设备、物料、工艺、计划与 BOM，位于 `src/main/resources/db/seed`，**默认不加载**。空库按默认配置启动后不会写入任何演示主数据。
+
+| 场景 | 配置 | 行为 |
+|---|---|---|
+| 生产 / 默认 | `APP_SEED_DEMO_ENABLED=false`（默认） | 只执行 `db/migration`，不灌入演示数据 |
+| 本地 / 演示空库 | `APP_SEED_DEMO_ENABLED=true` | 额外加载 `db/seed`，一键装出演示环境 |
+| 已执行过 V2 的存量库 | 保持默认即可 | 种子关闭时由 `FlywaySeedConfig` 追加 `*:missing`，放行缺失的历史版本，不会报 checksum 或 missing migration |
+
+开关只在空库首次迁移时生效。已升级到最新版本的存量库不要开启：V2 依赖 V1 的表结构，V11/V22 之后 `eq_device.workshop` 已无默认值，回放会失败；且此时 V2 是低于基线的待执行迁移，Flyway 会显式校验失败而不是静默跳过。演示环境请使用全新空库。checksum、失败迁移与乱序迁移校验保持开启，未被整体关闭。
+
+**注意**：默认路径追加的 `*:missing` 是 Flyway 全局校验模式，它也会掩盖「已执行过的迁移文件被误删或漏拷」的问题。升级时如果发现某个历史迁移文件不见了，不要因为启动成功就认为升级正常，请先核对 `flyway_schema_history` 与 `db/migration` 文件清单。种子开启时不追加该模式，保持严格校验。
 
 `V15__process_unique_version.sql` **非幂等**：内容是 `ALTER TABLE pr_process DROP INDEX uk_process_no`，而 MySQL 8 不支持 `DROP INDEX IF EXISTS`。若某环境曾手工删除该索引，V15 会以「Can't DROP 'uk_process_no'; check that column/key exists」失败，需二选一处理后重跑：
 

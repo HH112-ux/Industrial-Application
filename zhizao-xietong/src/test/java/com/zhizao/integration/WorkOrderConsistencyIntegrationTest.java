@@ -45,7 +45,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @SpringBootTest(properties = {
         "JWT_SECRET=integration-test-secret-key-not-for-production",
         "DB_PASSWORD=test",
-        "app.bootstrap.admin-password=integration-test-admin-pass"
+        "app.bootstrap.admin-password=integration-test-admin-pass",
+        // 本用例依赖演示工艺与 BOM；演示种子默认关闭，测试内显式开启
+        "app.seed.demo-enabled=true"
 })
 @Testcontainers(disabledWithoutDocker = true)
 class WorkOrderConsistencyIntegrationTest {
