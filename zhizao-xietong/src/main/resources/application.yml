@@ -28,7 +28,6 @@ spring:
 mybatis-plus:
   configuration:
     map-underscore-to-camel-case: true
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
   global-config:
     banner: false
     db-config:
@@ -51,6 +50,10 @@ management:
       show-details: when-authorized
 
 logging:
+  # 默认（生产）只输出 INFO 及以上，SQL 语句与参数不落业务日志
+  level:
+    root: INFO
+    com.zhizao: INFO
   pattern:
     console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%X{traceId:-no-trace}] %logger{36} - %msg%n"
 
@@ -135,3 +138,19 @@ schedule:
   day-start-hour: ${SCHEDULE_DAY_START_HOUR:8}
   # 显式开启的估算工时，单位小时；0 表示关闭，标准工时缺失时直接拒绝排程
   estimate-fallback-hours: ${SCHEDULE_ESTIMATE_FALLBACK_HOURS:0}
+
+---
+# 仅 dev profile：打开 MyBatis SQL 与控制台输出，便于本机调试。
+# 默认（不激活 dev）不加载本段，SQL 与参数不会写入生产日志。
+spring:
+  config:
+    activate:
+      on-profile: dev
+
+mybatis-plus:
+  configuration:
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+
+logging:
+  level:
+    com.zhizao: DEBUG
