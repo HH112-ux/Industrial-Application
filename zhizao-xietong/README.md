@@ -44,7 +44,7 @@ mvn spring-boot:run
 #   Actuator 健康检查：http://localhost:8080/actuator/health
 ```
 
-> 表结构由 Flyway 管理（`src/main/resources/db/migration/`）。演示种子数据在 `db/seed/`，默认不加载；需要演示环境时用 `APP_SEED_DEMO_ENABLED=true mvn spring-boot:run`。首次接入需空库，已有旧库请先 `DROP DATABASE zhizao_xietong` 后重建。
+> 表结构由 Flyway 管理（`src/main/resources/db/migration/`）。演示种子数据在 `db/seed/`，默认不加载；需要演示环境时用 `APP_SEED_DEMO_ENABLED=true mvn spring-boot:run`。首次接入需空库；已有库按增量迁移直接升级即可，`DROP DATABASE zhizao_xietong` 只用于本地开发想从头重来。
 
 ## 运行测试
 
