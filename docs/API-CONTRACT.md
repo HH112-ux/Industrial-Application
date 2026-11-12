@@ -1,6 +1,6 @@
 # 接口契约
 
-现状接口以当前代码为准，共 87 个端点（按 Controller 注解逐条统计，基线 `main @ 962dde8`）。表格编号沿用历史值、只增不复用：原 BOM 版本端点 #26、#27 已于 S4 移除，新补登记使用 #66–#73 与 #78–#87。
+现状接口以当前代码为准，共 87 个端点（按 Controller 注解逐条统计，基线 `main @ 6aedd20`）。表格编号沿用历史值、只增不复用：原 BOM 版本端点 #26、#27 已于 S4 移除，新补登记使用 #66–#73 与 #78–#87。
 
 标注说明：`[代码实证]` 表示已在 Controller 中核对；`[工程判断]` 表示设计建议；`[待确认]` 表示需要用户拍板。
 
@@ -164,7 +164,7 @@
 | 33 | POST | `/api/plans` | ADMIN | 新建计划 | 保留 | 校验 `planEnd >= planStart`、数量大于 0；`workshop` 必填，不再缺省「一车间」 |
 | 34 | PUT | `/api/plans/{id}` | ADMIN | 更新计划 | 改行为 | 已下达计划不可改数量与日期 |
 | 35 | DELETE | `/api/plans/{id}` | ADMIN | 删除计划 | 保留 | 有工单时拒绝 |
-| 36 | POST | `/api/plans/{id}/dispatch` | ADMIN | 下达工单 | 已落地 | S5 改为 JSON 请求体，必填 `processId` 且必须为已发布工艺；`deviceId` 为空时取计划所需设备；`workshop` 为空时取计划所属车间 |
+| 36 | POST | `/api/plans/{id}/dispatch` | ADMIN | 下达工单 | 已落地 | S5 改为 JSON 请求体，必填 `processId` 且必须为已发布工艺；`deviceId` 为空时取计划所需设备；`workshop` 为空时取计划所属车间。派工写入 `dispatch_token=PLAN-{planId}` 幂等键，同一计划重复派工返回 HTTP 200 + 业务码 409 |
 
 ### 2.8 生产工单
 
@@ -178,7 +178,7 @@
 | 48 | GET | `/api/work-orders/{id}/history` | 登录 | 状态流转历史 | 已落地 | S3 已实现，按发生时间升序返回 |
 | 73 | GET | `/api/work-orders/stats/status` | 登录 | 按状态统计工单数量，供工作台卡片使用 | 已落地 | 返回状态到数量的映射，空结果返回 0 而不是 null |
 
-工单没有创建接口，也没有 `PUT` / `PATCH` 更新接口：工单由计划派工生成，状态只能由开工、报工、质检三条链路驱动；下达工单（`POST /api/plans/{id}/dispatch`）由管理员执行。`[代码实证]`
+工单没有创建接口，也没有 `PUT` / `PATCH` 更新接口：工单由计划派工生成，状态只能由开工、报工、质检三条链路驱动；下达工单（`POST /api/plans/{id}/dispatch`）由管理员执行，重复派工由 `dispatch_token` 唯一索引兜底并返回业务码 409。`[代码实证]`
 
 ### 2.9 设备点检与维修
 

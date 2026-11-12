@@ -1,6 +1,6 @@
 # 数据模型设计
 
-本文档描述现状数据库结构与重构目标模型。现状结构来自 `zhizao-xietong/src/main/resources/db/migration/V1__init.sql` 至 `V32__auth_event.sql`，共 **26 张表 + 5 个只读视图**（迁移号到 V32，其中 V27、V28 为空号）；目标结构为待评审设计，不包含未执行的迁移。
+本文档描述现状数据库结构与重构目标模型。现状结构来自 `zhizao-xietong/src/main/resources/db/migration/V1__init.sql` 至 `V33__work_order_dispatch_token.sql`，共 **26 张表 + 5 个只读视图**；`db/migration` 下有 30 个迁移脚本（编号覆盖 V1–V33，其中 V27、V28 为空号），另有 1 个演示种子 `V2__seed.sql` 位于 `db/seed`、默认不加载；目标结构为待评审设计，不包含未执行的迁移。
 
 标注说明：`[代码实证]` 表示可从当前代码或迁移脚本直接核对；`[工程判断]` 表示基于现有规模与约束提出的设计取舍；`[待确认]` 表示需要用户拍板。
 
@@ -46,7 +46,7 @@ erDiagram
 | `pr_bom` | `BomItem` | `BomItemMapper` | 工艺物料清单，按 `process_id` 归属版本 | 仅 `process_id` 普通索引 |
 | `po_plan` | `Plan` | `PlanMapper` | 生产计划 | `uk_plan_order_no`，状态索引，`workshop` 索引 |
 | `po_schedule_entry` | `ScheduleEntry` | `ScheduleEntryMapper` | 有限产能排程结果与冲突原因 | `work_order_id`、`(device_id, start_time)`、`status` 索引；派生数据，无逻辑删除 |
-| `wo_work_order` | `WorkOrder` | `WorkOrderMapper` | 生产工单 | `uk_order_no`，`plan_id`/`status` 索引；`process_version` 记录开工时锁定的工艺版本；`qty_rework` 记录质检失败释放的返工额度（V16） |
+| `wo_work_order` | `WorkOrder` | `WorkOrderMapper` | 生产工单 | `uk_order_no`、`uk_work_order_dispatch_token (dispatch_token)`，`plan_id`/`status` 索引；`dispatch_token` 为派工幂等键 `PLAN-{planId}`（V33），历史工单为 `NULL`；`plan_id` 未加唯一键，因为工单逻辑删除后仍占用键位；`process_version` 记录开工时锁定的工艺版本；`qty_rework` 记录质检失败释放的返工额度（V16） |
 | `wo_status_history` | `WorkOrderStatusHistory` | `WorkOrderStatusHistoryMapper` | 工单状态流转历史 | `(order_id, created_at)` 索引，只追加 |
 | `wo_report` | `WorkOrderReport` | `WorkOrderReportMapper` | 报工记录 | `uk_report_no`，`order_id` 索引，`(order_id, idempotency_key)` 唯一 |
 | `wo_quality` | `QualityRecord` | `QualityRecordMapper` | 质检记录 | `uk_quality_no`，`order_id` 索引 |
@@ -242,7 +242,7 @@ V9 为存量工艺回填一条「默认工序」（`seq = 1`），保证迁移�
 
 索引：`uk_stock_product_workshop (product_code, workshop)`、`idx_stock_workshop (workshop)`。库存不做历史回填，只统计本模块上线后的确认入库。`[代码实证]`
 
-迁移编号说明：V27/V28 未使用，V29/V30 为设备报警规则与记录，成品库存顺延到 V31，认证事件表为 V32，以保持 Flyway 单调追加、不改写已在线上执行过的版本。`[已决策]`
+迁移编号说明：V27/V28 未使用，V29/V30 为设备报警规则与记录，成品库存顺延到 V31，认证事件表为 V32，工单派工幂等键为 V33，以保持 Flyway 单调追加、不改写已在线上执行过的版本。`[已决策]`
 
 #### 2.1.9 设备报警与认证事件（已落地，V29 / V30 / V32）
 
@@ -295,6 +295,14 @@ V9 为存量工艺回填一条「默认工序」（`seq = 1`），保证迁移�
 | `created_at` | DATETIME | NOT NULL DEFAULT CURRENT_TIMESTAMP | 事件时间 |
 
 索引：`idx_auth_event_time (created_at)`、`idx_auth_event_user_time (username, created_at)`、`idx_auth_event_result (result_code)`。该表只记事件类型、结果码、原因摘要与来源 IP，不记请求体，避免口令、授权码与 `state` 入库；与写操作审计 `sys_audit_log` 分表，互不影响。`[代码实证]`
+
+#### 2.1.10 工单派工幂等键（已落地，V33）
+
+| 字段 | 类型 | 约束 | 说明 |
+|---|---|---|---|
+| `dispatch_token` | VARCHAR(64) | NULL，`uk_work_order_dispatch_token` 唯一 | 派工幂等键，值为 `PLAN-{planId}`；历史工单不回填，保持 `NULL` |
+
+一个计划只允许生成一张工单，防止双击或请求重试并发下达产生重复工单。唯一键没有直接加在 `plan_id` 上，原因有二：存量数据可能已因该缺陷产生同计划的重复工单，直接加 `uk(plan_id)` 会让迁移失败；工单是逻辑删除，`deleted=1` 的行仍留在表里并继续占用键位。可空列在 MySQL 唯一索引下允许多个 `NULL`，历史数据无需清洗。迁移仅新增列与索引，不回填、不修改既有行。`[代码实证]`
 
 ### 2.2 调整现有表
 
@@ -429,8 +437,9 @@ V9 为存量工艺回填一条「默认工序」（`seq = 1`），保证迁移�
 | `V30__device_alarm_record.sql` | 新建 `eq_alarm_record`，活动报警由 `active_flag` 唯一约束 | 必须晚于 `V29` |
 | `V31__finished_goods_stock.sql` | 新建 `fg_finished_stock`，按成品编码 + 车间累计入库；编号顺延避开已占用的 V29/V30，不回填历史库存 | 必须晚于 `V26` |
 | `V32__auth_event.sql` | 新建 `sys_auth_event`，记录登录、登出、SSO 换票的成功与失败；只存结果码与原因摘要，不存请求体 | 无 |
+| `V33__work_order_dispatch_token.sql` | `wo_work_order` 增加可空 `dispatch_token VARCHAR(64)` 与唯一索引 `uk_work_order_dispatch_token`，值为 `PLAN-{planId}`；不回填历史工单，重复派工命中唯一键时返回 409 | 必须晚于 `V7` |
 
-编号说明：V27、V28 未被使用（当时为并行切片预留后废弃），Flyway 允许跳号但不允许重排或改写已执行版本；因此成品库存使用 V31，认证事件表顺延到 V32，而不是回头补 V27。`[已决策]`
+编号说明：V27、V28 未被使用（当时为并行切片预留后废弃），Flyway 允许跳号但不允许重排或改写已执行版本；因此成品库存使用 V31，认证事件表顺延到 V32，工单派工幂等键顺延到 V33，而不是回头补 V27。`[已决策]`
 
 种子数据位置：`V2__seed.sql` 现位于 `classpath:db/seed`，主 `spring.flyway.locations` 默认只包含 `classpath:db/migration`，因此空库按默认配置启动不会写入任何演示主数据。存量库若已执行过 V2，种子关闭时由 `FlywaySeedConfig` 追加 `*:missing`，放行「已执行但当前 locations 缺失」的版本；该模式同时会掩盖历史迁移文件误删/漏拷，升级时需人工核对 `flyway_schema_history` 与 `db/migration` 文件清单。种子开启时不追加该模式，checksum、失败迁移与乱序迁移仍在校验。该开关仅用于空库安装演示环境，已升级到最新版本的存量库不回放 V2，误开时 Flyway 会显式校验失败。`[已决策]`
 
