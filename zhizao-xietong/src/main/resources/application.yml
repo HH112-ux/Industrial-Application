@@ -87,6 +87,10 @@ device:
         corp-id: ${DEVICE_ALARM_WECOM_CORP_ID:}
         agent-id: ${DEVICE_ALARM_WECOM_AGENT_ID:}
         secret: ${DEVICE_ALARM_WECOM_SECRET:}
+        # 通知为旁路：超时与队列容量可调，外部调用失败只记日志与审计
+        connect-timeout-ms: ${DEVICE_ALARM_WECOM_CONNECT_TIMEOUT_MS:2000}
+        read-timeout-ms: ${DEVICE_ALARM_WECOM_READ_TIMEOUT_MS:3000}
+        queue-capacity: ${DEVICE_ALARM_WECOM_QUEUE_CAPACITY:200}
   simulation:
     enabled: ${DEVICE_SIMULATION_ENABLED:false}
   auth:
