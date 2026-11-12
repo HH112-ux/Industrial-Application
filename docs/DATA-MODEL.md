@@ -400,7 +400,7 @@ V9 为存量工艺回填一条「默认工序」（`seq = 1`），保证迁移�
 | 迁移 | 内容 | 依赖 |
 |---|---|---|
 | `V1__init.sql` | 基线 12 张表、索引与约束（S0 基线）；只读视图由后续迁移创建 | 无 |
-| `V2__seed.sql` | 演示种子数据（设备等），仅用于本地与演示环境 | 晚于 V1 |
+| `V2__seed.sql` | 演示种子数据（设备、物料、工艺、计划、BOM），文件已移至 `classpath:db/seed`；默认不加载，仅 `APP_SEED_DEMO_ENABLED=true` 时执行（见 README「演示种子数据」）；脚本内容与版本号未改动 | 晚于 V1 |
 | `V3__bom_version.sql` | `pr_bom.version` 列（该列已由 V21 删除） | 晚于 V1 |
 | `V4__device_online.sql` | `eq_device.last_seen_at`（S1 已落地）；`workshop` 由 `V11` 补充 | 无 |
 | `V5__device_credential.sql` | 新建 `eq_device_credential` | 无 |
@@ -431,6 +431,8 @@ V9 为存量工艺回填一条「默认工序」（`seq = 1`），保证迁移�
 | `V32__auth_event.sql` | 新建 `sys_auth_event`，记录登录、登出、SSO 换票的成功与失败；只存结果码与原因摘要，不存请求体 | 无 |
 
 编号说明：V27、V28 未被使用（当时为并行切片预留后废弃），Flyway 允许跳号但不允许重排或改写已执行版本；因此成品库存使用 V31，认证事件表顺延到 V32，而不是回头补 V27。`[已决策]`
+
+种子数据位置：`V2__seed.sql` 现位于 `classpath:db/seed`，主 `spring.flyway.locations` 默认只包含 `classpath:db/migration`，因此空库按默认配置启动不会写入任何演示主数据。存量库若已执行过 V2，通过 `spring.flyway.ignore-migration-patterns=*:missing,*:ignored` 放行「已执行但当前 locations 缺失」以及「低于基线的待执行」两类状态，避免误开演示开关时启动失败；checksum 与失败迁移仍在校验。该开关仅用于空库安装演示环境，已升级到 V32 的存量库不回放 V2。`[已决策]`
 
 每个迁移可单独回滚到上一版本；结构变更与回填放在同一迁移时，回填必须幂等并在 PR 中单独说明。生产环境执行前先备份。`[工程判断]`
 

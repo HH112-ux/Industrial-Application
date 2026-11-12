@@ -11,7 +11,13 @@ spring:
     driver-class-name: com.mysql.cj.jdbc.Driver
   flyway:
     enabled: true
+    # 演示种子脚本（V2__seed.sql）已移至 classpath:db/seed，默认不加载；
+    # 开启 app.seed.demo-enabled 时由 FlywaySeedConfig 追加该目录
     locations: classpath:db/migration
+    # 存量库历史中存在 V2__seed.sql，但默认 locations 已不含该版本；
+    # 同时忽略「缺失」与「低于基线的待执行」两类状态，避免存量库误开演示开关时启动失败；
+    # checksum 与失败迁移仍会校验，不是关闭全部校验
+    ignore-migration-patterns: "*:missing,*:ignored"
   data:
     redis:
       host: ${REDIS_HOST:localhost}
@@ -48,6 +54,10 @@ logging:
     console: "%d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%X{traceId:-no-trace}] %logger{36} - %msg%n"
 
 app:
+  seed:
+    # 演示种子数据开关：默认关闭，空库启动不写入演示设备/物料/工艺/计划；
+    # 仅本地或演示环境显式设为 true，已上线的存量库请保持 false
+    demo-enabled: ${APP_SEED_DEMO_ENABLED:false}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:8081}
   sso:
