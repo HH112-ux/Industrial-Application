@@ -15,9 +15,9 @@ spring:
     # 开启 app.seed.demo-enabled 时由 FlywaySeedConfig 追加该目录
     locations: classpath:db/migration
     # 存量库历史中存在 V2__seed.sql，但默认 locations 已不含该版本；
-    # 同时忽略「缺失」与「低于基线的待执行」两类状态，避免存量库误开演示开关时启动失败；
-    # checksum 与失败迁移仍会校验，不是关闭全部校验
-    ignore-migration-patterns: "*:missing,*:ignored"
+    # 仅忽略「已执行但当前 locations 缺失」的版本，checksum、失败迁移与乱序迁移仍会校验；
+    # 已迁移完成的非演示库请勿开启演示开关，否则 V2 为低版本待执行状态会显式校验失败
+    ignore-migration-patterns: "*:missing"
   data:
     redis:
       host: ${REDIS_HOST:localhost}

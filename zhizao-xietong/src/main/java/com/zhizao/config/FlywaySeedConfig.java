@@ -19,9 +19,9 @@ import java.util.List;
  * 不再回放 V2（后续迁移已改变表结构，回放会失败），保持关闭即可。</p>
  *
  * <p>历史上 {@code V2__seed.sql} 位于 {@code db/migration}，脚本内容未做任何修改。
- * 已执行过该版本的存量库通过 {@code spring.flyway.ignore-migration-patterns=*:missing,*:ignored}
- * 放行「已执行但当前 locations 中不存在」与「低于基线的待执行」两类状态，
- * checksum 与失败迁移仍然校验，不是关闭全部校验。</p>
+ * 已执行过该版本的存量库通过 {@code spring.flyway.ignore-migration-patterns=*:missing}
+ * 放行「已执行但当前 locations 中不存在」的版本；checksum、失败迁移与乱序迁移仍然校验，
+ * 不是关闭全部校验。</p>
  *
  * @author Caspian
  */

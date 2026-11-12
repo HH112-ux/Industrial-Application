@@ -432,7 +432,7 @@ V9 为存量工艺回填一条「默认工序」（`seq = 1`），保证迁移�
 
 编号说明：V27、V28 未被使用（当时为并行切片预留后废弃），Flyway 允许跳号但不允许重排或改写已执行版本；因此成品库存使用 V31，认证事件表顺延到 V32，而不是回头补 V27。`[已决策]`
 
-种子数据位置：`V2__seed.sql` 现位于 `classpath:db/seed`，主 `spring.flyway.locations` 默认只包含 `classpath:db/migration`，因此空库按默认配置启动不会写入任何演示主数据。存量库若已执行过 V2，通过 `spring.flyway.ignore-migration-patterns=*:missing,*:ignored` 放行「已执行但当前 locations 缺失」以及「低于基线的待执行」两类状态，避免误开演示开关时启动失败；checksum 与失败迁移仍在校验。该开关仅用于空库安装演示环境，已升级到 V32 的存量库不回放 V2。`[已决策]`
+种子数据位置：`V2__seed.sql` 现位于 `classpath:db/seed`，主 `spring.flyway.locations` 默认只包含 `classpath:db/migration`，因此空库按默认配置启动不会写入任何演示主数据。存量库若已执行过 V2，通过 `spring.flyway.ignore-migration-patterns=*:missing` 放行「已执行但当前 locations 缺失」的版本；checksum、失败迁移与乱序迁移仍在校验。该开关仅用于空库安装演示环境，已升级到 V32 的存量库不回放 V2，误开时 Flyway 会显式校验失败。`[已决策]`
 
 每个迁移可单独回滚到上一版本；结构变更与回填放在同一迁移时，回填必须幂等并在 PR 中单独说明。生产环境执行前先备份。`[工程判断]`
 

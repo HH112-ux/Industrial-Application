@@ -255,9 +255,9 @@ java -jar target/zhizao-xietong-1.0.0.jar
 |---|---|---|
 | 生产 / 默认 | `APP_SEED_DEMO_ENABLED=false`（默认） | 只执行 `db/migration`，不灌入演示数据 |
 | 本地 / 演示空库 | `APP_SEED_DEMO_ENABLED=true` | 额外加载 `db/seed`，一键装出演示环境 |
-| 已执行过 V2 的存量库 | 保持默认即可 | `spring.flyway.ignore-migration-patterns=*:missing,*:ignored` 放行缺失与低版本待执行状态，不会报 checksum 或 missing migration |
+| 已执行过 V2 的存量库 | 保持默认即可 | `spring.flyway.ignore-migration-patterns=*:missing` 放行缺失的历史版本，不会报 checksum 或 missing migration |
 
-开关只在空库首次迁移时生效。已升级到 V32 的存量库不要开启：V2 依赖 V1 的表结构，V11/V22 之后 `eq_device.workshop` 已无默认值，回放会失败；演示环境请使用全新空库。即使误开，`*:ignored` 也只会让 V2 被忽略，不会中断启动或写入演示数据。checksum 与失败迁移校验保持开启，未被整体关闭。
+开关只在空库首次迁移时生效。已升级到 V32 的存量库不要开启：V2 依赖 V1 的表结构，V11/V22 之后 `eq_device.workshop` 已无默认值，回放会失败；且此时 V2 是低于基线的待执行迁移，Flyway 会显式校验失败而不是静默跳过。演示环境请使用全新空库。checksum、失败迁移与乱序迁移校验保持开启，未被整体关闭。
 
 `V15__process_unique_version.sql` **非幂等**：内容是 `ALTER TABLE pr_process DROP INDEX uk_process_no`，而 MySQL 8 不支持 `DROP INDEX IF EXISTS`。若某环境曾手工删除该索引，V15 会以「Can't DROP 'uk_process_no'; check that column/key exists」失败，需二选一处理后重跑：
 
