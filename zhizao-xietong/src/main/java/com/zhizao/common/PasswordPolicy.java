@@ -1,12 +1,14 @@
 package com.zhizao.common;
 
+import java.nio.charset.StandardCharsets;
 import java.util.Locale;
 import java.util.Set;
 
 /**
  * 密码强度校验：本地账号所有「设置密码」入口共用同一份规则。
  *
- * <p>规则刻意保持简单：长度 8-64 位、禁止全部同一字符、禁止包含用户名、拒绝少量常见弱口令。
+ * <p>规则刻意保持简单：长度 8-64 位、UTF-8 编码不超过 72 字节、禁止全部同一字符、
+ * 禁止包含用户名、拒绝少量常见弱口令。
  * 不做定期过期、历史密码与账号锁定——车间场景下过严的规则会把密码推向纸条与共享，
  * 反而降低安全性。取舍见《独立账号体系方案》§5。</p>
  *
@@ -21,8 +23,14 @@ public final class PasswordPolicy {
     /** 密码最小长度：兼顾车间终端的输入成本与基本强度。 */
     public static final int MIN_LENGTH = 8;
 
-    /** 密码最大长度：BCrypt 只使用前 72 字节，更长的输入没有实际收益。 */
+    /** 密码最大字符数：与前端「8-64 位」提示保持一致。 */
     public static final int MAX_LENGTH = 64;
+
+    /**
+     * 密码最大字节数：BCrypt 只使用前 72 字节，超出部分会被静默截断，
+     * 导致两个前 72 字节相同的密码可以互相通过校验。
+     */
+    public static final int MAX_UTF8_BYTES = 72;
 
     /** 用户名参与「禁止包含」判断的最短长度，1-2 个字符的用户名会误伤大量正常密码。 */
     private static final int MIN_USERNAME_LENGTH_FOR_CHECK = 3;
@@ -40,7 +48,7 @@ public final class PasswordPolicy {
     /**
      * 校验密码是否满足策略，不满足时抛出可直接展示给用户的原因。
      *
-     * <p>校验顺序固定为「空 → 长度 → 全同字符 → 含用户名 → 弱口令名单」，
+     * <p>校验顺序固定为「空 → 长度（字符数与 UTF-8 字节数）→ 全同字符 → 含用户名 → 弱口令名单」，
      * 先报最直观的问题，避免用户按提示改完又撞上下一条规则。</p>
      *
      * @param password 明文密码，可为 null
@@ -54,6 +62,11 @@ public final class PasswordPolicy {
         if (password.length() < MIN_LENGTH || password.length() > MAX_LENGTH) {
             throw new BadRequestException("密码长度需为 " + MIN_LENGTH + "-" + MAX_LENGTH
                     + " 位，当前 " + password.length() + " 位");
+        }
+        int utf8Bytes = password.getBytes(StandardCharsets.UTF_8).length;
+        if (utf8Bytes > MAX_UTF8_BYTES) {
+            throw new BadRequestException("密码按 UTF-8 编码不能超过 " + MAX_UTF8_BYTES
+                    + " 字节，当前 " + utf8Bytes + " 字节（中文、emoji 等字符占多个字节），请缩短后重试");
         }
         if (allSameCharacter(password)) {
             throw new BadRequestException("密码不能全部使用同一个字符，请混合字母、数字或符号");
