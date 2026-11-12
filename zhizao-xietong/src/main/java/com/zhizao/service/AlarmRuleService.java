@@ -1,15 +1,21 @@
 package com.zhizao.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.zhizao.common.BadRequestException;
 import com.zhizao.common.BusinessException;
+import com.zhizao.entity.AlarmRecord;
 import com.zhizao.entity.AlarmRule;
 import com.zhizao.entity.Device;
+import com.zhizao.enums.AlarmStatus;
+import com.zhizao.mapper.AlarmRecordMapper;
 import com.zhizao.mapper.AlarmRuleMapper;
 import com.zhizao.mapper.DeviceMapper;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Set;
 
@@ -18,6 +24,9 @@ import java.util.Set;
  *
  * <p>离线规则不配置指标与阈值，统一复用 {@code device.online-threshold-seconds}，
  * 因此指标固定为空串，同一设备最多一条离线规则。</p>
+ *
+ * <p>判定链路只遍历启用中的规则，因此规则停用或删除时必须在同一事务内闭合对应在途记录，
+ * 否则这些记录会永久停留在未恢复状态并持续计入报警中心未读数。</p>
  *
  * @author Caspian
  */
@@ -33,10 +42,13 @@ public class AlarmRuleService {
 
     private final AlarmRuleMapper ruleMapper;
     private final DeviceMapper deviceMapper;
+    private final AlarmRecordMapper recordMapper;
 
-    public AlarmRuleService(AlarmRuleMapper ruleMapper, DeviceMapper deviceMapper) {
+    public AlarmRuleService(AlarmRuleMapper ruleMapper, DeviceMapper deviceMapper,
+                            AlarmRecordMapper recordMapper) {
         this.ruleMapper = ruleMapper;
         this.deviceMapper = deviceMapper;
+        this.recordMapper = recordMapper;
     }
     /** 查询规则列表，{@code deviceId} 为空表示全部。 */
     public List<AlarmRule> list(Long deviceId) {
@@ -63,7 +75,8 @@ public class AlarmRuleService {
         }
         return rule;
     }
-    /** 更新规则，设备归属不可修改。 */
+    /** 更新规则，设备归属不可修改；停用时同时闭合在途报警记录。 */
+    @Transactional
     public AlarmRule update(Long id, AlarmRule rule) {
         AlarmRule existing = require(id);
         rule.setId(id);
@@ -77,16 +90,52 @@ public class AlarmRuleService {
         normalize(rule);
         ensureUnique(rule, id);
         try {
-            ruleMapper.updateById(rule);
+            // 只写管理员可配置的列：current_streak 由判定链路原子维护，
+            // 整实体回写会用旧快照覆盖并发自增，也会把阈值改回提交前的值。
+            ruleMapper.update(null, new LambdaUpdateWrapper<AlarmRule>()
+                    .eq(AlarmRule::getId, id)
+                    .set(AlarmRule::getMetric, rule.getMetric())
+                    .set(AlarmRule::getRuleType, rule.getRuleType())
+                    .set(AlarmRule::getUpperLimit, rule.getUpperLimit())
+                    .set(AlarmRule::getLowerLimit, rule.getLowerLimit())
+                    .set(AlarmRule::getConsecutiveTimes, rule.getConsecutiveTimes())
+                    .set(AlarmRule::getEnabled, rule.getEnabled()));
         } catch (DuplicateKeyException e) {
             throw duplicateRule();
         }
+        if (!Boolean.TRUE.equals(rule.getEnabled())) {
+            closeActiveRecords(existing.getDeviceId(), existing.getRuleType(), existing.getMetric());
+        }
         return ruleMapper.selectById(id);
     }
-    /** 删除规则。 */
+    /** 删除规则，同时闭合其在途报警记录。 */
+    @Transactional
     public void delete(Long id) {
-        require(id);
+        AlarmRule existing = require(id);
         ruleMapper.deleteById(id);
+        closeActiveRecords(existing.getDeviceId(), existing.getRuleType(), existing.getMetric());
+    }
+
+    /**
+     * 闭合规则对应的在途报警记录。
+     *
+     * <p>条件更新只处理仍在途的记录，重复调用幂等；规则已不参与判定，
+     * 因此按「规则终止」口径置为已恢复并记录恢复时间，避免永久计入未读数。</p>
+     *
+     * @param deviceId 设备主键
+     * @param ruleType 规则类型
+     * @param metric   指标，离线规则为空串
+     */
+    private void closeActiveRecords(Long deviceId, String ruleType, String metric) {
+        recordMapper.update(null, new LambdaUpdateWrapper<AlarmRecord>()
+                .eq(AlarmRecord::getDeviceId, deviceId)
+                .eq(AlarmRecord::getRuleType, ruleType)
+                .eq(AlarmRecord::getMetric, metric)
+                .eq(AlarmRecord::getActiveFlag, 1)
+                .in(AlarmRecord::getStatus, AlarmStatus.OPEN.name(), AlarmStatus.ACKNOWLEDGED.name())
+                .set(AlarmRecord::getStatus, AlarmStatus.RECOVERED.name())
+                .set(AlarmRecord::getRecoverTime, LocalDateTime.now())
+                .setSql("active_flag = NULL"));
     }
     private AlarmRule require(Long id) {
         AlarmRule rule = ruleMapper.selectById(id);

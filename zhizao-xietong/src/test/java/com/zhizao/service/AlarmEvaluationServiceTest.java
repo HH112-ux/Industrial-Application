@@ -76,24 +76,49 @@ class AlarmEvaluationServiceTest {
         return captor.getValue();
     }
 
+    private LambdaUpdateWrapper<AlarmRule> captureRuleUpdate() {
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<LambdaUpdateWrapper<AlarmRule>> captor =
+                ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(ruleMapper).update(isNull(), captor.capture());
+        return captor.getValue();
+    }
+
     @Test
     void breachBelowConsecutiveTimesOnlyAccumulatesStreak() {
         AlarmRule rule = rule(3, 1);
         when(ruleMapper.selectList(any())).thenReturn(List.of(rule));
         when(recordMapper.selectOne(any())).thenReturn(null);
+        when(ruleMapper.update(isNull(), any())).thenReturn(1);
+        when(ruleMapper.selectById(5L)).thenReturn(rule(3, 2));
 
         service.evaluateThreshold(1L, report(90.0));
-        service.evaluateThreshold(1L, report(null));
 
-        assertEquals(2, rule.getCurrentStreak());
-        verify(ruleMapper).updateById(rule);
+        assertTrue(captureRuleUpdate().getSqlSet().contains("current_streak = current_streak + 1"));
+        verify(ruleMapper, never()).updateById(any(AlarmRule.class));
         verify(recordMapper, never()).insert(any(AlarmRecord.class));
+    }
+
+    @Test
+    void streakCountsFromDatabaseValueRatherThanStaleSnapshot() {
+        AlarmRule rule = rule(3, 1);
+        rule.setCurrentStreak(0);
+        when(ruleMapper.selectList(any())).thenReturn(List.of(rule));
+        when(recordMapper.selectOne(any())).thenReturn(null);
+        when(ruleMapper.update(isNull(), any())).thenReturn(1);
+        when(ruleMapper.selectById(5L)).thenReturn(rule(3, 3));
+
+        service.evaluateThreshold(1L, report(90.0));
+
+        verify(recordMapper).insert(any(AlarmRecord.class));
     }
 
     @Test
     void reachingConsecutiveTimesOpensOnceThenRefreshes() {
         when(ruleMapper.selectList(any())).thenReturn(List.of(rule(3, 2)));
         when(recordMapper.selectOne(any())).thenReturn(null, activeRecord());
+        when(ruleMapper.update(isNull(), any())).thenReturn(1);
+        when(ruleMapper.selectById(5L)).thenReturn(rule(3, 3));
 
         service.evaluateThreshold(1L, report(90.0));
         service.evaluateThreshold(1L, report(95.0));
@@ -136,7 +161,8 @@ class AlarmEvaluationServiceTest {
 
         service.evaluateThreshold(1L, report(60.0));
 
-        assertEquals(0, rule.getCurrentStreak());
+        assertTrue(captureRuleUpdate().getSqlSet().contains("current_streak"));
+        verify(ruleMapper, never()).updateById(any(AlarmRule.class));
         String sqlSet = captureUpdate().getSqlSet();
         assertTrue(sqlSet.contains("recover_time"));
         assertTrue(sqlSet.contains("active_flag = NULL"));
@@ -146,6 +172,8 @@ class AlarmEvaluationServiceTest {
     void duplicateInsertFallsBackToRefresh() {
         when(ruleMapper.selectList(any())).thenReturn(List.of(rule(3, 2)));
         when(recordMapper.selectOne(any())).thenReturn(null, activeRecord());
+        when(ruleMapper.update(isNull(), any())).thenReturn(1);
+        when(ruleMapper.selectById(5L)).thenReturn(rule(3, 3));
         when(recordMapper.insert(any(AlarmRecord.class))).thenThrow(new DuplicateKeyException("uk_alarm_active"));
 
         service.evaluateThreshold(1L, report(90.0));

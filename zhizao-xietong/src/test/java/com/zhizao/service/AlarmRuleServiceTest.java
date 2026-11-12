@@ -1,11 +1,14 @@
 package com.zhizao.service;
 
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.zhizao.common.BadRequestException;
 import com.zhizao.common.BusinessException;
+import com.zhizao.entity.AlarmRecord;
 import com.zhizao.entity.AlarmRule;
 import com.zhizao.entity.Device;
+import com.zhizao.mapper.AlarmRecordMapper;
 import com.zhizao.mapper.AlarmRuleMapper;
 import com.zhizao.mapper.DeviceMapper;
 import org.apache.ibatis.builder.MapperBuilderAssistant;
@@ -18,6 +21,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.*;
 
 /**
@@ -30,15 +34,34 @@ class AlarmRuleServiceTest {
 
     static {
         TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), AlarmRule.class);
+        TableInfoHelper.initTableInfo(new MapperBuilderAssistant(new MybatisConfiguration(), ""), AlarmRecord.class);
     }
 
     @Mock
     private AlarmRuleMapper ruleMapper;
     @Mock
     private DeviceMapper deviceMapper;
+    @Mock
+    private AlarmRecordMapper recordMapper;
 
     private AlarmRuleService service() {
-        return new AlarmRuleService(ruleMapper, deviceMapper);
+        return new AlarmRuleService(ruleMapper, deviceMapper, recordMapper);
+    }
+
+    private LambdaUpdateWrapper<AlarmRule> captureRuleUpdate() {
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<LambdaUpdateWrapper<AlarmRule>> captor =
+                ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(ruleMapper).update(isNull(), captor.capture());
+        return captor.getValue();
+    }
+
+    private LambdaUpdateWrapper<AlarmRecord> captureRecordUpdate() {
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<LambdaUpdateWrapper<AlarmRecord>> captor =
+                ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(recordMapper).update(isNull(), captor.capture());
+        return captor.getValue();
     }
 
     @BeforeEach
@@ -122,11 +145,40 @@ class AlarmRuleServiceTest {
         AlarmRule input = thresholdRule();
         input.setDeviceId(99L);
         service().update(5L, input);
-        ArgumentCaptor<AlarmRule> captor = ArgumentCaptor.forClass(AlarmRule.class);
-        verify(ruleMapper).updateById(captor.capture());
-        assertEquals(1L, captor.getValue().getDeviceId());
-        assertFalse(captor.getValue().getEnabled());
-        assertEquals(7, captor.getValue().getConsecutiveTimes());
+        String sqlSet = captureRuleUpdate().getSqlSet();
+        assertTrue(sqlSet.contains("enabled"));
+        assertFalse(sqlSet.contains("current_streak"));
+        assertFalse(sqlSet.contains("device_id"));
+        verify(ruleMapper, never()).updateById(any(AlarmRule.class));
+        assertTrue(captureRecordUpdate().getSqlSet().contains("active_flag = NULL"));
+    }
+    @Test
+    void updateKeepingRuleEnabledLeavesActiveRecordsUntouched() {
+        AlarmRule existing = thresholdRule();
+        existing.setId(5L);
+        existing.setEnabled(true);
+        existing.setConsecutiveTimes(3);
+        when(ruleMapper.selectById(5L)).thenReturn(existing, existing);
+        when(ruleMapper.selectCount(any())).thenReturn(0L);
+        AlarmRule input = thresholdRule();
+        input.setEnabled(true);
+
+        service().update(5L, input);
+
+        verify(recordMapper, never()).update(isNull(), any());
+    }
+    @Test
+    void deletingRuleClosesActiveRecords() {
+        AlarmRule existing = thresholdRule();
+        existing.setId(5L);
+        when(ruleMapper.selectById(5L)).thenReturn(existing);
+
+        service().delete(5L);
+
+        String sqlSet = captureRecordUpdate().getSqlSet();
+        assertTrue(sqlSet.contains("recover_time"));
+        assertTrue(sqlSet.contains("active_flag = NULL"));
+        verify(ruleMapper).deleteById(5L);
     }
     @Test
     void updateRejectsDuplicateCombo() {
@@ -137,6 +189,7 @@ class AlarmRuleServiceTest {
         when(ruleMapper.selectCount(any())).thenReturn(1L);
         BusinessException error = assertThrows(BusinessException.class, () -> service().update(5L, thresholdRule()));
         assertEquals(409, error.getCode());
+        verify(ruleMapper, never()).update(isNull(), any());
         verify(ruleMapper, never()).updateById(any(AlarmRule.class));
     }
     @Test
@@ -144,5 +197,6 @@ class AlarmRuleServiceTest {
         when(ruleMapper.selectById(9L)).thenReturn(null);
         assertThrows(BusinessException.class, () -> service().delete(9L));
         verify(ruleMapper, never()).deleteById(9L);
+        verify(recordMapper, never()).update(isNull(), any());
     }
 }

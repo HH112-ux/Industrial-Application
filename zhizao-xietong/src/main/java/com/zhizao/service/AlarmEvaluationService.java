@@ -74,9 +74,7 @@ public class AlarmEvaluationService {
     }
 
     private void handleBreach(AlarmRule rule, Double value, AlarmRecord active) {
-        int streak = (rule.getCurrentStreak() == null ? 0 : rule.getCurrentStreak()) + 1;
-        rule.setCurrentStreak(streak);
-        ruleMapper.updateById(rule);
+        int streak = incrementStreak(rule.getId());
         int required = rule.getConsecutiveTimes() == null || rule.getConsecutiveTimes() < 1
                 ? 1 : rule.getConsecutiveTimes();
         if (active != null) {
@@ -86,13 +84,42 @@ public class AlarmEvaluationService {
         }
     }
     private void handleRecovered(AlarmRule rule, AlarmRecord active) {
-        if (rule.getCurrentStreak() != null && rule.getCurrentStreak() != 0) {
-            rule.setCurrentStreak(0);
-            ruleMapper.updateById(rule);
-        }
+        resetStreak(rule.getId());
         if (active != null) {
             recover(active.getId());
         }
+    }
+
+    /**
+     * 原子自增连续越界次数，只写 {@code current_streak} 一列。
+     *
+     * <p>不能读-改-写整实体：并发上报会互相覆盖计数，旧快照还会把管理员刚改的阈值配置写回去。
+     * 自增后回读一次，拿到的值即使被其他上报再自增也只会偏大，不影响「达到次数即开单」的判定。</p>
+     *
+     * @param ruleId 规则主键
+     * @return 自增后的次数；规则已被删除时返回 0
+     */
+    private int incrementStreak(Long ruleId) {
+        int rows = ruleMapper.update(null, new LambdaUpdateWrapper<AlarmRule>()
+                .eq(AlarmRule::getId, ruleId)
+                .setSql("current_streak = current_streak + 1"));
+        if (rows == 0) {
+            return 0;
+        }
+        AlarmRule latest = ruleMapper.selectById(ruleId);
+        return latest == null || latest.getCurrentStreak() == null ? 0 : latest.getCurrentStreak();
+    }
+
+    /**
+     * 条件清零连续越界次数，已经是 0 时不产生实际写入。
+     *
+     * @param ruleId 规则主键
+     */
+    private void resetStreak(Long ruleId) {
+        ruleMapper.update(null, new LambdaUpdateWrapper<AlarmRule>()
+                .eq(AlarmRule::getId, ruleId)
+                .ne(AlarmRule::getCurrentStreak, 0)
+                .set(AlarmRule::getCurrentStreak, 0));
     }
     private Double metricValue(String metric, DeviceGatewayReport report) {
         if (metric == null) {
