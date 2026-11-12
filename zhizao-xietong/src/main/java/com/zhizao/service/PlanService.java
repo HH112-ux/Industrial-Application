@@ -16,6 +16,8 @@ import com.zhizao.mapper.PlanMapper;
 import com.zhizao.mapper.ProcessMapper;
 import com.zhizao.mapper.WorkOrderMapper;
 import com.zhizao.security.DataScope;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DuplicateKeyException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -30,6 +32,8 @@ import java.util.List;
  */
 @Service
 public class PlanService {
+
+    private static final Logger log = LoggerFactory.getLogger(PlanService.class);
 
     private final PlanMapper planMapper;
     private final ProcessMapper processMapper;
@@ -217,6 +221,8 @@ public class PlanService {
         try {
             workOrderMapper.insert(order);
         } catch (DuplicateKeyException e) {
+            log.warn("Work order insert rejected by unique key, planId={}, orderNo={}",
+                    plan.getId(), order.getOrderNo(), e);
             throw new BusinessException(409, "该计划已下达工单，请勿重复操作");
         }
 

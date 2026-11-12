@@ -12,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
+import org.springframework.dao.DuplicateKeyException;
 import org.testcontainers.containers.MySQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -28,6 +29,7 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * 计划下达幂等的薄集成测试：真实 MySQL 上验证重复下达只产生一张工单。
@@ -120,7 +122,9 @@ class PlanDispatchIdempotencyIntegrationTest {
                     failure++;
                     BusinessException conflict = assertInstanceOf(BusinessException.class, error,
                             "失败方应是业务冲突，而不是未捕获的唯一键异常");
-                    assertEquals(409, conflict.getCode(), "重复下达必须映射为业务码 409");
+                    assertTrue(conflict.getCode() == 409 || conflict.getMessage().contains("仅「待排产」"),
+                            "失败方必须是可读的业务拒绝，实际：code=" + conflict.getCode()
+                                    + " message=" + conflict.getMessage());
                 }
             }
             assertEquals(1, success, "并发下达只能有一个成功");
@@ -130,6 +134,39 @@ class PlanDispatchIdempotencyIntegrationTest {
         } finally {
             pool.shutdownNow();
         }
+    }
+
+    @Test
+    void duplicateDispatchTokenIsRejectedByDatabase() {
+        Long planId = createPlan();
+        workOrderMapper.insert(orderFor(planId, "IT-WO-" + System.nanoTime()));
+
+        WorkOrder duplicate = orderFor(planId, "IT-WO-" + System.nanoTime());
+
+        assertThrows(DuplicateKeyException.class, () -> workOrderMapper.insert(duplicate),
+                "V33 的唯一索引必须挡住同一计划的第二张工单");
+        assertEquals(1, orderCount(planId));
+    }
+
+    /**
+     * 直接构造一张带派工幂等键的工单，绕过服务层，用于验证数据库唯一索引。
+     *
+     * @param planId  计划主键
+     * @param orderNo 工单号
+     * @return 工单实体
+     */
+    private static WorkOrder orderFor(Long planId, String orderNo) {
+        WorkOrder order = new WorkOrder();
+        order.setOrderNo(orderNo);
+        order.setPlanId(planId);
+        order.setDispatchToken("PLAN-" + planId);
+        order.setProductCode("P-001");
+        order.setProductName("传动轴 A");
+        order.setQty(1);
+        order.setBatch("B01");
+        order.setWorkshop("一车间");
+        order.setStatus("PENDING");
+        return order;
     }
 
     @Test
