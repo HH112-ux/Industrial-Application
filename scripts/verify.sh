@@ -25,6 +25,10 @@ export FRONTEND_PORT="${FRONTEND_PORT:-18081}"
 # CORS 白名单必须是浏览器实际访问前端的地址，验证栈默认用 127.0.0.1:前端端口
 export CORS_ALLOWED_ORIGINS="${CORS_ALLOWED_ORIGINS:-http://127.0.0.1:${FRONTEND_PORT}}"
 export MYSQL_ROOT_PASSWORD="${MYSQL_ROOT_PASSWORD:-verify-root}"
+# Redis 开启 requirepass、Mosquitto 关闭匿名后均为 compose 必填项，这里用一次性验证值
+export REDIS_PASSWORD="${REDIS_PASSWORD:-verify-redis}"
+export MQTT_USERNAME="${MQTT_USERNAME:-verify-mqtt}"
+export MQTT_PASSWORD="${MQTT_PASSWORD:-verify-mqtt-secret}"
 export JWT_SECRET="${JWT_SECRET:-verify-only-jwt-secret-0123456789abcdef}"
 # 每次验证使用一次性随机管理员口令，脚本内不保存固定明文口令
 export APP_BOOTSTRAP_ADMIN_PASSWORD="${APP_BOOTSTRAP_ADMIN_PASSWORD:-$(openssl rand -base64 24)}"
