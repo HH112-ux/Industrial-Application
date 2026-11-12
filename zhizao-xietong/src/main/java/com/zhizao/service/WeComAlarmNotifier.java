@@ -9,6 +9,7 @@ import com.zhizao.mapper.AuditLogMapper;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -31,7 +32,6 @@ import java.util.concurrent.TimeUnit;
  *
  * <p>开关关闭或未配置 corpId/agentId/secret 时静默跳过，只记 debug；
  * 发送失败只记 WARN 并返回，不向调用方抛出，避免影响遥测入库与离线判定。</p>
- *
  * <p>外部调用超时由配置控制，推送在独立有界队列线程池异步执行并挂到事务提交之后，失败只补记审计，不占用上报线程。</p>
  *
  * @author Caspian
@@ -58,10 +58,10 @@ public class WeComAlarmNotifier {
     private final Executor executor;
     private final Object tokenLock = new Object();
 
-    /** 缓存的 access_token；value 为 null 表示上次获取失败，retryAt 之前不再重试。 */
+    /** 缓存 token；value=null 表示上次获取失败，retryAt 之前不再重试。 */
     private volatile CachedToken token;
 
-    /** 固定外部调用超时，并创建单线程有界队列用于异步推送。 */
+    @Autowired
     public WeComAlarmNotifier(RestClient.Builder builder, AuditLogMapper auditLogMapper,
                               WeComNotifyProperties properties) {
         this(buildClient(builder, properties), auditLogMapper, properties,
