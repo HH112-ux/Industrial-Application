@@ -14,10 +14,11 @@ spring:
     # 演示种子脚本（V2__seed.sql）已移至 classpath:db/seed，默认不加载；
     # 开启 app.seed.demo-enabled 时由 FlywaySeedConfig 追加该目录
     locations: classpath:db/migration
-    # 存量库历史中存在 V2__seed.sql，但默认 locations 已不含该版本；
-    # 仅忽略「已执行但当前 locations 缺失」的版本，checksum、失败迁移与乱序迁移仍会校验；
+    # 演示种子关闭时，由 FlywaySeedConfig 追加 *:missing 以兼容「已执行过 V2__seed.sql
+    # 但该脚本已移出 locations」的存量库；副作用是会同时掩盖历史迁移文件误删/漏拷，
+    # 升级时需人工核对 flyway_schema_history 与 db/migration 文件清单。
+    # 种子开启时 V2 在 locations 中，不再追加该模式，保持严格校验；
     # 已迁移完成的非演示库请勿开启演示开关，否则 V2 为低版本待执行状态会显式校验失败
-    ignore-migration-patterns: "*:missing"
   data:
     redis:
       host: ${REDIS_HOST:localhost}
