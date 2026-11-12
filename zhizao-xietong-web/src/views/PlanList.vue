@@ -83,7 +83,7 @@
       </el-form>
       <template #footer>
         <el-button @click="dispatchDialog.visible = false">取消</el-button>
-        <el-button type="primary" @click="confirmDispatch">确定下达</el-button>
+        <el-button type="primary" :loading="dispatching" :disabled="dispatching" @click="confirmDispatch">确定下达</el-button>
       </template>
     </el-dialog>
   </div>
@@ -107,6 +107,7 @@ const dispatchDialog = reactive<{ visible: boolean; plan: Plan | null; processId
   visible: false, plan: null, processId: undefined, workshop: ''
 });
 const publishedProcesses = ref<Process[]>([]);
+const dispatching = ref(false);
 
 async function load() {
   loading.value = true;
@@ -167,17 +168,25 @@ async function dispatch(row: Plan) {
 }
 
 async function confirmDispatch() {
+  if (dispatching.value) {
+    return;
+  }
   if (!dispatchDialog.processId) {
     ElMessage.warning('请选择已发布工艺');
     return;
   }
-  await planApi.dispatch(dispatchDialog.plan!.id!, {
-    processId: dispatchDialog.processId,
-    workshop: dispatchDialog.workshop || undefined
-  });
-  ElMessage.success('已下达工单');
-  dispatchDialog.visible = false;
-  load();
+  dispatching.value = true;
+  try {
+    await planApi.dispatch(dispatchDialog.plan!.id!, {
+      processId: dispatchDialog.processId,
+      workshop: dispatchDialog.workshop || undefined
+    });
+    ElMessage.success('已下达工单');
+    dispatchDialog.visible = false;
+    load();
+  } finally {
+    dispatching.value = false;
+  }
 }
 
 async function runSchedule() {

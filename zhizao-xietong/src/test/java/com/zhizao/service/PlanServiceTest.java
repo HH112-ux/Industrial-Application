@@ -2,6 +2,7 @@ package com.zhizao.service;
 
 import com.baomidou.mybatisplus.core.MybatisConfiguration;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.zhizao.common.BusinessException;
 import com.zhizao.common.ForbiddenException;
@@ -22,6 +23,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -29,10 +31,13 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -89,6 +94,7 @@ class PlanServiceTest {
         process.setVersion(3);
         process.setApprovalStatus("PUBLISHED");
         when(processMapper.selectById(5L)).thenReturn(process);
+        when(planMapper.update(any(), any())).thenReturn(1);
 
         planService.dispatch(1L, new DispatchRequest(5L, null, "二车间"));
 
@@ -98,7 +104,91 @@ class PlanServiceTest {
         assertEquals(Integer.valueOf(3), captor.getValue().getProcessVersion());
         assertEquals("二车间", captor.getValue().getWorkshop());
         assertEquals(Long.valueOf(9L), captor.getValue().getDeviceId());
-        assertEquals("IN_PROGRESS", plan.getStatus());
+        assertEquals("PLAN-1", captor.getValue().getDispatchToken());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void dispatchClaimsPlanWithConditionalStatusUpdate() {
+        Plan plan = plan(1L);
+        when(planMapper.selectById(1L)).thenReturn(plan);
+        when(processMapper.selectById(5L)).thenReturn(publishedProcess());
+        when(planMapper.update(any(), any())).thenReturn(1);
+        when(codeGenerator.next("WO")).thenReturn("WO-202611-0001");
+
+        planService.dispatch(1L, new DispatchRequest(5L, null, null));
+
+        ArgumentCaptor<LambdaUpdateWrapper<Plan>> captor = ArgumentCaptor.forClass(LambdaUpdateWrapper.class);
+        verify(planMapper).update(any(), captor.capture());
+        LambdaUpdateWrapper<Plan> wrapper = captor.getValue();
+        assertTrue(wrapper.getSqlSegment().contains("status"), "抢占必须是条件更新 status，而不是无条件写回");
+        assertTrue(wrapper.getParamNameValuePairs().containsValue("PENDING_SCHEDULE"));
+        assertTrue(wrapper.getParamNameValuePairs().containsValue("IN_PROGRESS"));
+        verify(workOrderMapper).insert(any(WorkOrder.class));
+    }
+
+    @Test
+    void dispatchRejectsWhenPlanAlreadyClaimed() {
+        when(planMapper.selectById(1L)).thenReturn(plan(1L));
+        when(processMapper.selectById(5L)).thenReturn(publishedProcess());
+        when(planMapper.update(any(), any())).thenReturn(0);
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> planService.dispatch(1L, new DispatchRequest(5L, null, null)));
+
+        assertEquals(409, error.getCode());
+        assertEquals("该计划已下达工单，请勿重复操作", error.getMessage());
+        verify(workOrderMapper, never()).insert(any(WorkOrder.class));
+    }
+
+    @Test
+    void dispatchConvertsDuplicateKeyToBusinessError() {
+        when(planMapper.selectById(1L)).thenReturn(plan(1L));
+        when(processMapper.selectById(5L)).thenReturn(publishedProcess());
+        when(planMapper.update(any(), any())).thenReturn(1);
+        when(codeGenerator.next("WO")).thenReturn("WO-202611-0001");
+        doThrow(new DuplicateKeyException("uk_work_order_dispatch_token"))
+                .when(workOrderMapper).insert(any(WorkOrder.class));
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> planService.dispatch(1L, new DispatchRequest(5L, null, null)));
+
+        assertEquals(409, error.getCode(), "唯一键冲突必须是业务冲突，不能暴露成 500");
+        assertEquals("该计划已下达工单，请勿重复操作", error.getMessage());
+    }
+
+    @Test
+    void concurrentDispatchCreatesSingleWorkOrder() {
+        when(planMapper.selectById(1L)).thenReturn(plan(1L));
+        when(processMapper.selectById(5L)).thenReturn(publishedProcess());
+        when(codeGenerator.next("WO")).thenReturn("WO-202611-0001");
+        // 第一个请求抢占成功，第二个请求的条件更新命中 0 行，模拟并发下数据库只放行一次
+        when(planMapper.update(any(), any())).thenReturn(1, 0);
+
+        assertNotNull(planService.dispatch(1L, new DispatchRequest(5L, null, null)));
+        assertThrows(BusinessException.class,
+                () -> planService.dispatch(1L, new DispatchRequest(5L, null, null)));
+
+        verify(workOrderMapper, times(1)).insert(any(WorkOrder.class));
+    }
+
+    /** 构造待排产计划。 */
+    private static Plan plan(Long id) {
+        Plan plan = new Plan();
+        plan.setId(id);
+        plan.setStatus("PENDING_SCHEDULE");
+        plan.setWorkshop("一车间");
+        plan.setPlanQty(5);
+        return plan;
+    }
+
+    /** 构造已发布工艺。 */
+    private static Process publishedProcess() {
+        Process process = new Process();
+        process.setId(5L);
+        process.setVersion(1);
+        process.setApprovalStatus("PUBLISHED");
+        return process;
     }
 
     @Test
@@ -167,6 +257,7 @@ class PlanServiceTest {
         process.setId(5L);
         process.setApprovalStatus("PUBLISHED");
         when(processMapper.selectById(5L)).thenReturn(process);
+        when(planMapper.update(any(), any())).thenReturn(1);
 
         WorkOrder order = planService.dispatch(1L, new DispatchRequest(5L, null, null));
 
