@@ -45,7 +45,7 @@
 │   │   ├── application.yml          # 配置，全部支持环境变量覆盖
 │   │   ├── db/migration/            # Flyway 迁移 V1–V33（V27、V28 为空号）
 │   │   └── db/seed/                 # 演示种子数据，默认不加载
-│   └── src/test/java/               # 366 个测试（5 个 Testcontainers 集成类）
+│   └── src/test/java/               # 385 个测试（6 个 Testcontainers 集成类）
 ├── zhizao-xietong-web/              # Vue 3 管理端
 │   ├── src/views/                   # 15 个页面组件
 │   └── vite.config.ts               # 开发服务器 5173，代理 /api
@@ -164,6 +164,7 @@ docker exec zhizao-mqtt mosquitto_pub -h localhost \
 | `DB_URL` | JDBC 连接串 | `jdbc:mysql://localhost:3306/zhizao_xietong...` | 否 | `jdbc:mysql://db:3306/zhizao_xietong` |
 | `DB_USERNAME` | 数据库账号 | `root` | 否 | `mes_app` |
 | `DB_PASSWORD` | 数据库密码 | 无 | 是 | 由部署环境注入 |
+| `MYSQL_ROOT_PASSWORD` | compose 中 MySQL root 口令 | 空 | docker compose 必填 | 由部署环境注入 |
 | `JWT_SECRET` | JWT 签名密钥 | 无 | 是 | 至少 32 字节的随机串 |
 | `JWT_EXPIRATION` | 令牌有效期（毫秒） | `86400000` | 否 | `3600000` |
 | `REDIS_HOST` / `REDIS_PORT` | Redis 地址 | `localhost` / `6379` | 否 | `redis` / `6379` |
@@ -175,6 +176,7 @@ docker exec zhizao-mqtt mosquitto_pub -h localhost \
 | `MQTT_TOPIC` | 设备上报主题 | `factory/devices/+/status` | 否 | 同上 |
 | `MQTT_CLIENT_ID` | 客户端标识 | `zhizao-backend` | 否 | 多实例必须各不相同 |
 | `MQTT_QOS` | 订阅与发布 QoS | `1` | 否 | `1` |
+| `APP_SEED_DEMO_ENABLED` | 空库启动时是否加载 `db/seed` 演示种子 | `false` | 否 | `true`（仅本地/演示） |
 | `DEVICE_ONLINE_THRESHOLD_SECONDS` | 超过该时长未上报视为离线 | `90` | 否 | `120` |
 | `DEVICE_SIMULATION_ENABLED` | 无上报时是否返回模拟遥测 | `false` | 否 | `false` |
 | `DEVICE_AUTH_ENABLED` | 是否强制设备 HMAC 签名 | `false` | 否 | `true` |
@@ -205,7 +207,7 @@ docker exec zhizao-mqtt mosquitto_pub -h localhost \
 
 ### docker compose 环境变量透传
 
-`docker-compose.yml` 的 `backend.environment` 只透传有限几类变量：`DB_URL`、`DB_USERNAME`、`DB_PASSWORD`、`JWT_SECRET`、`CORS_ALLOWED_ORIGINS`、`APP_BOOTSTRAP_ADMIN_PASSWORD`、`REDIS_HOST`、`REDIS_PORT`、`REDIS_PASSWORD`、`MQTT_ENABLED`、`MQTT_BROKER_URL`、`MQTT_USERNAME`、`MQTT_PASSWORD` 与 `TZ`。`.env` 只参与 compose 的变量替换，**不会自动进入容器**。
+`docker-compose.yml` 的 `backend.environment` 只透传有限几类变量：`DB_URL`、`DB_USERNAME`、`DB_PASSWORD`、`JWT_SECRET`、`CORS_ALLOWED_ORIGINS`、`APP_BOOTSTRAP_ADMIN_PASSWORD`、`APP_SEED_DEMO_ENABLED`、`REDIS_HOST`、`REDIS_PORT`、`REDIS_PASSWORD`、`MQTT_ENABLED`、`MQTT_BROKER_URL`、`MQTT_USERNAME`、`MQTT_PASSWORD` 与 `TZ`。`.env` 只参与 compose 的变量替换，**不会自动进入容器**。
 
 因此 `SSO_*`、`AI_*`、`DEVICE_ALARM_*` 即使写进 `.env`，容器内仍取 `application.yml` 的默认值（均为关闭）。需要启用时，手工把对应变量追加到 `docker-compose.yml` 的 `backend.environment`，示例：
 
@@ -303,6 +305,8 @@ docker compose up -d --build
 
 脚本使用 `13306/16379/11883/18080/18081` 避开本机端口，依次执行：带浏览器 Origin 登录（校验 CORS 白名单）→ 建计划 → 下达工单 → 开工 → 部分报工（状态不变）→ 报满转待质检 → 质检 → 查状态历史 → 查遥测历史 → 查指标，每步输出 PASS/FAIL，失败时打印日志尾部并保留现场，成功后自动 `docker compose down -v` 清理。
 
+> 注意：报工口径调整后，`scripts/verify.sh` 中「部分报工后状态不变」「累计数量」等断言已与当前实现不一致，脚本当前不可直接作为验收依据，需要单独修复；修复前请以接口与单元测试结果为准。
+
 ## 接口与文档
 
 - Swagger UI：`http://localhost:8080/swagger-ui/index.html`
@@ -321,7 +325,7 @@ docker compose up -d --build
 ## 测试与 CI
 
 ```bash
-# 后端全量测试（366 个测试，其中 5 个 Testcontainers 集成类）
+# 后端全量测试（385 个测试，其中 6 个 Testcontainers 集成类）
 cd zhizao-xietong && mvn test
 
 # 管理端生产构建（同时覆盖 TypeScript 编译与打包）
@@ -331,7 +335,7 @@ cd zhizao-xietong-web && npm ci && npm run build
 npx --no -- commitlint --from HEAD~1 --to HEAD
 ```
 
-集成测试使用 Testcontainers 启动 `mysql:8.4`，覆盖工单状态机合法/非法流转、真实并发冲突、工艺版本隔离、遥测入库、AI 只读会话，以及成品入库的条件更新、超额/重复确认与并发确认只累加一次库存。Docker 不可用时这些类由 `@Testcontainers(disabledWithoutDocker = true)` 自动跳过，其余测试照常执行、构建仍然成功；首次运行需拉取镜像，本机约 60–90 秒，CI 约 1 分钟。
+集成测试使用 Testcontainers 启动 `mysql:8.4`，覆盖工单状态机合法/非法流转、真实并发冲突、工艺版本隔离、遥测入库、AI 只读会话、计划下达幂等，以及成品入库的条件更新、超额/重复确认与并发确认只累加一次库存。Docker 不可用时这些类由 `@Testcontainers(disabledWithoutDocker = true)` 自动跳过，其余测试照常执行、构建仍然成功；首次运行需拉取镜像，本机约 60–90 秒，CI 约 1 分钟。
 
 本机使用 Colima 时，Testcontainers 不读取 colima 的 Docker context，且 virtiofs 不支持把 unix socket 挂载进 Ryuk 容器。跑集成测试需要显式指定 socket 并关闭 Ryuk：
 
@@ -441,8 +445,10 @@ mvn test
 - 成品入库单由工单质检完工时生成，确认使用条件更新同时校验「待入库」与「数量不超过 min(计划数, 合格数) − 已入库」，0 行时区分已处理（409）与超额（409）两种提示；库存用 `ON DUPLICATE KEY UPDATE` 原子累加，不回填历史库存，已取消单据不会重新生成
 - 登录限流已抽成 `LoginRateLimiter` 端口，当前为单实例本地实现；多实例部署必须替换为共享存储实现（S6）
 - 已有 `/actuator/health`、`/actuator/info`、`/actuator/metrics` 与带 `traceId` 的标准输出日志；业务指标已覆盖设备在线、上报、报工、节拍与齐套率，但没有告警阈值与集中采集
-- 测试 366 个（5 个 Testcontainers 集成类）；集成用例覆盖状态机流转、真实并发冲突、工艺版本隔离、遥测入库、AI 只读会话与成品入库并发确认，仅在 Docker 可用时执行；移动端构建未纳入 CI
+- 测试 385 个（6 个 Testcontainers 集成类）；集成用例覆盖状态机流转、真实并发冲突、工艺版本隔离、遥测入库、AI 只读会话、计划下达幂等与成品入库并发确认，仅在 Docker 可用时执行；移动端构建未纳入 CI
 - 完整 Docker Compose 五服务栈未在本机实测（本机端口被本地 MySQL/Redis 占用）
+- `scripts/verify.sh` 已因报工口径变更失效：部分报工后的状态与累计数量断言与当前实现不一致，脚本需单独修复后才能作为部署验收依据
+- MQTT 仍为 1883 明文传输且使用共享账号、未配置 `acl_file`：设备侧凭据泄露后无法限制发布/订阅范围，后续应切换 8883 + TLS，并用 ACL 按设备限制主题
 - AI 能力已落地（S8），默认关闭：`AI_ENABLED=false` 时三个 `/api/ai/**` 端点返回 HTTP 503 + 业务码 503，其余功能不受影响；开启后默认使用离线假模型，CI 不需要网络与密钥。AI 只调用只读工具、只返回建议文本，自然语言报工只产出待确认草稿；Text-to-SQL 仅 ADMIN 可用，只允许查询 5 个只读视图并强制行数上限。配置 `AI_DATASOURCE_URL` 后使用独立只读账号；未配置时回落主数据源，但查询强制只读会话并在启动时输出 WARN，不会假装已隔离。模型超时或返回非法内容时降级为「建议暂不可用」，不影响主链路
 
 ## 许可
