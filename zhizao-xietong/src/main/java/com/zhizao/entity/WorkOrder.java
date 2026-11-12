@@ -22,6 +22,7 @@ public class WorkOrder {
     private Long id;
     private String orderNo;
     private Long planId;
+    private String dispatchToken;
     private String productCode;
     private String productName;
     private Integer qty;
@@ -48,6 +49,8 @@ public class WorkOrder {
     public void setOrderNo(String orderNo) { this.orderNo = orderNo; }
     public Long getPlanId() { return planId; }
     public void setPlanId(Long planId) { this.planId = planId; }
+    public String getDispatchToken() { return dispatchToken; }
+    public void setDispatchToken(String dispatchToken) { this.dispatchToken = dispatchToken; }
     public String getProductCode() { return productCode; }
     public void setProductCode(String productCode) { this.productCode = productCode; }
     public String getProductName() { return productName; }
