@@ -87,6 +87,14 @@ device:
         corp-id: ${DEVICE_ALARM_WECOM_CORP_ID:}
         agent-id: ${DEVICE_ALARM_WECOM_AGENT_ID:}
         secret: ${DEVICE_ALARM_WECOM_SECRET:}
+        # 外部调用超时（毫秒）：通知属于旁路，超时后只记日志与审计，不占用遥测上报线程
+        connect-timeout-ms: ${DEVICE_ALARM_WECOM_CONNECT_TIMEOUT_MS:2000}
+        read-timeout-ms: ${DEVICE_ALARM_WECOM_READ_TIMEOUT_MS:3000}
+        # 异步发送队列容量，满后丢弃并记 WARN，不阻塞上报线程
+        queue-capacity: ${DEVICE_ALARM_WECOM_QUEUE_CAPACITY:200}
+        # access_token 提前续期秒数，以及获取失败后的退避秒数（退避期内不再重试）
+        token-renew-skew-seconds: ${DEVICE_ALARM_WECOM_TOKEN_RENEW_SKEW_SECONDS:300}
+        token-failure-backoff-seconds: ${DEVICE_ALARM_WECOM_TOKEN_FAILURE_BACKOFF_SECONDS:30}
   simulation:
     enabled: ${DEVICE_SIMULATION_ENABLED:false}
   auth:
