@@ -53,6 +53,7 @@ class AlarmEvaluationServiceTest {
         rule.setMetric("temperature");
         rule.setRuleType("THRESHOLD");
         rule.setUpperLimit(80.0);
+        rule.setEnabled(true);
         rule.setConsecutiveTimes(consecutiveTimes);
         rule.setCurrentStreak(streak);
         return rule;
@@ -166,6 +167,22 @@ class AlarmEvaluationServiceTest {
         String sqlSet = captureUpdate().getSqlSet();
         assertTrue(sqlSet.contains("recover_time"));
         assertTrue(sqlSet.contains("active_flag = NULL"));
+    }
+
+    @Test
+    void skipsOpeningWhenRuleDisabledBeforeInsert() {
+        AlarmRule read = rule(3, 1);
+        AlarmRule disabled = rule(3, 3);
+        disabled.setEnabled(false);
+        when(ruleMapper.selectList(any())).thenReturn(List.of(read));
+        when(recordMapper.selectOne(any())).thenReturn(null);
+        when(ruleMapper.update(isNull(), any())).thenReturn(1);
+        when(ruleMapper.selectById(5L)).thenReturn(rule(3, 3), disabled);
+
+        service.evaluateThreshold(1L, report(90.0));
+
+        verify(recordMapper, never()).insert(any(AlarmRecord.class));
+        verify(notifier, never()).notify(any(AlarmRecord.class));
     }
 
     @Test

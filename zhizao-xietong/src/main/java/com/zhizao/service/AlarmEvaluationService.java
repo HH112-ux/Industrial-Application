@@ -15,6 +15,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 
 /** 阈值判定：连续 N 次越界才开记录，未恢复期间只刷新触发值，值恢复后自动置已恢复。 */
 @Service
@@ -144,6 +145,13 @@ public class AlarmEvaluationService {
     }
 
     private void open(AlarmRule rule, Double value) {
+        AlarmRule latest = ruleMapper.selectById(rule.getId());
+        if (latest == null || !Boolean.TRUE.equals(latest.getEnabled())
+                || !Objects.equals(latest.getMetric(), rule.getMetric())
+                || !Objects.equals(latest.getRuleType(), rule.getRuleType())) {
+            log.debug("规则已停用、删除或变更，跳过开单：ruleId={}", rule.getId());
+            return;
+        }
         AlarmRecord record = new AlarmRecord();
         record.setDeviceId(rule.getDeviceId());
         record.setMetric(rule.getMetric());
