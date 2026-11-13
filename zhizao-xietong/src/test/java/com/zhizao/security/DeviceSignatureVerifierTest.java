@@ -15,6 +15,7 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -105,6 +106,26 @@ class DeviceSignatureVerifierTest {
 
         DeviceAuthException e = assertThrows(DeviceAuthException.class, () -> verifier.verifyReport(report));
         assertEquals(401, e.getStatus());
+    }
+
+    @Test
+    void enabledWithoutMasterKeyFailsAtStartup() {
+        DeviceSignatureVerifier misconfigured = new DeviceSignatureVerifier(
+                credentialMapper, new DeviceSecretCipher(""));
+        ReflectionTestUtils.setField(misconfigured, "enabled", true);
+        ReflectionTestUtils.setField(misconfigured, "toleranceSeconds", 300L);
+
+        IllegalStateException e = assertThrows(IllegalStateException.class,
+                misconfigured::validateConfiguration);
+        assertTrue(e.getMessage().contains("DEVICE_CREDENTIAL_KEY"));
+    }
+
+    @Test
+    void disabledWithoutMasterKeyStartsNormally() {
+        DeviceSignatureVerifier disabled = new DeviceSignatureVerifier(
+                credentialMapper, new DeviceSecretCipher(""));
+
+        assertDoesNotThrow(disabled::validateConfiguration);
     }
 
     @Test

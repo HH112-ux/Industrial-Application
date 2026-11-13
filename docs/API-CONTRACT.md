@@ -114,7 +114,7 @@
 | # | 方法 | 路径 | 现状鉴权 | 用途 | 处置 | 目标变更 |
 |---|---|---|---|---|---|---|
 | 9 | GET | `/api/devices/{id}/telemetry` | 登录 | 实时遥测 | 改行为 | 无真实上报时不再返回随机数；模拟数据由开关控制并标记 `source=SIMULATED` |
-| 10 | POST | `/api/integration/device-status` | 登录 | REST 设备回传 | 改签名 | 改设备 HMAC 鉴权，增加 `ingestKey` 幂等 |
+| 10 | POST | `/api/integration/device-status` | 登录；`DEVICE_AUTH_ENABLED=true` 时为 HMAC | REST 设备回传 | 已落地 | 设备鉴权开启后不走用户令牌，改校验 `X-Device-Key` + `X-Device-Signature`；`X-Idempotency-Key` 幂等 |
 | 11 | POST | `/api/integration/mqtt/publish` | ADMIN | 发布测试消息 | 已落地 | S1 已收紧为仅 ADMIN，非生产环境启用 |
 | 47 | GET | `/api/devices/{id}/telemetry/history?from=&to=&limit=` | 登录 | 设备遥测历史，默认最近 24 小时，最多 1000 条 | 已落地 | S2 已实现，见 §4.4 |
 
