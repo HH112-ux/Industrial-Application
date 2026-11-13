@@ -77,6 +77,9 @@ app:
   http:
     # 可信反向代理的固定 IP（逗号分隔）；留空表示不信任 X-Forwarded-For，直接使用 TCP 对端地址
     trusted-proxies: ${TRUSTED_PROXIES:}
+  login:
+    # IP 维度限流阈值（次/分钟）；账号维度固定 10 次/分钟。设为 0 关闭 IP 维度
+    ip-max-attempts: ${LOGIN_IP_MAX_ATTEMPTS:30}
   sso:
     # 总开关：默认关闭；关闭时登录行为与今天完全一致，接口返回明确拒绝
     enabled: ${SSO_ENABLED:false}

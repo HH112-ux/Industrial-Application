@@ -40,26 +40,26 @@ import java.time.Duration;
 @RequestMapping("/api/auth")
 public class AuthController {
 
-    /** IP 维度每分钟允许的尝试次数：比账号维度宽松，只拦截同一来源换用户名喷洒。 */
-    static final int IP_MAX_ATTEMPTS = 30;
-
     private final AuthService authService;
     private final SsoAuthService ssoAuthService;
     private final LoginRateLimiter loginRateLimiter;
     private final AuthAuditService authAuditService;
     private final ClientIpResolver clientIpResolver;
     private final boolean cookieSecure;
+    private final int ipMaxAttempts;
 
     public AuthController(AuthService authService, SsoAuthService ssoAuthService,
                           LoginRateLimiter loginRateLimiter, AuthAuditService authAuditService,
                           ClientIpResolver clientIpResolver,
-                          @Value("${app.sso.cookie-secure:true}") boolean cookieSecure) {
+                          @Value("${app.sso.cookie-secure:true}") boolean cookieSecure,
+                          @Value("${app.login.ip-max-attempts:30}") int ipMaxAttempts) {
         this.authService = authService;
         this.ssoAuthService = ssoAuthService;
         this.loginRateLimiter = loginRateLimiter;
         this.authAuditService = authAuditService;
         this.clientIpResolver = clientIpResolver;
         this.cookieSecure = cookieSecure;
+        this.ipMaxAttempts = ipMaxAttempts;
     }
 
     /** 本地登录：限流、口令错误、账号禁用与需扫码均落认证审计；审计不接收请求体。 */
@@ -68,7 +68,9 @@ public class AuthController {
         String ip = clientIp(servletRequest);
         try {
             loginRateLimiter.check(request.username());
-            loginRateLimiter.check(ipRateLimitKey(ip), IP_MAX_ATTEMPTS);
+            if (ipMaxAttempts > 0) {
+                loginRateLimiter.check(ipRateLimitKey(ip), ipMaxAttempts);
+            }
         } catch (BusinessException e) {
             authAuditService.record(AuthAuditService.EVENT_LOGIN, request.username(), false,
                     AuthAuditService.RATE_LIMITED, e.getMessage(), ip);
