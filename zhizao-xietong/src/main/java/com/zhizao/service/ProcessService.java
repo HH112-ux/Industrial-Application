@@ -3,6 +3,7 @@ package com.zhizao.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.zhizao.common.BusinessException;
+import com.zhizao.common.PageQuery;
 import com.zhizao.common.PageResult;
 import com.zhizao.entity.BomItem;
 import com.zhizao.entity.Process;
@@ -49,7 +50,7 @@ public class ProcessService {
     }
 
     public PageResult<Process> list(int pageNum, int pageSize, String keyword, String approvalStatus) {
-        Page<Process> page = new Page<>(pageNum, pageSize);
+        Page<Process> page = PageQuery.of(pageNum, pageSize);
         LambdaQueryWrapper<Process> qw = new LambdaQueryWrapper<>();
         qw.and(StringUtils.hasText(keyword), w -> w
                 .like(Process::getProcessNo, keyword)

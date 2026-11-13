@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.zhizao.common.BusinessException;
+import com.zhizao.common.PageQuery;
 import com.zhizao.common.PageResult;
 import com.zhizao.entity.Material;
 import com.zhizao.mapper.MaterialMapper;
@@ -28,7 +29,7 @@ public class MaterialService {
     }
 
     public PageResult<Material> list(int pageNum, int pageSize, String keyword, String kitStatus) {
-        Page<Material> page = new Page<>(pageNum, pageSize);
+        Page<Material> page = PageQuery.of(pageNum, pageSize);
         LambdaQueryWrapper<Material> qw = new LambdaQueryWrapper<>();
         qw.and(StringUtils.hasText(keyword), w -> w
                 .like(Material::getMatCode, keyword)

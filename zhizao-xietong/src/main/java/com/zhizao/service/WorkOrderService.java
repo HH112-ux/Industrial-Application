@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.zhizao.common.BadRequestException;
 import com.zhizao.common.BusinessException;
 import com.zhizao.common.BusinessMetrics;
+import com.zhizao.common.PageQuery;
 import com.zhizao.common.PageResult;
 import com.zhizao.dto.QcRequest;
 import com.zhizao.dto.ReportRequest;
@@ -120,7 +121,7 @@ public class WorkOrderService {
      * @return 工单分页结果
      */
     public PageResult<WorkOrder> list(int pageNum, int pageSize, String keyword, String status) {
-        Page<WorkOrder> page = new Page<>(pageNum, pageSize);
+        Page<WorkOrder> page = PageQuery.of(pageNum, pageSize);
         LambdaQueryWrapper<WorkOrder> qw = new LambdaQueryWrapper<>();
         qw.and(StringUtils.hasText(keyword), w -> w
                 .like(WorkOrder::getOrderNo, keyword)

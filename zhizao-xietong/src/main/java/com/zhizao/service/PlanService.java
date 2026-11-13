@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.zhizao.common.BusinessException;
+import com.zhizao.common.PageQuery;
 import com.zhizao.common.PageResult;
 import com.zhizao.dto.DispatchRequest;
 import com.zhizao.entity.Plan;
@@ -69,7 +70,7 @@ public class PlanService {
      * @return 计划分页结果
      */
     public PageResult<Plan> list(int pageNum, int pageSize, String keyword, String status) {
-        Page<Plan> page = new Page<>(pageNum, pageSize);
+        Page<Plan> page = PageQuery.of(pageNum, pageSize);
         LambdaQueryWrapper<Plan> qw = new LambdaQueryWrapper<>();
         qw.and(StringUtils.hasText(keyword), w -> w
                 .like(Plan::getPlanOrderNo, keyword)
