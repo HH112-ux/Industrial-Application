@@ -15,8 +15,8 @@ public final class PageQuery {
     /** 默认每页条数，与接口约定一致。 */
     public static final int DEFAULT_PAGE_SIZE = 10;
 
-    /** 每页条数上限。 */
-    public static final int MAX_PAGE_SIZE = 200;
+    /** 每页条数上限：取前端设备选择器当前请求的 500 条，既不截断既有下拉，也阻止全表拉取。 */
+    public static final int MAX_PAGE_SIZE = 500;
 
     private PageQuery() {
     }

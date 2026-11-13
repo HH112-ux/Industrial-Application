@@ -13,6 +13,7 @@ class PageQueryTest {
 
         assertEquals(2, page.getCurrent());
         assertEquals(50, page.getSize());
+        assertEquals(500, PageQuery.of(1, 500).getSize());
     }
 
     @Test
