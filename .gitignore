@@ -25,6 +25,10 @@ dump.rdb
 # MySQL 备份产物（含业务数据，不入库）
 backups/
 
+# MQTT TLS 证书与 CA 私钥（由 scripts/gen-mqtt-certs.sh 本地生成）
+deploy/mqtt/certs/
+deploy/mqtt/ca/
+
 # Cloud sync temp files
 *.baiduyun.uploading.cfg
 

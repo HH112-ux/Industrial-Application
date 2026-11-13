@@ -49,26 +49,39 @@ services:
     restart: *default-restart
     logging: *default-logging
 
-  # 一次性任务：用必填环境变量生成 Mosquitto 口令文件，明文不落仓库
+  # 一次性任务：用必填环境变量生成 Mosquitto 口令文件与 ACL，明文不落仓库
   mqtt-init:
+    # 需 2.1 及以上：该版本起 acl_file/password_file 改为认证插件，与 2.0 配置不兼容
     image: eclipse-mosquitto:2
     environment:
       MQTT_USERNAME: ${MQTT_USERNAME:?MQTT_USERNAME must be set, see .env.example}
       MQTT_PASSWORD: ${MQTT_PASSWORD:?MQTT_PASSWORD must be set, see .env.example}
+      MQTT_ACL_TOPICS: ${MQTT_ACL_TOPICS:-factory/devices/+/status}
     entrypoint: ["/bin/sh", "-c"]
     command:
-      - rm -f /mosquitto/data/passwd && mosquitto_passwd -b -c /mosquitto/data/passwd "$$MQTT_USERNAME" "$$MQTT_PASSWORD" && chown 1883:1883 /mosquitto/data/passwd && chmod 600 /mosquitto/data/passwd
+      - >-
+        rm -f /mosquitto/data/passwd /mosquitto/data/acl &&
+        mosquitto_passwd -b -c /mosquitto/data/passwd "$$MQTT_USERNAME" "$$MQTT_PASSWORD" &&
+        { printf 'user %s\n' "$$MQTT_USERNAME"; for t in $$MQTT_ACL_TOPICS; do printf 'topic readwrite %s\n' "$$t"; done; } > /mosquitto/data/acl &&
+        chown 1883:1883 /mosquitto/data/passwd /mosquitto/data/acl &&
+        chmod 600 /mosquitto/data/passwd /mosquitto/data/acl
     volumes:
       - mqtt-data:/mosquitto/data
     logging: *default-logging
 
   mqtt:
+    # 同 mqtt-init：配置使用 2.1 起的认证插件语法，不要降级到 2.0.x
     image: eclipse-mosquitto:2
     ports:
-      - "${MQTT_PORT:-1883}:1883"
+      # 明文只绑回环地址：仅供本机调试，后端在容器网络内直接用 tcp://mqtt:1883
+      - "127.0.0.1:${MQTT_PORT:-1883}:1883"
+      # 设备入口：TLS，向内网发布
+      - "${MQTT_TLS_PORT:-8883}:8883"
     volumes:
       - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
       - mqtt-data:/mosquitto/data
+      # 证书由 scripts/gen-mqtt-certs.sh 生成，缺失时 mosquitto 启动失败（fail-fast）
+      - ${MQTT_CERT_DIR:-./deploy/mqtt/certs}:/mosquitto/certs:ro
     depends_on:
       mqtt-init:
         condition: service_completed_successfully
