@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.Arrays;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
@@ -31,10 +32,17 @@ public class ClientIpResolver {
     private static final int MAX_IP_LENGTH = 45;
 
     private final Set<String> trustedProxies;
+    /** 运行期真正匹配到过的可信代理，用于区分「配置写错」与「暂无流量」。 */
+    private final Set<String> matchedProxies = ConcurrentHashMap.newKeySet();
     private final AtomicBoolean forwardedHeaderWarned = new AtomicBoolean();
+    private final AtomicBoolean untrustedPeerWarned = new AtomicBoolean();
 
     /**
      * 构造解析器。
+     *
+     * <p>配置项在启动期逐项校验：只接受具体的 IPv4/IPv6 地址，CIDR、主机名、通配地址等
+     * 永远不会与 TCP 对端匹配的写法直接让启动失败，避免带病运行后静默退化成
+     * 「全站共用一个 IP 桶」。</p>
      *
      * @param trustedProxies 可信代理 IP，逗号分隔；留空表示不信任任何转发头
      */
@@ -43,9 +51,13 @@ public class ClientIpResolver {
                 .map(String::trim)
                 .filter(ip -> !ip.isEmpty())
                 .collect(Collectors.toUnmodifiableSet());
+        this.trustedProxies.forEach(this::requireProxyAddress);
         if (this.trustedProxies.isEmpty()) {
             log.warn("TRUSTED_PROXIES 未配置：将忽略 X-Forwarded-For；若部署在 Nginx/SLB 之后，"
                     + "审计来源 IP 会记录为代理地址，请按 README「部署在反向代理之后」配置最近一级代理 IP");
+        } else {
+            log.info("TRUSTED_PROXIES 已配置：{}；仅这些 TCP 对端发来的 X-Forwarded-For 会被采信",
+                    this.trustedProxies);
         }
     }
 
@@ -84,8 +96,10 @@ public class ClientIpResolver {
             return remote;
         }
         if (!trustedProxies.contains(remote)) {
+            warnIfUntrustedPeerSendsForwardedHeader(request, remote);
             return remote;
         }
+        matchedProxies.add(remote);
         String forwarded = request.getHeader("X-Forwarded-For");
         if (forwarded == null || forwarded.isBlank()) {
             return remote;
@@ -115,6 +129,57 @@ public class ClientIpResolver {
             log.warn("收到 X-Forwarded-For 但 TRUSTED_PROXIES 未配置：该头已被忽略，审计 IP 取 TCP 对端地址；"
                     + "若部署在 Nginx/SLB 之后，请配置最近一级代理 IP");
         }
+    }
+
+    /**
+     * 已配置可信代理、但对端不在名单里且请求带转发头时告警一次。
+     *
+     * <p>这是「配置写错」最常见、也最难自查的形态：可执行文件仍然是 fail-closed（返回对端地址），
+     * 但审计 IP 会全部记为代理地址、按 IP 限流退化为全站一个桶。因此必须显式告警而不是静默。</p>
+     */
+    private void warnIfUntrustedPeerSendsForwardedHeader(HttpServletRequest request, String remote) {
+        if (request.getHeader("X-Forwarded-For") == null) {
+            return;
+        }
+        if (untrustedPeerWarned.compareAndSet(false, true)) {
+            log.warn("X-Forwarded-For 来自未受信的 TCP 对端 {}：该头已被忽略，审计 IP 取对端地址；"
+                            + "当前 TRUSTED_PROXIES={}{}。若该地址就是最近一级反向代理，请更新配置"
+                            + "（容器重建后 IP 可能变化，compose 默认部署已为 frontend 固定地址）",
+                    remote, trustedProxies,
+                    matchedProxies.isEmpty() ? "，且配置的地址至今未匹配到任何真实对端" : "");
+        }
+    }
+
+    /**
+     * 启动期校验单个可信代理地址：必须是具体 IP 字面量。
+     *
+     * <p>CIDR 段、主机名、通配地址都不会与 TCP 对端字符串相等，配置进去只会静默失效，
+     * 因此直接拒绝启动。</p>
+     */
+    private void requireProxyAddress(String candidate) {
+        if (!isIpLiteral(candidate) || isWildcardAddress(candidate)) {
+            throw new IllegalArgumentException(
+                    "app.http.trusted-proxies 只接受具体的 IPv4/IPv6 地址（不支持 CIDR、主机名、通配地址）："
+                            + candidate);
+        }
+    }
+
+    /** 通配/未指定地址永远不可能作为 TCP 对端出现，配置进去只会让名单静默失效。 */
+    private boolean isWildcardAddress(String value) {
+        if ("0.0.0.0".equals(value) || "255.255.255.255".equals(value)) {
+            return true;
+        }
+        // IPv6 未指定地址有多种展开写法（::、0::、0:0:0:0:0:0:0:0），统一按「全零分组」识别
+        if (value.indexOf(':') < 0) {
+            return false;
+        }
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c != ':' && c != '0') {
+                return false;
+            }
+        }
+        return true;
     }
 
     /** 只接受 IPv4/IPv6 字面量，避免转发头里的任意字符串进入审计。 */
