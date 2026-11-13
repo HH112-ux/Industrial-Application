@@ -50,6 +50,18 @@ public class ClientIpResolver {
     }
 
     /**
+     * 是否配置了可信代理。
+     *
+     * <p>用于判断客户端 IP 是否具备区分度：未配置可信代理时，部署在 nginx 之后的所有请求
+     * 都会解析成代理地址，按 IP 限流会退化成全站共享一个桶。</p>
+     *
+     * @return 配置了至少一个可信代理 IP 时为 true
+     */
+    public boolean hasTrustedProxies() {
+        return !trustedProxies.isEmpty();
+    }
+
+    /**
      * 解析请求来源 IP。
      *
      * <p>转发头按「从右往左」解析：最右侧是离本服务最近的一跳，跳过可信代理，

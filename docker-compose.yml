@@ -76,7 +76,7 @@ services:
   # 一次性任务：用必填环境变量生成 Mosquitto 口令文件与 ACL，明文不落仓库
   mqtt-init:
     # 需 2.1 及以上：该版本起 acl_file/password_file 改为认证插件，与 2.0 配置不兼容
-    image: eclipse-mosquitto:2
+    image: eclipse-mosquitto:2.1.2-alpine
     environment:
       MQTT_USERNAME: ${MQTT_USERNAME:?MQTT_USERNAME must be set, see .env.example}
       MQTT_PASSWORD: ${MQTT_PASSWORD:?MQTT_PASSWORD must be set, see .env.example}
@@ -95,7 +95,7 @@ services:
 
   mqtt:
     # 同 mqtt-init：配置使用 2.1 起的认证插件语法，不要降级到 2.0.x
-    image: eclipse-mosquitto:2
+    image: eclipse-mosquitto:2.1.2-alpine
     ports:
       # 明文只绑回环地址：仅供本机调试，后端在容器网络内直接用 tcp://mqtt:1883
       - "127.0.0.1:${MQTT_PORT:-1883}:1883"
@@ -109,6 +109,13 @@ services:
     depends_on:
       mqtt-init:
         condition: service_completed_successfully
+    # 仅探测端口是否监听；Broker 要求认证，健康检查不携带凭据
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 1883"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 5s
     restart: *default-restart
     logging: *default-logging
 
@@ -123,6 +130,8 @@ services:
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?CORS_ALLOWED_ORIGINS must be set, see .env.example}
       API_DOCS_ENABLED: ${API_DOCS_ENABLED:-false}
       TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
+      # 登录 IP 维度限流阈值：留空时配置了 TRUSTED_PROXIES 才自动启用，显式数字按其值，0 关闭
+      LOGIN_IP_MAX_ATTEMPTS: ${LOGIN_IP_MAX_ATTEMPTS:-}
       SSO_COOKIE_SECURE: ${SSO_COOKIE_SECURE:-true}
       APP_BOOTSTRAP_ADMIN_PASSWORD: ${APP_BOOTSTRAP_ADMIN_PASSWORD:-}
       APP_SEED_DEMO_ENABLED: ${APP_SEED_DEMO_ENABLED:-false}
@@ -152,16 +161,20 @@ services:
       redis:
         condition: service_healthy
       mqtt:
-        condition: service_started
+        condition: service_healthy
     ports:
-      - "${BACKEND_PORT:-8080}:8080"
+      # 只绑回环：外部统一经 frontend(nginx) 访问，需要直连调试时用 SSH 隧道
+      - "127.0.0.1:${BACKEND_PORT:-8080}:8080"
+    # JVM 的 -XX:MaxRAMPercentage=75 按该上限计算堆，避免按宿主机内存吃满
+    mem_limit: ${BACKEND_MEM_LIMIT:-1g}
     restart: *default-restart
     logging: *default-logging
 
   frontend:
     build: ./zhizao-xietong-web
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     ports:
       - "${FRONTEND_PORT:-8081}:80"
     restart: *default-restart
