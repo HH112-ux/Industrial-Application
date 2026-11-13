@@ -25,7 +25,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
         "DB_PASSWORD=test",
         "app.bootstrap.admin-password=integration-test-admin-pass"
 })
-@Testcontainers(disabledWithoutDocker = true)
+@Testcontainers
 class AiReadOnlySessionIntegrationTest {
 
     @Container
