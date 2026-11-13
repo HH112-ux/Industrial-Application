@@ -1,6 +1,7 @@
 package com.zhizao.aspect;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.zhizao.common.ClientIpResolver;
 import com.zhizao.dto.PasswordChangeRequest;
 import com.zhizao.dto.UserCreateRequest;
 import com.zhizao.dto.UserCreateResponse;
@@ -29,7 +30,8 @@ class AuditAspectTest {
 
     @Test
     void passwordFieldsAreMaskedBeforePersisting() {
-        AuditAspect aspect = new AuditAspect(null, new ObjectMapper(), transactionManager());
+        AuditAspect aspect = new AuditAspect(null, new ObjectMapper(),
+                new ClientIpResolver(""), transactionManager());
 
         String json = aspect.serializeArgs(new Object[]{
                 new PasswordChangeRequest("old-secret", "new-secret")});
@@ -41,7 +43,8 @@ class AuditAspectTest {
 
     @Test
     void createAccountPasswordFieldsAreMaskedBeforePersisting() {
-        AuditAspect aspect = new AuditAspect(null, new ObjectMapper(), transactionManager());
+        AuditAspect aspect = new AuditAspect(null, new ObjectMapper(),
+                new ClientIpResolver(""), transactionManager());
         UserView view = new UserView(7L, "wangwu", "王五", "USER", true, false, "一车间", "LOCAL", null, null);
         String json = aspect.serializeArgs(new Object[]{
                 new UserCreateRequest("wangwu", "王五", "USER", "一车间", "given-secret"),
@@ -53,7 +56,8 @@ class AuditAspectTest {
     @Test
     void recordsSuccessfulOperation() throws Throwable {
         AuditLogMapper mapper = mock(AuditLogMapper.class);
-        AuditAspect aspect = new AuditAspect(mapper, new ObjectMapper(), transactionManager());
+        AuditAspect aspect = new AuditAspect(mapper, new ObjectMapper(),
+                new ClientIpResolver(""), transactionManager());
         ProceedingJoinPoint pjp = joinPoint();
         when(pjp.proceed()).thenReturn("ok");
 
@@ -69,7 +73,8 @@ class AuditAspectTest {
     @Test
     void recordsFailedOperationWithErrorSummary() throws Throwable {
         AuditLogMapper mapper = mock(AuditLogMapper.class);
-        AuditAspect aspect = new AuditAspect(mapper, new ObjectMapper(), transactionManager());
+        AuditAspect aspect = new AuditAspect(mapper, new ObjectMapper(),
+                new ClientIpResolver(""), transactionManager());
         ProceedingJoinPoint pjp = joinPoint();
         when(pjp.proceed()).thenThrow(new IllegalStateException("boom"));
 
@@ -86,7 +91,8 @@ class AuditAspectTest {
         AuditLogMapper mapper = mock(AuditLogMapper.class);
         when(mapper.insert(org.mockito.ArgumentMatchers.any(AuditLog.class)))
                 .thenThrow(new IllegalStateException("db down"));
-        AuditAspect aspect = new AuditAspect(mapper, new ObjectMapper(), transactionManager());
+        AuditAspect aspect = new AuditAspect(mapper, new ObjectMapper(),
+                new ClientIpResolver(""), transactionManager());
         ProceedingJoinPoint pjp = joinPoint();
         when(pjp.proceed()).thenReturn("ok");
 

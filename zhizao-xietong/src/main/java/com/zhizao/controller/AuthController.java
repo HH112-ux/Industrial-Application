@@ -2,6 +2,7 @@ package com.zhizao.controller;
 
 import com.zhizao.common.BadRequestException;
 import com.zhizao.common.BusinessException;
+import com.zhizao.common.ClientIpResolver;
 import com.zhizao.common.ForbiddenException;
 import com.zhizao.common.LoginRateLimiter;
 import com.zhizao.common.Result;
@@ -16,6 +17,7 @@ import com.zhizao.sso.SsoStateStore;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseCookie;
@@ -42,13 +44,19 @@ public class AuthController {
     private final SsoAuthService ssoAuthService;
     private final LoginRateLimiter loginRateLimiter;
     private final AuthAuditService authAuditService;
+    private final ClientIpResolver clientIpResolver;
+    private final boolean cookieSecure;
 
     public AuthController(AuthService authService, SsoAuthService ssoAuthService,
-                          LoginRateLimiter loginRateLimiter, AuthAuditService authAuditService) {
+                          LoginRateLimiter loginRateLimiter, AuthAuditService authAuditService,
+                          ClientIpResolver clientIpResolver,
+                          @Value("${app.sso.cookie-secure:true}") boolean cookieSecure) {
         this.authService = authService;
         this.ssoAuthService = ssoAuthService;
         this.loginRateLimiter = loginRateLimiter;
         this.authAuditService = authAuditService;
+        this.clientIpResolver = clientIpResolver;
+        this.cookieSecure = cookieSecure;
     }
 
     /** 本地登录：限流、口令错误、账号禁用与需扫码均落认证审计；审计不接收请求体。 */
@@ -143,6 +151,7 @@ public class AuthController {
         SsoAuthService.AuthorizeRedirect redirect = ssoAuthService.authorize(browserToken);
         ResponseCookie cookie = ResponseCookie.from(SsoStateStore.BROWSER_COOKIE, redirect.browserToken())
                 .httpOnly(true)
+                .secure(cookieSecure)
                 .sameSite("Lax")
                 .path("/")
                 .maxAge(Duration.ofMinutes(30))
@@ -167,10 +176,8 @@ public class AuthController {
                 ? AuthAuditService.INVALID_TICKET : AuthAuditService.INVALID_STATE;
     }
 
-    /** 取客户端 IP：优先 X-Forwarded-For 首个地址，与登录审计口径一致。 */
+    /** 取客户端 IP：仅在请求来自可信代理时才采信 X-Forwarded-For，其余直接用 TCP 对端地址。 */
     private String clientIp(HttpServletRequest request) {
-        String forwarded = request.getHeader("X-Forwarded-For");
-        return forwarded != null && !forwarded.isBlank()
-                ? forwarded.split(",")[0].trim() : request.getRemoteAddr();
+        return clientIpResolver.resolve(request);
     }
 }

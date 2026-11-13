@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.zhizao.common.ClientIpResolver;
 import com.zhizao.entity.AuditLog;
 import com.zhizao.mapper.AuditLogMapper;
 import jakarta.servlet.http.HttpServletRequest;
@@ -45,12 +46,15 @@ public class AuditAspect {
 
     private final AuditLogMapper auditLogMapper;
     private final ObjectMapper objectMapper;
+    private final ClientIpResolver clientIpResolver;
     private final TransactionTemplate auditTransaction;
 
     public AuditAspect(AuditLogMapper auditLogMapper, ObjectMapper objectMapper,
+                       ClientIpResolver clientIpResolver,
                        PlatformTransactionManager transactionManager) {
         this.auditLogMapper = auditLogMapper;
         this.objectMapper = objectMapper;
+        this.clientIpResolver = clientIpResolver;
         this.auditTransaction = new TransactionTemplate(transactionManager);
         this.auditTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
@@ -124,12 +128,7 @@ public class AuditAspect {
     }
 
     private String clientIp() {
-        HttpServletRequest req = request();
-        if (req == null) {
-            return null;
-        }
-        String xff = req.getHeader("X-Forwarded-For");
-        return (xff != null && !xff.isEmpty()) ? xff.split(",")[0].trim() : req.getRemoteAddr();
+        return clientIpResolver.resolve(request());
     }
 
     /**

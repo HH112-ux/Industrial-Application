@@ -74,9 +74,14 @@ app:
   # 接口文档开关：默认关闭，生产不暴露 Swagger/OpenAPI
   api-docs:
     enabled: ${API_DOCS_ENABLED:false}
+  http:
+    # 可信反向代理的固定 IP（逗号分隔）；留空表示不信任 X-Forwarded-For，直接使用 TCP 对端地址
+    trusted-proxies: ${TRUSTED_PROXIES:}
   sso:
     # 总开关：默认关闭；关闭时登录行为与今天完全一致，接口返回明确拒绝
     enabled: ${SSO_ENABLED:false}
+    # 浏览器标识 Cookie 是否带 Secure；HTTPS 部署必须为 true，仅本机 http 调试可关闭
+    cookie-secure: ${SSO_COOKIE_SECURE:true}
     # 本地为主后默认关闭 JIT：未开通的企微用户不自动建号，需管理员先开通
     jit-enabled: ${SSO_JIT_ENABLED:false}
     provider: ${SSO_PROVIDER:WEIXIN_WORK}
@@ -161,10 +166,13 @@ mybatis-plus:
   configuration:
     log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
 
-# dev 本机调试：放开接口文档（仍可用 API_DOCS_ENABLED=false 显式关闭）
+# dev 本机调试：放开接口文档（仍可用 API_DOCS_ENABLED=false 显式关闭）；
+# 本机走 http，SSO 浏览器标识 Cookie 允许不带 Secure
 app:
   api-docs:
     enabled: ${API_DOCS_ENABLED:true}
+  sso:
+    cookie-secure: ${SSO_COOKIE_SECURE:false}
 
 logging:
   level:
