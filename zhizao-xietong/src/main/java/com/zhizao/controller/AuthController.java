@@ -63,8 +63,9 @@ public class AuthController {
     @PostMapping("/login")
     public Result<LoginResponse> login(@RequestBody LoginRequest request, HttpServletRequest servletRequest) {
         String ip = clientIp(servletRequest);
+        String rateLimitKey = request.username() + "|" + (ip == null ? "unknown" : ip);
         try {
-            loginRateLimiter.check(request.username());
+            loginRateLimiter.check(rateLimitKey);
         } catch (BusinessException e) {
             authAuditService.record(AuthAuditService.EVENT_LOGIN, request.username(), false,
                     AuthAuditService.RATE_LIMITED, e.getMessage(), ip);
