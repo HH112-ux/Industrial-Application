@@ -104,8 +104,8 @@ cd zhizao-xietong && mvn spring-boot:run
 
 - 端口：8080
 - 健康检查：<http://localhost:8080/actuator/health>
-- 业务指标：<http://localhost:8080/actuator/metrics>（如 `zhizao.devices.online`、`zhizao.telemetry.reports`）
-- Swagger UI：<http://localhost:8080/swagger-ui/index.html>
+- 业务指标：<http://localhost:8080/actuator/metrics>（如 `zhizao.devices.online`、`zhizao.telemetry.reports`；仅 ADMIN 可读）
+- Swagger UI：<http://localhost:8080/swagger-ui/index.html>（仅 `dev` profile 或显式设置 `API_DOCS_ENABLED=true` 时开放）
 
 首次启动时 `DataInitializer` 会创建管理员账号 `admin`：
 
@@ -170,6 +170,7 @@ docker exec zhizao-mqtt mosquitto_pub -h localhost \
 | `REDIS_HOST` / `REDIS_PORT` | Redis 地址 | `localhost` / `6379` | 否 | `redis` / `6379` |
 | `REDIS_PASSWORD` | Redis 密码（compose 中开启 `requirepass`） | 空 | docker compose 必填 | 由部署环境注入 |
 | `CORS_ALLOWED_ORIGINS` | 允许的前端源，逗号分隔 | `http://localhost:5173,http://localhost:8081` | docker compose 必填 | `https://mes.example.com` |
+| `API_DOCS_ENABLED` | 是否开放 Swagger/OpenAPI | `false` | 否 | `true`（仅内部或 dev） |
 | `MQTT_ENABLED` | 是否启用 MQTT 网关 | `false` | 否 | `true` |
 | `MQTT_BROKER_URL` | Broker 地址 | `tcp://localhost:1883` | 否 | `tcp://mqtt:1883` |
 | `MQTT_USERNAME` / `MQTT_PASSWORD` | Broker 账号（compose 中关闭匿名，必填） | 空 | docker compose 必填 | 由部署环境注入 |
@@ -207,7 +208,7 @@ docker exec zhizao-mqtt mosquitto_pub -h localhost \
 
 ### docker compose 环境变量透传
 
-`docker-compose.yml` 的 `backend.environment` 只透传有限几类变量：`DB_URL`、`DB_USERNAME`、`DB_PASSWORD`、`JWT_SECRET`、`CORS_ALLOWED_ORIGINS`、`APP_BOOTSTRAP_ADMIN_PASSWORD`、`APP_SEED_DEMO_ENABLED`、`REDIS_HOST`、`REDIS_PORT`、`REDIS_PASSWORD`、`MQTT_ENABLED`、`MQTT_BROKER_URL`、`MQTT_USERNAME`、`MQTT_PASSWORD` 与 `TZ`。`.env` 只参与 compose 的变量替换，**不会自动进入容器**。
+`docker-compose.yml` 的 `backend.environment` 只透传有限几类变量：`DB_URL`、`DB_USERNAME`、`DB_PASSWORD`、`JWT_SECRET`、`CORS_ALLOWED_ORIGINS`、`API_DOCS_ENABLED`、`APP_BOOTSTRAP_ADMIN_PASSWORD`、`APP_SEED_DEMO_ENABLED`、`REDIS_HOST`、`REDIS_PORT`、`REDIS_PASSWORD`、`MQTT_ENABLED`、`MQTT_BROKER_URL`、`MQTT_USERNAME`、`MQTT_PASSWORD` 与 `TZ`。`.env` 只参与 compose 的变量替换，**不会自动进入容器**。
 
 因此 `SSO_*`、`AI_*`、`DEVICE_ALARM_*` 即使写进 `.env`，容器内仍取 `application.yml` 的默认值（均为关闭）。需要启用时，手工把对应变量追加到 `docker-compose.yml` 的 `backend.environment`，示例：
 
@@ -361,9 +362,9 @@ docker compose start backend
 
 ## 接口与文档
 
-- Swagger UI：`http://localhost:8080/swagger-ui/index.html`
-- OpenAPI JSON：`http://localhost:8080/v3/api-docs`
-- 健康检查：`http://localhost:8080/actuator/health`
+- Swagger UI：`http://localhost:8080/swagger-ui/index.html`（默认关闭，需 `API_DOCS_ENABLED=true` 或 `dev` profile）
+- OpenAPI JSON：`http://localhost:8080/v3/api-docs`（同上）
+- 健康检查：`http://localhost:8080/actuator/health`（公开）；`/actuator/info` 公开；`/actuator/metrics` 仅 ADMIN
 
 工程文档：
 

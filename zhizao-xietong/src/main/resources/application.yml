@@ -49,6 +49,13 @@ management:
     health:
       show-details: when-authorized
 
+# 接口文档默认关闭，仅在明确需要的环境（如 dev）打开；与安全白名单共用 app.api-docs.enabled
+springdoc:
+  api-docs:
+    enabled: ${app.api-docs.enabled:false}
+  swagger-ui:
+    enabled: ${app.api-docs.enabled:false}
+
 logging:
   # 默认（生产）只输出 INFO 及以上，SQL 语句与参数不落业务日志
   level:
@@ -64,6 +71,9 @@ app:
     demo-enabled: ${APP_SEED_DEMO_ENABLED:false}
   cors:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173,http://localhost:8081}
+  # 接口文档开关：默认关闭，生产不暴露 Swagger/OpenAPI
+  api-docs:
+    enabled: ${API_DOCS_ENABLED:false}
   sso:
     # 总开关：默认关闭；关闭时登录行为与今天完全一致，接口返回明确拒绝
     enabled: ${SSO_ENABLED:false}
@@ -150,6 +160,11 @@ spring:
 mybatis-plus:
   configuration:
     log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+
+# dev 本机调试：放开接口文档（仍可用 API_DOCS_ENABLED=false 显式关闭）
+app:
+  api-docs:
+    enabled: ${API_DOCS_ENABLED:true}
 
 logging:
   level:
