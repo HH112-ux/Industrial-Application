@@ -7,6 +7,7 @@
 #
 # 恢复会覆盖同名库中的同名表，属破坏性操作：不带 --yes 直接拒绝执行。
 # 备份文件带 .sha256 时先校验，校验不通过不恢复。
+# 恢复前请先停止 backend，避免应用写入与恢复过程交错。
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -45,6 +46,19 @@ if [[ -f "${FILE}.sha256" ]]; then
     ( cd "$(dirname "$FILE")" && shasum -a 256 -c "$(basename "${FILE}").sha256" )
   fi
 fi
+
+# dump 由 mysqldump --databases 生成，库名写在文件里；先核对目标库，避免拿其他库的备份静默覆盖
+DUMP_DB="$(gzip -dc "$FILE" | awk -F'`' '/^CREATE DATABASE/{if (!db) db=$2} END{print db}')"
+TARGET_DB="${DB_NAME:-zhizao_xietong}"
+if [[ -z "$DUMP_DB" ]]; then
+  echo "无法从备份文件识别目标库（缺少 CREATE DATABASE）" >&2
+  exit 1
+fi
+if [[ "$DUMP_DB" != "$TARGET_DB" && "${RESTORE_ALLOW_OTHER_DB:-0}" != "1" ]]; then
+  echo "拒绝执行：备份目标库为 ${DUMP_DB}，当前库为 ${TARGET_DB}；确认要跨库恢复请设置 RESTORE_ALLOW_OTHER_DB=1" >&2
+  exit 1
+fi
+echo "目标库：${DUMP_DB}"
 
 # 恢复前强制刷新一份当前数据，避免误用旧备份后无法回退
 echo "恢复前自动备份当前库："
