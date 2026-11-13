@@ -52,7 +52,7 @@
 ### 1.2 认证
 
 - 登录后返回 JWT，放在 `Authorization: Bearer <token>`。
-- 白名单：`/api/auth/**`、Swagger、`/actuator/health`、`/actuator/info`；设备鉴权开启时 `/api/integration/device-status` 也放行，由 HMAC 校验替代用户令牌；其余端点均需登录。`[代码实证]`
+- 白名单：`/api/auth/**`、`/actuator/health`、`/actuator/info`；设备鉴权开启时 `/api/integration/device-status` 也放行，由 HMAC 校验替代用户令牌；其余端点均需登录。Swagger 与 `/v3/api-docs/**` 默认不放行，仅在 `app.api-docs.enabled=true`（`API_DOCS_ENABLED`）时进入白名单；`/actuator/metrics` 仅 `ADMIN` 可读。`[代码实证]`
 - 管理类写操作使用 `@PreAuthorize("hasRole('ADMIN')")`；现场操作中开工、报工、成品入库确认与取消允许 `ADMIN` / `USER` / `WORKER`，质检只允许 `ADMIN` / `USER`。`[代码实证]`
 - 角色取值为 `ADMIN` / `USER` / `WORKER`；`USER` 与 `WORKER` 均非管理员，数据域仍由 `sys_user.workshop_scope` 决定。
 - 报警规则（`/api/alarm-rules/**`）整个控制器仅 `ADMIN`；报警记录的列表、未读数、确认与恢复对登录用户开放，按设备所属车间过滤数据域。`[代码实证]`

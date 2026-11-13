@@ -32,6 +32,7 @@ public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final boolean deviceAuthEnabled;
+    private final boolean apiDocsEnabled;
 
     @Value("${app.cors.allowed-origins:http://localhost:5173,http://localhost:8081}")
     private String allowedOrigins;
@@ -41,11 +42,14 @@ public class SecurityConfig {
      *
      * @param jwtAuthenticationFilter JWT 认证过滤器
      * @param deviceAuthEnabled      是否开启设备 HMAC 鉴权；开启时设备上报端点不走用户令牌
+     * @param apiDocsEnabled         是否开放接口文档；默认关闭，关闭时 Swagger 路径不进入白名单
      */
     public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter,
-                          @Value("${device.auth.enabled:false}") boolean deviceAuthEnabled) {
+                          @Value("${device.auth.enabled:false}") boolean deviceAuthEnabled,
+                          @Value("${app.api-docs.enabled:false}") boolean apiDocsEnabled) {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
         this.deviceAuthEnabled = deviceAuthEnabled;
+        this.apiDocsEnabled = apiDocsEnabled;
     }
 
     @Bean
@@ -55,6 +59,9 @@ public class SecurityConfig {
 
     /**
      * 配置过滤链：设备鉴权开启时放行设备上报端点，由 HMAC 校验替代用户令牌。
+     *
+     * <p>接口文档默认不开放；仅在 {@code app.api-docs.enabled=true} 时才把 Swagger 路径加入白名单。
+     * Actuator 指标含 JVM 与业务运行态信息，只允许 ADMIN 读取。</p>
      *
      * @param http HTTP 安全构建器
      * @return 安全过滤链
@@ -66,11 +73,14 @@ public class SecurityConfig {
                 .cors(c -> c.configurationSource(corsConfigurationSource()))
                 .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> {
-                    auth.requestMatchers("/api/auth/**", "/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**",
-                            "/actuator/health", "/actuator/info").permitAll();
+                    auth.requestMatchers("/api/auth/**", "/actuator/health", "/actuator/info").permitAll();
+                    if (apiDocsEnabled) {
+                        auth.requestMatchers("/swagger-ui/**", "/swagger-ui.html", "/v3/api-docs/**").permitAll();
+                    }
                     if (deviceAuthEnabled) {
                         auth.requestMatchers("/api/integration/device-status").permitAll();
                     }
+                    auth.requestMatchers("/actuator/metrics", "/actuator/metrics/**").hasRole("ADMIN");
                     auth.anyRequest().authenticated();
                 })
                 .exceptionHandling(ex -> ex.authenticationEntryPoint((request, response, authException) -> {

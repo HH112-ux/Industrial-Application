@@ -40,7 +40,7 @@ mvn spring-boot:run
 
 # 3. 访问
 #   应用启动于 http://localhost:8080
-#   Swagger 接口文档：http://localhost:8080/swagger-ui/index.html
+#   Swagger 接口文档：http://localhost:8080/swagger-ui/index.html（默认关闭；以 dev profile 启动或设置 API_DOCS_ENABLED=true 后可用）
 #   Actuator 健康检查：http://localhost:8080/actuator/health
 ```
 
