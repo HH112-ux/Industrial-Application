@@ -75,7 +75,8 @@ app:
   api-docs:
     enabled: ${API_DOCS_ENABLED:false}
   http:
-    # 可信反向代理的固定 IP（逗号分隔）；留空表示不信任 X-Forwarded-For，直接使用 TCP 对端地址
+    # 可信反向代理的固定 IP（逗号分隔）；留空表示不信任 X-Forwarded-For，直接使用 TCP 对端地址。
+    # 启动期校验：只接受具体 IP 字面量，CIDR/主机名/通配地址会导致启动失败
     trusted-proxies: ${TRUSTED_PROXIES:}
   login:
     # IP 维度限流阈值（次/分钟）。留空：配置了 TRUSTED_PROXIES 才启用（默认 30），否则关闭；

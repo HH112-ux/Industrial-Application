@@ -129,7 +129,10 @@ services:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set, see .env.example}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?CORS_ALLOWED_ORIGINS must be set, see .env.example}
       API_DOCS_ENABLED: ${API_DOCS_ENABLED:-false}
-      TRUSTED_PROXIES: ${TRUSTED_PROXIES:-}
+      # 默认指向 compose 内 frontend 的固定地址：容器重建后地址不变，开箱即可区分真实客户端来源。
+      # 前面还有外层 SLB 时按「多级代理逐级填写」追加其地址；显式留空表示不采信任何 X-Forwarded-For
+      # 注意用 `-` 而非 `:-`：只有未设置时才取默认值，显式留空仍可表达「关闭」
+      TRUSTED_PROXIES: ${TRUSTED_PROXIES-172.28.0.10}
       # 登录 IP 维度限流阈值：留空时配置了 TRUSTED_PROXIES 才自动启用，显式数字按其值，0 关闭
       LOGIN_IP_MAX_ATTEMPTS: ${LOGIN_IP_MAX_ATTEMPTS:-}
       SSO_COOKIE_SECURE: ${SSO_COOKIE_SECURE:-true}
@@ -177,8 +180,21 @@ services:
         condition: service_healthy
     ports:
       - "${FRONTEND_PORT:-8081}:80"
+    # 固定地址：backend 的 TRUSTED_PROXIES 依赖它，地址漂移会让 X-Forwarded-For 静默失效。
+    # 修改时需同步 backend 的 TRUSTED_PROXIES（或本文件顶部的默认值）与自定义网段。
+    networks:
+      default:
+        ipv4_address: ${FRONTEND_NETWORK_IP:-172.28.0.10}
     restart: *default-restart
     logging: *default-logging
+
+networks:
+  # 自定义网段只为给 frontend 分配稳定地址；与宿主机内网冲突时用 COMPOSE_SUBNET 覆盖，
+  # 并同步上面的固定地址与 backend 的 TRUSTED_PROXIES
+  default:
+    ipam:
+      config:
+        - subnet: ${COMPOSE_SUBNET:-172.28.0.0/16}
 
 volumes:
   mysql-data:

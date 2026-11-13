@@ -178,7 +178,9 @@ docker exec zhizao-mqtt mosquitto_pub -h localhost \
 | `REDIS_PASSWORD` | Redis 密码（compose 中开启 `requirepass`） | 空 | docker compose 必填 | 由部署环境注入 |
 | `CORS_ALLOWED_ORIGINS` | 允许的前端源，逗号分隔 | `http://localhost:5173,http://localhost:8081` | docker compose 必填 | `https://mes.example.com` |
 | `API_DOCS_ENABLED` | 是否开放 Swagger/OpenAPI | `false` | 否 | `true`（仅内部或 dev） |
-| `TRUSTED_PROXIES` | 可信反向代理固定 IP，逗号分隔；留空则不采信 `X-Forwarded-For`（启动日志 WARN 提示） | 空 | 否 | `10.0.0.10,10.0.0.11` |
+| `TRUSTED_PROXIES` | 可信反向代理固定 IP，逗号分隔；只接受具体 IP 字面量，非法值启动失败；留空则不采信 `X-Forwarded-For` | compose 内为 `172.28.0.10`（frontend 固定地址），其余部署为空 | 否 | `10.0.0.10,10.0.0.11` |
+| `FRONTEND_NETWORK_IP` | compose 中 frontend 容器的固定地址（需与 `TRUSTED_PROXIES` 一致） | `172.28.0.10` | 否 | `172.28.0.10` |
+| `COMPOSE_SUBNET` | compose 默认网络网段（需包含 `FRONTEND_NETWORK_IP`） | `172.28.0.0/16` | 否 | `172.28.0.0/16` |
 | `LOGIN_IP_MAX_ATTEMPTS` | IP 维度限流阈值（次/分钟）：留空时配置了 `TRUSTED_PROXIES` 才自动启用（默认 30），显式数字按其值，`0` 关闭 | 空 | 否 | 直连部署可填 `30` 显式启用 |
 | `SSO_COOKIE_SECURE` | SSO 浏览器标识 Cookie 是否带 `Secure` | `true` | 否 | HTTPS 部署保持 `true`，仅本机 http 调试可设 `false` |
 | `MQTT_ENABLED` | 是否启用 MQTT 网关 | `false` | 否 | `true` |
@@ -250,15 +252,17 @@ MQTT 订阅参数（`MQTT_TOPIC`、`MQTT_QOS`、`MQTT_CLIENT_ID`）与 `MQTT_ACL
 
 ### 部署在反向代理之后（TRUSTED_PROXIES）
 
-`TRUSTED_PROXIES` 默认为空，表示不采信任何 `X-Forwarded-For`，审计来源 IP 取 TCP 对端地址，保持 fail-closed。若服务实际部署在 Nginx/SLB 之后而该值为空：
+`TRUSTED_PROXIES` 只接受具体的 IPv4/IPv6 地址（逗号分隔，多级代理逐级填写）。填写 CIDR（如 `172.18.0.0/16`）、主机名或通配地址（`0.0.0.0`、`::`）会在启动期直接失败并指明配置项——这类写法永远匹配不到 TCP 对端，带病运行只会让审计 IP 与 IP 维度限流静默失效。
 
-- 应用启动日志会输出 WARN，提示配置最近一级代理 IP；
-- 运行期首次收到带 `X-Forwarded-For` 的请求时会再告警一次（该头仍被忽略，不会放行伪造地址）；
-- 审计记录中的客户端 IP 会恒为代理地址，审计追溯失效。
+**compose 默认部署**：`docker-compose.yml` 为 frontend 分配了固定的 `172.28.0.10`（默认网段 `172.28.0.0/16`），backend 的 `TRUSTED_PROXIES` 在未设置时回落到同一地址，因此容器重建后地址不变，开箱就能按真实客户端 IP 区分来源，不会出现全站共用一个 IP 桶。compose 中使用的是 `${TRUSTED_PROXIES-...}`（无冒号）：**未设置**时取默认值，**显式留空**仍表示不采信任何转发头、IP 维度限流自动关闭，存量部署的关闭语义不会被静默改写。网段与宿主机内网冲突时用 `COMPOSE_SUBNET` 覆盖；修改网段或固定地址时，`COMPOSE_SUBNET`、`FRONTEND_NETWORK_IP` 与 `TRUSTED_PROXIES` 三处必须同步。
 
-此时请把离应用最近一级代理的固定 IP 填入 `TRUSTED_PROXIES`（多级代理逐级填写，逗号分隔）。该名单只接受 IPv4/IPv6 字面量，不要填写通配地址。
+**前端前面还有外层 SLB** 时，`X-Forwarded-For` 最右侧是 SLB 地址，需要把 SLB 也加入名单（如 `172.28.0.10,10.0.0.10`），否则解析结果会停在 SLB 地址。
 
-登录限流同时看两个维度：账号维度按用户名计数（每分钟 10 次，同一账号跨来源 IP 共享该额度），阻止针对单账号的口令猜测；IP 维度按客户端 IP 计数，只有配置了可信代理后才启用（默认每分钟 30 次）。`LOGIN_IP_MAX_ATTEMPTS` 有三种状态：留空且未配置 `TRUSTED_PROXIES` 时 IP 维度关闭，仅按账号维度（用户名）计 10 次/分钟，不会出现整栈共用一个 IP 桶的静默故障；留空且配置了 `TRUSTED_PROXIES` 时自动启用、默认 30 次/分钟；显式填数字则按该值启用，填 `0` 显式关闭。直连、无反向代理的部署可以用显式数字开启 IP 维度，此时后端看到的就是真实来源地址。客户端 IP 来自上面的解析规则：`TRUSTED_PROXIES` 未配置或配置错误时，所有用户会共用代理地址，按 IP 计数会退化为全站一个桶，因此默认在这种情况下不启用 IP 维度；反向代理部署应配置 `TRUSTED_PROXIES` 让每个来源独立计数。SSO 回调的 `sso:IP` 限流不受该开关影响。
+**留空** 表示不采信任何 `X-Forwarded-For`（fail-closed），适用于后端直连或非 compose 部署：应用启动日志会输出 WARN；运行期首次收到带 `X-Forwarded-For` 的请求时会再告警一次，该头仍被忽略。
+
+**配置与实际对端不匹配**（填了旧 IP、CIDR 被拒绝后的遗留值等）时不会静默：请求带 `X-Forwarded-For` 而 TCP 对端不在名单内，应用会输出一次 WARN，包含实际对端地址、当前配置值，以及「配置的地址至今未匹配到任何真实对端」的提示。此时审计 IP 记为对端地址、IP 维度限流退化为共享一个桶，务必按告警修正配置后重启 backend。
+
+登录限流同时看两个维度：账号维度按用户名计数（每分钟 10 次，同一账号跨来源 IP 共享该额度），阻止针对单账号的口令猜测；IP 维度按客户端 IP 计数，配置了可信代理后自动启用（默认每分钟 30 次），客户端 IP 来自上面的解析规则。`LOGIN_IP_MAX_ATTEMPTS` 有三种状态：留空且配置了 `TRUSTED_PROXIES` 时自动启用、默认 30 次/分钟（compose 默认部署即如此）；留空且未配置 `TRUSTED_PROXIES` 时 IP 维度关闭，仅按账号维度计 10 次/分钟；显式填数字则按该值启用，填 `0` 显式关闭。直连、无反向代理的部署可以用显式数字开启 IP 维度，此时后端看到的就是真实来源地址。SSO 回调的 `sso:IP` 限流不受该开关影响。
 
 ### 启用设备 HMAC 鉴权（分步）
 
