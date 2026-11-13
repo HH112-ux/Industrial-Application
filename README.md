@@ -308,6 +308,36 @@ docker compose up -d --build
 
 > 注意：报工口径调整后，`scripts/verify.sh` 中「部分报工后状态不变」「累计数量」等断言已与当前实现不一致，脚本当前不可直接作为验收依据，需要单独修复；修复前请以接口与单元测试结果为准。
 
+### 重启策略
+
+常驻服务（`mysql`、`redis`、`mqtt`、`backend`、`frontend`）统一使用 `restart: unless-stopped`：进程异常退出或宿主机重启后自动拉起，人工 `docker compose stop` 后不会被重新拉起。一次性任务 `mqtt-init` 不设重启策略，避免反复重建口令文件。
+
+### 备份与恢复（MySQL）
+
+```bash
+# 备份：默认写到仓库根目录 backups/，保留 14 天
+./scripts/db-backup.sh
+BACKUP_DIR=/srv/backup BACKUP_RETENTION_DAYS=30 ./scripts/db-backup.sh
+
+# 恢复：会覆盖同名表，属破坏性操作，不带 --yes 直接拒绝
+# 先停应用写入，恢复完成后再启动
+docker compose stop backend
+./scripts/db-restore.sh backups/zhizao_xietong-20261113-033000.sql.gz --yes
+docker compose start backend
+```
+
+- 备份使用 `--single-transaction` 取一致性快照，包含表结构、数据、存储过程、触发器与事件，产物为 `.sql.gz` 加同名 `.sha256`。
+- 写正式文件名前先做 gzip 完整性校验与 `CREATE TABLE` 存在性检查，导出失败不会留下半截文件。
+- 恢复前校验 gzip 与 SHA-256；校验不通过不恢复，并自动对当前库再备份一次（可用 `RESTORE_PRE_BACKUP_DIR` 指定目录），误用旧备份时仍可回退。
+- 恢复前会从备份识别目标库并与 `DB_NAME`（默认 `zhizao_xietong`）比对，跨库恢复需显式设置 `RESTORE_ALLOW_OTHER_DB=1`，避免拿其他库的备份静默覆盖当前库。
+- 两个脚本都通过 `docker compose exec` 在容器内执行，口令取自 compose 注入的 `MYSQL_ROOT_PASSWORD` 并写入 `MYSQL_PWD`，不出现在命令行与进程列表里。
+
+备份需要每天定时执行并异地留存，建议在独立环境用同一备份文件做恢复演练，核对表数量与 `flyway_schema_history` 行数：
+
+```cron
+30 3 * * * cd /opt/zhizao && BACKUP_DIR=/srv/backup BACKUP_RETENTION_DAYS=14 ./scripts/db-backup.sh >> /var/log/zhizao-backup.log 2>&1
+```
+
 ## 接口与文档
 
 - Swagger UI：`http://localhost:8080/swagger-ui/index.html`（默认关闭，需 `API_DOCS_ENABLED=true` 或 `dev` profile）
