@@ -325,8 +325,12 @@ docker compose up -d --build
 ## 测试与 CI
 
 ```bash
-# 后端全量测试（385 个测试，其中 6 个 Testcontainers 集成类）
+# 后端单元测试（不含 Testcontainers 集成类，无需 Docker）
 cd zhizao-xietong && mvn test
+
+# 后端全量测试：单元测试 + 6 个 Testcontainers 集成类（21 个用例）
+# 必须在 Docker 可用时执行，缺少 Docker 会直接构建失败；确需跳过用 -DskipITs
+cd zhizao-xietong && mvn verify
 
 # 管理端生产构建（同时覆盖 TypeScript 编译与打包）
 cd zhizao-xietong-web && npm ci && npm run build
@@ -335,7 +339,7 @@ cd zhizao-xietong-web && npm ci && npm run build
 npx --no -- commitlint --from HEAD~1 --to HEAD
 ```
 
-集成测试使用 Testcontainers 启动 `mysql:8.4`，覆盖工单状态机合法/非法流转、真实并发冲突、工艺版本隔离、遥测入库、AI 只读会话、计划下达幂等，以及成品入库的条件更新、超额/重复确认与并发确认只累加一次库存。Docker 不可用时这些类由 `@Testcontainers(disabledWithoutDocker = true)` 自动跳过，其余测试照常执行、构建仍然成功；首次运行需拉取镜像，本机约 60–90 秒，CI 约 1 分钟。
+集成测试使用 Testcontainers 启动 `mysql:8.4`，覆盖工单状态机合法/非法流转、真实并发冲突、工艺版本隔离、遥测入库、AI 只读会话、计划下达幂等，以及成品入库的条件更新、超额/重复确认与并发确认只累加一次库存。这些类由 maven-failsafe-plugin 在 `mvn verify` 阶段强制执行，缺少 Docker 时会直接构建失败，不再静默跳过；首次运行需拉取镜像，本机约 60–90 秒，CI 约 1 分钟。
 
 本机使用 Colima 时，Testcontainers 不读取 colima 的 Docker context，且 virtiofs 不支持把 unix socket 挂载进 Ryuk 容器。跑集成测试需要显式指定 socket 并关闭 Ryuk：
 
@@ -343,7 +347,7 @@ npx --no -- commitlint --from HEAD~1 --to HEAD
 cd zhizao-xietong
 DOCKER_HOST=unix://$HOME/.colima/default/docker.sock \
 TESTCONTAINERS_RYUK_DISABLED=true \
-mvn test
+mvn verify
 ```
 
 这是 Colima + virtiofs 的本地限制；CI 使用标准 Docker socket，不需要这两个变量。
@@ -354,7 +358,7 @@ CI 配置见 `.github/workflows/ci.yml`，每次 push 与 pull request 执行五
 |---|---|---|
 | Commit messages | 对推送范围运行 commitlint | 不通过则失败 |
 | Secret scan | gitleaks 只扫描本次推送或 PR 引入的提交范围，不扫全历史 | 发现密钥则失败 |
-| Backend tests | `mvn -B -ntp test` | 任一测试失败则失败 |
+| Backend tests | `mvn -B -ntp verify`（含 failsafe 集成测试） | 任一测试失败、集成用例未执行或被跳过则失败 |
 | Frontend build | `npm ci && npm run build` | 构建失败则失败 |
 | Mobile tests and build | 移动端依赖安装、测试与构建 | 失败则失败 |
 
@@ -416,22 +420,24 @@ REST 签名对象是原始请求体，必须与发送字节完全一致；MQTT �
 
 在线状态按 `last_seen_at` 与 `DEVICE_ONLINE_THRESHOLD_SECONDS` 计算。若设备上报间隔大于阈值，调大阈值；若设备根本没有上报，检查主题是否匹配 `MQTT_TOPIC`。
 
-**集成测试被跳过**
+**集成测试因缺少 Docker 失败**
 
-现象：`WorkOrderConsistencyIntegrationTest` 在测试报告中显示 skipped，提示找不到 Docker 环境。
+现象：`mvn verify` 在集成测试阶段失败，提示找不到 Docker 环境。
 
-这是预期行为：未安装或未启动 Docker 时，Testcontainers 会整类跳过，其余测试照常运行，`mvn test` 仍然成功。需要实际执行时，在 `zhizao-xietong` 目录下按下面两步操作（CI 使用标准 Docker socket，不需要这些额外参数）：
+这是刻意的门禁行为：集成测试不再在缺少 Docker 时静默跳过，避免把「跳过 21 个用例」误判成全部通过。请先确认 Docker 可达，再重跑：
 
 ```bash
 # 1. 确认 Docker 可达；Colima 需要显式指定 socket
 DOCKER_HOST=unix://$HOME/.colima/default/docker.sock docker info
 
-# 2. 运行测试；Ryuk 在 Colima 下无法挂载 socket，必须关闭
+# 2. 运行全量测试；Ryuk 在 Colima 下无法挂载 socket，必须关闭
 cd zhizao-xietong
 DOCKER_HOST=unix://$HOME/.colima/default/docker.sock \
 TESTCONTAINERS_RYUK_DISABLED=true \
-mvn test
+mvn verify
 ```
+
+仅想跑不依赖 Docker 的单元测试时，用 `mvn test`；确需在无 Docker 环境中执行 `verify`，必须显式加 `-DskipITs` 并自行承担集成用例未执行的风险。
 
 ## 已知限制
 
@@ -445,7 +451,7 @@ mvn test
 - 成品入库单由工单质检完工时生成，确认使用条件更新同时校验「待入库」与「数量不超过 min(计划数, 合格数) − 已入库」，0 行时区分已处理（409）与超额（409）两种提示；库存用 `ON DUPLICATE KEY UPDATE` 原子累加，不回填历史库存，已取消单据不会重新生成
 - 登录限流已抽成 `LoginRateLimiter` 端口，当前为单实例本地实现；多实例部署必须替换为共享存储实现（S6）
 - 已有 `/actuator/health`、`/actuator/info`、`/actuator/metrics` 与带 `traceId` 的标准输出日志；业务指标已覆盖设备在线、上报、报工、节拍与齐套率，但没有告警阈值与集中采集
-- 测试 385 个（6 个 Testcontainers 集成类）；集成用例覆盖状态机流转、真实并发冲突、工艺版本隔离、遥测入库、AI 只读会话、计划下达幂等与成品入库并发确认，仅在 Docker 可用时执行；移动端构建未纳入 CI
+- 测试 385 个（6 个 Testcontainers 集成类）；集成用例覆盖状态机流转、真实并发冲突、工艺版本隔离、遥测入库、AI 只读会话、计划下达幂等与成品入库并发确认，由 `mvn verify` 强制执行，缺少 Docker 时构建失败；移动端构建未纳入 CI
 - 完整 Docker Compose 五服务栈未在本机实测（本机端口被本地 MySQL/Redis 占用）
 - `scripts/verify.sh` 已因报工口径变更失效：部分报工后的状态与累计数量断言与当前实现不一致，脚本需单独修复后才能作为部署验收依据
 - MQTT 仍为 1883 明文传输且使用共享账号、未配置 `acl_file`：设备侧凭据泄露后无法限制发布/订阅范围，后续应切换 8883 + TLS，并用 ACL 按设备限制主题

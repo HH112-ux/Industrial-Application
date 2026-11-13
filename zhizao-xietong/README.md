@@ -48,10 +48,14 @@ mvn spring-boot:run
 
 ## 运行测试
 
-项目目标 Java 17，已升级 Mockito + ByteBuddy，兼容 JDK 17 与 JDK 26，直接运行：
+项目目标 Java 17，已升级 Mockito + ByteBuddy，兼容 JDK 17 与 JDK 26。
 
 ```bash
+# 单元测试（无需 Docker）
 mvn test
+
+# 全量测试：单元测试 + Testcontainers 集成测试（需要 Docker，缺少时直接失败）
+mvn verify
 ```
 
 已覆盖：登录鉴权（AuthService）、齐套校验（KitCheckService）、编号生成（CodeGenerator）、工单状态机闭环（WorkOrderService）。
