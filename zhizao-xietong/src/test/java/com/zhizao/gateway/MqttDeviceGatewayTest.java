@@ -8,7 +8,12 @@ import org.eclipse.paho.client.mqttv3.MqttClient;
 import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.test.util.ReflectionTestUtils;
+
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -21,10 +26,11 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * MQTT 网关测试：重连退避、连接/订阅时序与会话恢复。
+ * MQTT 网关测试：重连退避、连接/订阅时序、会话恢复与 ACL 覆盖检查。
  *
  * @author Caspian
  */
+@ExtendWith(OutputCaptureExtension.class)
 class MqttDeviceGatewayTest {
 
     private static final String TOPIC = "factory/devices/+/status";
@@ -41,6 +47,46 @@ class MqttDeviceGatewayTest {
         ReflectionTestUtils.setField(gateway, "clientId", "test-client");
         ReflectionTestUtils.setField(gateway, "topic", TOPIC);
         ReflectionTestUtils.setField(gateway, "qos", 1);
+    }
+
+    @Test
+    void aclWildcardCoverageMatchesMqttRules() {
+        assertTrue(MqttDeviceGateway.aclCovers(TOPIC, TOPIC));
+        assertTrue(MqttDeviceGateway.aclCovers("factory/devices/+/status", TOPIC));
+        assertTrue(MqttDeviceGateway.aclCovers("factory/#", TOPIC));
+        assertFalse(MqttDeviceGateway.aclCovers("factory/devices/+/telemetry", TOPIC));
+        assertFalse(MqttDeviceGateway.aclCovers("factory/devices/+", TOPIC));
+        assertFalse(MqttDeviceGateway.aclCovers("factory/#/status", TOPIC));
+    }
+
+    @Test
+    void aclTopicsSplitOnWhitespaceOnlyToMatchMqttInit() {
+        assertEquals(List.of("factory/devices/+/status", "factory/+/telemetry"),
+                MqttDeviceGateway.parseAclTopics(" factory/devices/+/status   factory/+/telemetry "));
+        assertEquals(List.of("factory/devices/+/status,factory/+/telemetry"),
+                MqttDeviceGateway.parseAclTopics("factory/devices/+/status,factory/+/telemetry"),
+                "逗号不是分隔符：与 mqtt-init 的 shell 拆分保持一致，避免掩盖非法 ACL");
+        assertTrue(MqttDeviceGateway.parseAclTopics("").isEmpty());
+        assertTrue(MqttDeviceGateway.parseAclTopics(null).isEmpty());
+    }
+
+    @Test
+    void warnsWhenSubscriptionTopicIsOutsideAcl(CapturedOutput output) {
+        ReflectionTestUtils.setField(gateway, "aclTopics", "factory/devices/+/telemetry");
+
+        gateway.logStartupConfig();
+
+        assertTrue(output.getOut().contains("不在 MQTT_ACL_TOPICS"),
+                "订阅主题与 ACL 分叉时必须给出启动告警，避免遥测静默断流");
+    }
+
+    @Test
+    void noWarningWhenAclCoversSubscriptionTopic(CapturedOutput output) {
+        ReflectionTestUtils.setField(gateway, "aclTopics", "factory/devices/+/telemetry factory/#");
+
+        gateway.logStartupConfig();
+
+        assertFalse(output.getOut().contains("不在 MQTT_ACL_TOPICS"));
     }
 
     @Test

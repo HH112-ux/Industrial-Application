@@ -7,6 +7,9 @@ x-logging: &default-logging
 # 常驻服务统一重启策略：进程异常退出或宿主机重启后自动拉起，人工 stop 后不再拉起
 x-restart: &default-restart unless-stopped
 
+# 后端订阅主题与 Broker ACL 必须同源：mqtt-init 生成 ACL、backend 启动期比对，均取该值
+x-mqtt-acl-topics: &mqtt-acl-topics ${MQTT_ACL_TOPICS:-factory/devices/+/status}
+
 services:
   mysql:
     image: mysql:8.0
@@ -77,7 +80,7 @@ services:
     environment:
       MQTT_USERNAME: ${MQTT_USERNAME:?MQTT_USERNAME must be set, see .env.example}
       MQTT_PASSWORD: ${MQTT_PASSWORD:?MQTT_PASSWORD must be set, see .env.example}
-      MQTT_ACL_TOPICS: ${MQTT_ACL_TOPICS:-factory/devices/+/status}
+      MQTT_ACL_TOPICS: *mqtt-acl-topics
     entrypoint: ["/bin/sh", "-c"]
     command:
       - >-
@@ -130,6 +133,12 @@ services:
       MQTT_BROKER_URL: tcp://mqtt:1883
       MQTT_USERNAME: ${MQTT_USERNAME:?MQTT_USERNAME must be set, see .env.example}
       MQTT_PASSWORD: ${MQTT_PASSWORD:?MQTT_PASSWORD must be set, see .env.example}
+      # 订阅参数必须显式透传：否则容器内永远取 application.yml 默认值，改 .env 不生效
+      MQTT_TOPIC: ${MQTT_TOPIC:-factory/devices/+/status}
+      MQTT_QOS: ${MQTT_QOS:-1}
+      MQTT_CLIENT_ID: ${MQTT_CLIENT_ID:-zhizao-backend}
+      # 仅用于启动期比对订阅主题是否被 Broker ACL 覆盖，不参与鉴权
+      MQTT_ACL_TOPICS: *mqtt-acl-topics
       # 设备上报 HMAC 鉴权：默认关闭以兼容尚未改造的存量设备
       # 开启时必须同时注入 DEVICE_CREDENTIAL_KEY，否则后端启动直接失败（fail-fast）
       DEVICE_AUTH_ENABLED: ${DEVICE_AUTH_ENABLED:-false}
