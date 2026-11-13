@@ -30,6 +30,9 @@ export FRONTEND_PORT="${FRONTEND_PORT:-18081}"
 # CORS 白名单必须是浏览器实际访问前端的地址，验证栈默认用 127.0.0.1:前端端口
 export CORS_ALLOWED_ORIGINS="${CORS_ALLOWED_ORIGINS:-http://127.0.0.1:${FRONTEND_PORT}}"
 export MYSQL_ROOT_PASSWORD="${MYSQL_ROOT_PASSWORD:-verify-root}"
+# 应用使用受限账号，口令与 root 分开；mysql-init 会按这两个值建号并授权
+export DB_USERNAME="${DB_USERNAME:-zhizao_app}"
+export DB_PASSWORD="${DB_PASSWORD:-verify-app-password}"
 # Redis 开启 requirepass、Mosquitto 关闭匿名后均为 compose 必填项，这里用一次性验证值
 export REDIS_PASSWORD="${REDIS_PASSWORD:-verify-redis}"
 export MQTT_USERNAME="${MQTT_USERNAME:-verify-mqtt}"
