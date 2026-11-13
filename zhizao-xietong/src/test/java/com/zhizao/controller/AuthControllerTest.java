@@ -59,7 +59,8 @@ import static org.mockito.Mockito.when;
 class AuthControllerTest {
 
     private static final String IP = "127.0.0.1";
-    private static final int IP_MAX_ATTEMPTS = AuthController.DEFAULT_IP_MAX_ATTEMPTS;
+    /** 文档承诺的默认值：配置可信代理且阈值留空时，IP 维度按 30 次/分钟启用。 */
+    private static final int IP_MAX_ATTEMPTS = 30;
     private static final String PASSWORD = "PlainSecret!42";
     private static final String TICKET = "ticket-abc";
     private static final String STATE = "state-xyz";
