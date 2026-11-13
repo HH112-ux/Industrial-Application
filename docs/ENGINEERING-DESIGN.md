@@ -330,7 +330,7 @@ sequenceDiagram
 
 ### 7.4 鉴权与审计
 
-- `/api/auth/**`、Swagger、健康检查之外的所有端点必须认证；设备鉴权开启时 `/api/integration/device-status` 也放行，由 HMAC 校验替代用户令牌。
+- `/api/auth/**`、健康检查之外的所有端点必须认证；Swagger 与 `/v3/api-docs/**` 仅在 `app.api-docs.enabled=true` 时放行，`/actuator/metrics` 仅 `ADMIN`；设备鉴权开启时 `/api/integration/device-status` 也放行，由 HMAC 校验替代用户令牌。
 - 管理类写操作要求 ADMIN；工单开工/报工允许 `ADMIN`/`USER`/`WORKER`，质检允许 `ADMIN`/`USER`。
 - 所有非认证的 POST/PUT/DELETE 必须写审计，审计失败不影响业务，但必须可观测。
 - 审计记录包含操作人、方法、路径、类方法、参数摘要、IP、时间。
