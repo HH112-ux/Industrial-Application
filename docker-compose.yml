@@ -32,6 +32,27 @@ services:
     restart: *default-restart
     logging: *default-logging
 
+  # 一次性任务：创建后端专用受限账号。每次 up 都执行，既覆盖全新实例，
+  # 也覆盖已有数据卷的存量实例（库已存在但还没有该账号）。
+  # 仅此步骤使用 root；应用运行与备份/恢复脚本的口令互不复用。
+  mysql-init:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD must be set, see .env.example}
+      MYSQL_DATABASE: zhizao_xietong
+      APP_DB_USERNAME: ${DB_USERNAME:-zhizao_app}
+      APP_DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set, see .env.example}
+      TZ: Asia/Shanghai
+    depends_on:
+      mysql:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "/opt/mysql-init/create-app-user.sh"]
+    volumes:
+      - ./scripts/mysql-init-app-user.sh:/opt/mysql-init/create-app-user.sh:ro
+    # 一次性任务不设重启策略，避免建号/授权被反复执行
+    restart: "no"
+    logging: *default-logging
+
   redis:
     image: redis:7-alpine
     environment:
@@ -95,8 +116,9 @@ services:
     build: ./zhizao-xietong
     environment:
       DB_URL: jdbc:mysql://mysql:3306/zhizao_xietong?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true
-      DB_USERNAME: root
-      DB_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD must be set, see .env.example}
+      # 受限业务账号，仅 zhizao_xietong 库的 DML 与迁移所需 DDL；root 不进入应用运行期
+      DB_USERNAME: ${DB_USERNAME:-zhizao_app}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set, see .env.example}
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set, see .env.example}
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:?CORS_ALLOWED_ORIGINS must be set, see .env.example}
       API_DOCS_ENABLED: ${API_DOCS_ENABLED:-false}
@@ -125,6 +147,8 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+      mysql-init:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
       mqtt:

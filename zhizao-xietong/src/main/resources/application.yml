@@ -6,7 +6,7 @@ spring:
     name: zhizao-xietong
   datasource:
     url: ${DB_URL:jdbc:mysql://localhost:3306/zhizao_xietong?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true}
-    username: ${DB_USERNAME:root}
+    username: ${DB_USERNAME:zhizao_app}
     password: ${DB_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver
   flyway:

@@ -20,7 +20,7 @@ if [[ -z "${DB_PASSWORD:-}" ]]; then
   exit 1
 fi
 
-DB_USERNAME="${DB_USERNAME:-root}"
+DB_USERNAME="${DB_USERNAME:-zhizao_app}"
 JDK17="/opt/homebrew/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"
 REDIS_SERVER="/opt/homebrew/opt/redis/bin/redis-server"
 
