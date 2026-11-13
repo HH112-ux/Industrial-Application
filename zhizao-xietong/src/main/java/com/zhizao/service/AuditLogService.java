@@ -2,6 +2,7 @@ package com.zhizao.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.zhizao.common.PageQuery;
 import com.zhizao.common.PageResult;
 import com.zhizao.entity.AuditLog;
 import com.zhizao.mapper.AuditLogMapper;
@@ -42,7 +43,7 @@ public class AuditLogService {
      */
     public PageResult<AuditLog> list(int pageNum, int pageSize, String username, String uri,
                                      LocalDate from, LocalDate to) {
-        Page<AuditLog> page = new Page<>(pageNum, pageSize);
+        Page<AuditLog> page = PageQuery.of(pageNum, pageSize);
         LambdaQueryWrapper<AuditLog> qw = new LambdaQueryWrapper<>();
         qw.likeRight(StringUtils.hasText(username), AuditLog::getUsername, username);
         qw.likeRight(StringUtils.hasText(uri), AuditLog::getUri, uri);

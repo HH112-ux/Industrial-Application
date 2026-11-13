@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.zhizao.common.BadRequestException;
 import com.zhizao.common.BusinessException;
 import com.zhizao.common.ForbiddenException;
+import com.zhizao.common.PageQuery;
 import com.zhizao.common.PageResult;
 import com.zhizao.common.PasswordPolicy;
 import com.zhizao.dto.UserCreateRequest;
@@ -84,7 +85,7 @@ public class UserService {
      * @return 用户分页结果
      */
     public PageResult<UserView> list(int pageNum, int pageSize, String keyword, boolean ssoOnly) {
-        Page<SysUser> page = new Page<>(pageNum, pageSize);
+        Page<SysUser> page = PageQuery.of(pageNum, pageSize);
         LambdaQueryWrapper<SysUser> qw = new LambdaQueryWrapper<>();
         qw.and(StringUtils.hasText(keyword), w -> w
                 .like(SysUser::getUsername, keyword)

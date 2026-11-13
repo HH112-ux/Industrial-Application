@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.zhizao.common.BadRequestException;
 import com.zhizao.common.BusinessException;
+import com.zhizao.common.PageQuery;
 import com.zhizao.common.PageResult;
 import com.zhizao.entity.FinishedGoodsInbound;
 import com.zhizao.entity.FinishedGoodsStock;
@@ -85,7 +86,7 @@ public class FinishedGoodsInboundService {
      */
     public PageResult<FinishedGoodsInbound> list(int pageNum, int pageSize, String keyword,
                                                  String status, String workshop) {
-        Page<FinishedGoodsInbound> page = new Page<>(pageNum, pageSize);
+        Page<FinishedGoodsInbound> page = PageQuery.of(pageNum, pageSize);
         LambdaQueryWrapper<FinishedGoodsInbound> qw = new LambdaQueryWrapper<>();
         qw.and(StringUtils.hasText(keyword), w -> w
                 .like(FinishedGoodsInbound::getProductCode, keyword)
@@ -162,7 +163,7 @@ public class FinishedGoodsInboundService {
      * 分页查询成品库存，按车间数据域过滤；未配置车间的账号返回空列表。
      */
     public PageResult<FinishedGoodsStock> stockList(int pageNum, int pageSize, String keyword) {
-        Page<FinishedGoodsStock> page = new Page<>(pageNum, pageSize);
+        Page<FinishedGoodsStock> page = PageQuery.of(pageNum, pageSize);
         LambdaQueryWrapper<FinishedGoodsStock> qw = new LambdaQueryWrapper<>();
         qw.like(StringUtils.hasText(keyword), FinishedGoodsStock::getProductCode, keyword);
         String scope = dataScope.workshopFilter();

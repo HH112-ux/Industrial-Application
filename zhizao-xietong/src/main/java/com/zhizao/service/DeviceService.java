@@ -3,6 +3,7 @@ package com.zhizao.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.zhizao.common.BusinessException;
+import com.zhizao.common.PageQuery;
 import com.zhizao.common.PageResult;
 import com.zhizao.entity.Device;
 import com.zhizao.enums.DeviceStatus;
@@ -54,7 +55,7 @@ public class DeviceService {
      * @return 设备分页结果
      */
     public PageResult<Device> list(int pageNum, int pageSize, String keyword, String status) {
-        Page<Device> page = new Page<>(pageNum, pageSize);
+        Page<Device> page = PageQuery.of(pageNum, pageSize);
         LambdaQueryWrapper<Device> qw = new LambdaQueryWrapper<>();
         qw.and(StringUtils.hasText(keyword), w -> w
                 .like(Device::getDeviceNo, keyword)

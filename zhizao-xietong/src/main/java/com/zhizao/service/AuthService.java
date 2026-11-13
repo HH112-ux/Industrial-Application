@@ -73,7 +73,8 @@ public class AuthService {
         if (requiresSsoLogin(user)) {
             throw new BusinessException(SSO_LOGIN_HINT);
         }
-        if (user == null || !passwordEncoder.matches(req.password(), user.getPassword())) {
+        if (user == null || !StringUtils.hasText(req.password())
+                || !passwordEncoder.matches(req.password(), user.getPassword())) {
             throw new BusinessException("用户名或密码错误");
         }
         if (!Integer.valueOf(1).equals(user.getEnabled())) {

@@ -93,6 +93,17 @@ class AuthServiceTest {
     }
 
     @Test
+    void loginBlankPasswordFailsWithoutPasswordEncoder() {
+        when(userMapper.selectOne(any())).thenReturn(user(1, 0));
+
+        BusinessException error = assertThrows(BusinessException.class,
+                () -> authService.login(new LoginRequest("admin", " ")));
+
+        assertEquals("用户名或密码错误", error.getMessage());
+        verify(passwordEncoder, never()).matches(any(), any());
+    }
+
+    @Test
     void loginOnSsoAccountAsksForSsoLogin() {
         SysUser sso = user(1, 0);
         sso.setAuthSource("SSO");

@@ -3,6 +3,7 @@ package com.zhizao.service;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.zhizao.common.BusinessException;
+import com.zhizao.common.PageQuery;
 import com.zhizao.common.PageResult;
 import com.zhizao.entity.Device;
 import com.zhizao.entity.MaintenanceRecord;
@@ -47,7 +48,7 @@ public class MaintenanceService {
         if (deviceIds != null && deviceIds.isEmpty()) {
             return PageResult.of(0, List.of());
         }
-        Page<MaintenanceRecord> page = new Page<>(pageNum, pageSize);
+        Page<MaintenanceRecord> page = PageQuery.of(pageNum, pageSize);
         LambdaQueryWrapper<MaintenanceRecord> qw = new LambdaQueryWrapper<>();
         qw.and(StringUtils.hasText(keyword), w -> w
                 .like(MaintenanceRecord::getMtNo, keyword)
