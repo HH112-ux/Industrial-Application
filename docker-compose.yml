@@ -76,7 +76,7 @@ services:
   # 一次性任务：用必填环境变量生成 Mosquitto 口令文件与 ACL，明文不落仓库
   mqtt-init:
     # 需 2.1 及以上：该版本起 acl_file/password_file 改为认证插件，与 2.0 配置不兼容
-    image: eclipse-mosquitto:2.1.2
+    image: eclipse-mosquitto:2.1.2-alpine
     environment:
       MQTT_USERNAME: ${MQTT_USERNAME:?MQTT_USERNAME must be set, see .env.example}
       MQTT_PASSWORD: ${MQTT_PASSWORD:?MQTT_PASSWORD must be set, see .env.example}
@@ -95,7 +95,7 @@ services:
 
   mqtt:
     # 同 mqtt-init：配置使用 2.1 起的认证插件语法，不要降级到 2.0.x
-    image: eclipse-mosquitto:2.1.2
+    image: eclipse-mosquitto:2.1.2-alpine
     ports:
       # 明文只绑回环地址：仅供本机调试，后端在容器网络内直接用 tcp://mqtt:1883
       - "127.0.0.1:${MQTT_PORT:-1883}:1883"
