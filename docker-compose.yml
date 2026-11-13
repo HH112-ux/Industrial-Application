@@ -108,6 +108,10 @@ services:
       MQTT_BROKER_URL: tcp://mqtt:1883
       MQTT_USERNAME: ${MQTT_USERNAME:?MQTT_USERNAME must be set, see .env.example}
       MQTT_PASSWORD: ${MQTT_PASSWORD:?MQTT_PASSWORD must be set, see .env.example}
+      # 设备上报 HMAC 鉴权：默认关闭以兼容尚未改造的存量设备
+      # 开启时必须同时注入 DEVICE_CREDENTIAL_KEY，否则后端启动直接失败（fail-fast）
+      DEVICE_AUTH_ENABLED: ${DEVICE_AUTH_ENABLED:-false}
+      DEVICE_CREDENTIAL_KEY: ${DEVICE_CREDENTIAL_KEY:-}
       TZ: Asia/Shanghai
     depends_on:
       mysql:

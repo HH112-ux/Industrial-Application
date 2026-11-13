@@ -182,9 +182,9 @@ docker exec zhizao-mqtt mosquitto_pub -h localhost \
 | `APP_SEED_DEMO_ENABLED` | 空库启动时是否加载 `db/seed` 演示种子 | `false` | 否 | `true`（仅本地/演示） |
 | `DEVICE_ONLINE_THRESHOLD_SECONDS` | 超过该时长未上报视为离线 | `90` | 否 | `120` |
 | `DEVICE_SIMULATION_ENABLED` | 无上报时是否返回模拟遥测 | `false` | 否 | `false` |
-| `DEVICE_AUTH_ENABLED` | 是否强制设备 HMAC 签名 | `false` | 否 | `true` |
+| `DEVICE_AUTH_ENABLED` | 是否强制设备 HMAC 签名；compose 已透传该变量 | `false` | 否 | `true`（存量设备改造完成后） |
 | `DEVICE_SIGNATURE_TOLERANCE_SECONDS` | MQTT 时间戳容忍窗口 | `300` | 否 | `60` |
-| `DEVICE_CREDENTIAL_KEY` | 设备密钥加密主密钥（32 字节 Base64） | 空 | 开启设备鉴权时必填 | `openssl rand -base64 32` 生成 |
+| `DEVICE_CREDENTIAL_KEY` | 设备密钥加密主密钥（32 字节 Base64）；compose 已透传该变量 | 空 | 开启设备鉴权时必填，缺失时后端启动失败 | `openssl rand -base64 32` 生成 |
 | `DEVICE_IDEMPOTENCY_TTL_SECONDS` | 幂等键保留时长 | `600` | 否 | `600` |
 | `DEVICE_IDEMPOTENCY_MAX_ENTRIES` | 幂等键最大条数 | `10000` | 否 | `10000` |
 | `DEVICE_TELEMETRY_RETENTION_DAYS` | 遥测时序保留天数，过期数据每日清理 | `90` | 否 | `30` |
@@ -210,7 +210,7 @@ docker exec zhizao-mqtt mosquitto_pub -h localhost \
 
 ### docker compose 环境变量透传
 
-`docker-compose.yml` 的 `backend.environment` 只透传有限几类变量：`DB_URL`、`DB_USERNAME`、`DB_PASSWORD`、`JWT_SECRET`、`CORS_ALLOWED_ORIGINS`、`API_DOCS_ENABLED`、`TRUSTED_PROXIES`、`SSO_COOKIE_SECURE`、`APP_BOOTSTRAP_ADMIN_PASSWORD`、`APP_SEED_DEMO_ENABLED`、`REDIS_HOST`、`REDIS_PORT`、`REDIS_PASSWORD`、`MQTT_ENABLED`、`MQTT_BROKER_URL`、`MQTT_USERNAME`、`MQTT_PASSWORD` 与 `TZ`。`.env` 只参与 compose 的变量替换，**不会自动进入容器**。其余 `SSO_*` 变量同样不在透传清单内，开启 SSO 时需手工追加到 `backend.environment`。
+`docker-compose.yml` 的 `backend.environment` 只透传有限几类变量：`DB_URL`、`DB_USERNAME`、`DB_PASSWORD`、`JWT_SECRET`、`CORS_ALLOWED_ORIGINS`、`API_DOCS_ENABLED`、`TRUSTED_PROXIES`、`SSO_COOKIE_SECURE`、`APP_BOOTSTRAP_ADMIN_PASSWORD`、`APP_SEED_DEMO_ENABLED`、`REDIS_HOST`、`REDIS_PORT`、`REDIS_PASSWORD`、`MQTT_ENABLED`、`MQTT_BROKER_URL`、`MQTT_USERNAME`、`MQTT_PASSWORD`、`DEVICE_AUTH_ENABLED`、`DEVICE_CREDENTIAL_KEY` 与 `TZ`。`.env` 只参与 compose 的变量替换，**不会自动进入容器**。其余 `SSO_*` 变量同样不在透传清单内，开启 SSO 时需手工追加到 `backend.environment`。
 
 因此除 `SSO_COOKIE_SECURE` 外的 `SSO_*`（如 `SSO_ENABLED`、`SSO_WECOM_*`）以及 `AI_*`、`DEVICE_ALARM_*` 即使写进 `.env`，容器内仍取 `application.yml` 的默认值（均为关闭）。需要启用时，手工把对应变量追加到 `docker-compose.yml` 的 `backend.environment`，示例：
 
@@ -236,6 +236,19 @@ docker exec zhizao-mqtt mosquitto_pub -h localhost \
 ```
 
 真实凭据仍只放在部署环境的 `.env` 或密钥管理里，不要写进 `docker-compose.yml` 本身；仓库中的 compose 必填项逻辑（`MYSQL_ROOT_PASSWORD`、`REDIS_PASSWORD`、`MQTT_USERNAME`、`MQTT_PASSWORD`、`JWT_SECRET`、`CORS_ALLOWED_ORIGINS`）不因本说明改变。
+
+### 启用设备 HMAC 鉴权（分步）
+
+默认 `DEVICE_AUTH_ENABLED=false`，存量设备继续按原有方式上报。由于 MQTT 仍是共享账号，关闭鉴权时任一客户端都能伪造其他设备编号的上报，生产环境应尽快按下面顺序开启。鉴权是全局开关，没有「单台设备灰度」的服务端开关，只能先在设备侧逐台改造，全部改造完成后再统一打开。
+
+1. 生成主密钥并写入部署环境（不要提交仓库）：`openssl rand -base64 32`，填到 `.env` 的 `DEVICE_CREDENTIAL_KEY`。
+2. 保持 `DEVICE_AUTH_ENABLED=false` 启动后端。compose 已透传这两个变量，只需改 `.env`，不需要改 `docker-compose.yml`。
+3. 用管理员账号逐台签发凭证：`POST /api/devices/{id}/credential`，明文密钥只在响应中出现一次，写入设备侧安全存储。设备需支持 REST 的 `X-Device-Key` + `X-Device-Signature`，或 MQTT 消息体中的 `keyId` / `timestamp` / `nonce` / `signature`。
+4. 逐台观察后端日志，确认设备已切换为签名上报（成功为 `MQTT 收到设备上报`）；此时鉴权尚未生效，未改造设备仍可上报。
+5. 全部设备改造完成后，把 `DEVICE_AUTH_ENABLED` 改为 `true` 并重启 backend。重启后未带凭据、签名错误、MQTT 时间戳越界或凭证已吊销的上报会被拒绝：REST 返回 401/403，MQTT 丢弃并记录 WARN。开启鉴权但未配置 `DEVICE_CREDENTIAL_KEY` 时后端启动直接失败，不会带病运行。
+6. 回退：把 `DEVICE_AUTH_ENABLED` 改回 `false` 重启即可恢复原行为；已签发凭证保留，不需要重新签发。注意轮换主密钥必须先为所有设备重签凭证，否则既有密文无法解密。
+
+存量设备兼容性：鉴权开启后没有「未升级设备白名单」，只要还有设备未改造，它的上报就会被整体拒绝，因此不要提前打开。过渡期只能保持关闭，或接受未改造设备停止上报；设备改造完成后统一开启才能获得防伪造能力。
 
 ### 后端
 
@@ -465,9 +478,10 @@ lsof -nP -iTCP:8080 -sTCP:LISTEN
 
 开启 `DEVICE_AUTH_ENABLED=true` 后：
 
-- `401`：`keyId` 不存在、签名不匹配或 MQTT 时间戳超出窗口
+- `401`：缺少 `keyId`、`keyId` 不存在、签名不匹配或 MQTT 时间戳超出窗口
 - `403`：凭证已吊销
-- 未配置 `DEVICE_CREDENTIAL_KEY`：凭证签发接口直接返回错误
+- 未配置 `DEVICE_CREDENTIAL_KEY`：开启鉴权时后端启动直接失败；未开启鉴权时凭证签发接口返回业务错误
+- 拒绝痕迹：backend 日志中的 `设备鉴权拒绝` WARN 行，包含状态码、`keyId` 与原因；MQTT 侧另有 `MQTT 设备鉴权失败` 行，包含主题与报文。可用 `docker compose logs backend | grep 设备鉴权拒绝` 查看
 
 REST 签名对象是原始请求体，必须与发送字节完全一致；MQTT 签名对象是接口契约中定义的规范化字段串。
 
@@ -510,6 +524,7 @@ mvn verify
 - 完整 Docker Compose 五服务栈未在本机实测（本机端口被本地 MySQL/Redis 占用）
 - `scripts/verify.sh` 已因报工口径变更失效：部分报工后的状态与累计数量断言与当前实现不一致，脚本需单独修复后才能作为部署验收依据
 - MQTT 已收敛为 TLS `8883` + `acl_file`：明文 `1883` 只绑 `127.0.0.1`；但仍为共享账号 + 主题级 ACL，任一设备可发布到其他设备编号的主题，按设备隔离需一设备一账号（见上文「MQTT TLS 与 ACL」）
+- 设备 HMAC 鉴权默认关闭（`DEVICE_AUTH_ENABLED=false`）以兼容存量设备，compose 已可透传开关与主密钥；开启后才是全局强制，没有按设备灰度，存量设备未改造前不能打开（见上文「启用设备 HMAC 鉴权（分步）」）
 - AI 能力已落地（S8），默认关闭：`AI_ENABLED=false` 时三个 `/api/ai/**` 端点返回 HTTP 503 + 业务码 503，其余功能不受影响；开启后默认使用离线假模型，CI 不需要网络与密钥。AI 只调用只读工具、只返回建议文本，自然语言报工只产出待确认草稿；Text-to-SQL 仅 ADMIN 可用，只允许查询 5 个只读视图并强制行数上限。配置 `AI_DATASOURCE_URL` 后使用独立只读账号；未配置时回落主数据源，但查询强制只读会话并在启动时输出 WARN，不会假装已隔离。模型超时或返回非法内容时降级为「建议暂不可用」，不影响主链路
 
 ## 许可

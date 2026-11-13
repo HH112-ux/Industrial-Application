@@ -5,6 +5,7 @@ import com.zhizao.common.DeviceAuthException;
 import com.zhizao.dto.DeviceGatewayReport;
 import com.zhizao.entity.DeviceCredential;
 import com.zhizao.mapper.DeviceCredentialMapper;
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -54,6 +55,23 @@ public class DeviceSignatureVerifier {
     }
 
     /**
+     * 启动期校验：开启鉴权但未配置主密钥时直接失败，避免重启后整批设备被静默拒绝。
+     *
+     * @throws IllegalStateException 鉴权开启且 {@code DEVICE_CREDENTIAL_KEY} 未配置时抛出
+     */
+    @PostConstruct
+    void validateConfiguration() {
+        if (!enabled) {
+            return;
+        }
+        if (!secretCipher.isConfigured()) {
+            throw new IllegalStateException(
+                    "device.auth.enabled=true 时必须配置 DEVICE_CREDENTIAL_KEY（32 字节 Base64）");
+        }
+        log.info("设备 HMAC 鉴权已启用，签名时间窗口 {} 秒", toleranceSeconds);
+    }
+
+    /**
      * 判断是否开启设备上报签名校验。
      *
      * @return 开启返回 true；关闭时调用方跳过校验，兼容现有未签名上报
@@ -78,7 +96,7 @@ public class DeviceSignatureVerifier {
         String secret = decryptSecret(credential);
         String expected = hmacHex(secret, rawPayload);
         if (!constantTimeEquals(expected, signature)) {
-            throw new DeviceAuthException(401, "设备签名校验失败");
+            throw reject(401, "设备签名校验失败", keyId);
         }
         touch(credential);
     }
@@ -94,17 +112,17 @@ public class DeviceSignatureVerifier {
             return;
         }
         if (report.timestamp() == null) {
-            throw new DeviceAuthException(401, "设备上报缺少时间戳");
+            throw reject(401, "设备上报缺少时间戳", report.keyId());
         }
         long skewSeconds = Math.abs(Instant.now().toEpochMilli() - report.timestamp()) / 1000;
         if (skewSeconds > toleranceSeconds) {
-            throw new DeviceAuthException(401, "设备上报时间戳超出允许窗口");
+            throw reject(401, "设备上报时间戳超出允许窗口", report.keyId());
         }
         DeviceCredential credential = requireEnabledCredential(report.keyId());
         String secret = decryptSecret(credential);
         String expected = hmacHex(secret, canonicalReport(report));
         if (!constantTimeEquals(expected, report.signature())) {
-            throw new DeviceAuthException(401, "设备签名校验失败");
+            throw reject(401, "设备签名校验失败", report.keyId());
         }
         touch(credential);
     }
@@ -145,15 +163,15 @@ public class DeviceSignatureVerifier {
 
     private DeviceCredential requireEnabledCredential(String keyId) {
         if (!StringUtils.hasText(keyId)) {
-            throw new DeviceAuthException(401, "缺少设备凭证标识");
+            throw reject(401, "缺少设备凭证标识", keyId);
         }
         DeviceCredential credential = credentialMapper.selectOne(
                 new LambdaQueryWrapper<DeviceCredential>().eq(DeviceCredential::getKeyId, keyId));
         if (credential == null) {
-            throw new DeviceAuthException(401, "设备凭证无效");
+            throw reject(401, "设备凭证无效", keyId);
         }
         if (!Integer.valueOf(1).equals(credential.getEnabled())) {
-            throw new DeviceAuthException(403, "设备已停用");
+            throw reject(403, "设备已停用", keyId);
         }
         return credential;
     }
@@ -165,6 +183,19 @@ public class DeviceSignatureVerifier {
             log.error("设备凭证解密失败，keyId={}", credential.getKeyId(), e);
             throw new DeviceAuthException(401, "设备凭证不可用");
         }
+    }
+
+    /**
+     * 记录鉴权拒绝痕迹并构造异常；只记录 keyId 与原因，不记录密钥或原始报文。
+     *
+     * @param status 应返回的 HTTP 状态码
+     * @param reason 拒绝原因
+     * @param keyId  设备凭证标识，可为空
+     * @return 带状态码的设备鉴权异常
+     */
+    private DeviceAuthException reject(int status, String reason, String keyId) {
+        log.warn("设备鉴权拒绝：status={}，keyId={}，原因={}", status, keyId, reason);
+        return new DeviceAuthException(status, reason);
     }
 
     private void touch(DeviceCredential credential) {
