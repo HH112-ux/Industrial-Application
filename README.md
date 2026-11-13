@@ -45,7 +45,7 @@
 │   │   ├── application.yml          # 配置，全部支持环境变量覆盖
 │   │   ├── db/migration/            # Flyway 迁移 V1–V33（V27、V28 为空号）
 │   │   └── db/seed/                 # 演示种子数据，默认不加载
-│   └── src/test/java/               # 385 个测试（6 个 Testcontainers 集成类）
+│   └── src/test/java/               # 411 个测试（6 个 Testcontainers 集成类）
 ├── zhizao-xietong-web/              # Vue 3 管理端
 │   ├── src/views/                   # 15 个页面组件
 │   └── vite.config.ts               # 开发服务器 5173，代理 /api
@@ -222,7 +222,7 @@ docker exec zhizao-mqtt mosquitto_pub -h localhost \
 
 MQTT 订阅参数（`MQTT_TOPIC`、`MQTT_QOS`、`MQTT_CLIENT_ID`）与 `MQTT_ACL_TOPICS` 已显式透传：`mqtt-init` 用 `MQTT_ACL_TOPICS` 生成 Broker ACL，`backend` 用同一份值在启动时比对订阅主题。`MQTT_ACL_TOPICS` 必须覆盖 `MQTT_TOPIC`（`+` 匹配单层，`#` 匹配剩余层级）；两者分叉时 Broker 会拒绝订阅（SUBACK 0x80），`backend` 启动日志会输出可操作的 WARN，订阅失败日志也会提示检查 ACL，避免遥测静默断流。
 
-因此除 `SSO_COOKIE_SECURE` 外的 `SSO_*`（如 `SSO_ENABLED`、`SSO_WECOM_*`）以及 `AI_*`、`DEVICE_ALARM_*` 即使写进 `.env`，容器内仍取 `application.yml` 的默认值（均为关闭）。需要启用时，手工把对应变量追加到 `docker-compose.yml` 的 `backend.environment`，示例：
+因此除 `SSO_COOKIE_SECURE` 外的 `SSO_*`（如 `SSO_ENABLED`、`SSO_WECOM_*`）、`AI_*`、`DEVICE_ALARM_*`，以及除 `DEVICE_AUTH_ENABLED`/`DEVICE_CREDENTIAL_KEY` 外的 `DEVICE_*`（在线阈值、模拟上报、幂等与遥测保留）即使写进 `.env`，容器内仍取 `application.yml` 的默认值（AI 与报警通知均为关闭）。需要启用时，手工把对应变量追加到 `docker-compose.yml` 的 `backend.environment`，示例：
 
 ```yaml
   backend:
@@ -256,6 +256,8 @@ MQTT 订阅参数（`MQTT_TOPIC`、`MQTT_QOS`、`MQTT_CLIENT_ID`）与 `MQTT_ACL
 - 审计记录中的客户端 IP 会恒为代理地址，审计追溯失效。
 
 此时请把离应用最近一级代理的固定 IP 填入 `TRUSTED_PROXIES`（多级代理逐级填写，逗号分隔）。该名单只接受 IPv4/IPv6 字面量，不要填写通配地址。
+
+登录限流按「用户名 + 客户端 IP」计数，客户端 IP 同样来自上面的解析规则。`TRUSTED_PROXIES` 未配置或配置错误时，所有用户会共用代理地址的限流额度，容易出现「一个账号被撞库导致同网段用户无法登录」的误伤，因此反向代理部署必须同时核对这一项。
 
 ### 启用设备 HMAC 鉴权（分步）
 
@@ -306,7 +308,7 @@ java -jar target/zhizao-xietong-1.0.0.jar
 
 **注意**：默认路径追加的 `*:missing` 是 Flyway 全局校验模式，它也会掩盖「已执行过的迁移文件被误删或漏拷」的问题。升级时如果发现某个历史迁移文件不见了，不要因为启动成功就认为升级正常，请先核对 `flyway_schema_history` 与 `db/migration` 文件清单。种子开启时不追加该模式，保持严格校验。
 
-`V15__process_unique_version.sql` **非幂等**：内容是 `ALTER TABLE pr_process DROP INDEX uk_process_no`，而 MySQL 8 不支持 `DROP INDEX IF EXISTS`。若某环境曾手工删除该索引，V15 会以「Can't DROP 'uk_process_no'; check that column/key exists」失败，需二选一处理后重跑：
+`V15__process_unique_version.sql` **非幂等**：内容是 `ALTER TABLE pr_process DROP INDEX uk_process_no`，而 MySQL 8 不支持 `DROP INDEX IF EXISTS`。升级前先执行 `SHOW INDEX FROM pr_process WHERE Key_name = 'uk_process_no';` 确认索引状态；若某环境曾手工删除该索引，V15 会以「Can't DROP 'uk_process_no'; check that column/key exists」失败，需二选一处理后重跑：
 
 1. 先恢复同名索引再重跑迁移：`ALTER TABLE pr_process ADD UNIQUE KEY uk_process_no (process_no);`
 2. 确认索引确已删除后，手工向 `flyway_schema_history` 补一条 V15 成功记录（`version='15'`、`success=1`，checksum 与迁移文件一致），再重启。手工补记录前务必备份该表。
@@ -323,7 +325,7 @@ npm run build
 
 ### Docker Compose
 
-`docker-compose.yml` 定义了 MySQL、Redis、Mosquitto、后端、前端五个常驻服务，以及一次性 `mqtt-init`（生成口令文件与 ACL）与 `mysql-init`（创建受限业务账号）。宿主机端口：后端 `8080`、前端 `8081`、MQTT TLS `8883` 对内网发布，可用环境变量覆盖（`BACKEND_PORT`、`FRONTEND_PORT`、`MQTT_TLS_PORT`）；MQTT 明文 `1883`、MySQL `3306` 与 Redis `6379` **只绑 `127.0.0.1`** 供本机调试，不向内网发布，生产环境可删除这几条端口映射。8883 默认绑定所有网卡，若宿主机存在公网地址，生产环境应把该条映射改成具体内网 IP（如 `- "192.168.1.10:8883:8883"`）。
+`docker-compose.yml` 定义了 MySQL、Redis、Mosquitto、后端、前端五个常驻服务，以及一次性 `mqtt-init`（生成口令文件与 ACL）与 `mysql-init`（创建受限业务账号）。宿主机端口：前端 `8081` 与 MQTT TLS `8883` 对内网发布，可用环境变量覆盖（`FRONTEND_PORT`、`MQTT_TLS_PORT`）；后端 `8080`、MQTT 明文 `1883`、MySQL `3306` 与 Redis `6379` **只绑 `127.0.0.1`**，外部统一经前端 nginx 的 `/api/` 访问，本机调试后端时用 `BACKEND_PORT` 或 SSH 隧道。生产环境可删除后端与调试端口的映射。8883 默认绑定所有网卡，若宿主机存在公网地址，生产环境应把该条映射改成具体内网 IP（如 `- "192.168.1.10:8883:8883"`）。
 
 ```bash
 cp .env.example .env
@@ -334,7 +336,7 @@ cp .env.example .env
 docker compose up -d --build
 ```
 
-已实测：五服务栈可完整拉起并跑通关键链路。一键验证脚本：
+已实测：五服务栈可完整拉起并跑通关键链路。后端镜像内置 `/actuator/health` 健康检查，`frontend` 只在该检查通过后启动，避免 nginx 提前对外返回 502；后端以非 root 用户 `app` 运行，JVM 堆按容器内存的 75% 推导（`mem_limit` 默认 1g，可用 `BACKEND_MEM_LIMIT` 覆盖）。一键验证脚本：
 
 ```bash
 ./scripts/verify.sh
@@ -569,7 +571,7 @@ mvn verify
 - 成品入库单由工单质检完工时生成，确认使用条件更新同时校验「待入库」与「数量不超过 min(计划数, 合格数) − 已入库」，0 行时区分已处理（409）与超额（409）两种提示；库存用 `ON DUPLICATE KEY UPDATE` 原子累加，不回填历史库存，已取消单据不会重新生成
 - 登录限流已抽成 `LoginRateLimiter` 端口，当前为单实例本地实现；多实例部署必须替换为共享存储实现（S6）
 - 已有 `/actuator/health`、`/actuator/info`、`/actuator/metrics` 与带 `traceId` 的标准输出日志；业务指标已覆盖设备在线、上报、报工、节拍与齐套率，但没有告警阈值与集中采集
-- 测试 385 个（6 个 Testcontainers 集成类）；集成用例覆盖状态机流转、真实并发冲突、工艺版本隔离、遥测入库、AI 只读会话、计划下达幂等与成品入库并发确认，由 `mvn verify` 强制执行，缺少 Docker 时构建失败；移动端构建未纳入 CI
+- 测试 411 个（6 个 Testcontainers 集成类）；集成用例覆盖状态机流转、真实并发冲突、工艺版本隔离、遥测入库、AI 只读会话、计划下达幂等与成品入库并发确认，由 `mvn verify` 强制执行，缺少 Docker 时构建失败；移动端构建未纳入 CI
 - 完整 Docker Compose 五服务栈未在本机实测（本机端口被本地 MySQL/Redis 占用）
 - `scripts/verify.sh` 已因报工口径变更失效：部分报工后的状态与累计数量断言与当前实现不一致，脚本需单独修复后才能作为部署验收依据
 - MQTT 已收敛为 TLS `8883` + `acl_file`：明文 `1883` 只绑 `127.0.0.1`；但仍为共享账号 + 主题级 ACL，任一设备可发布到其他设备编号的主题，按设备隔离需一设备一账号（见上文「MQTT TLS 与 ACL」）
