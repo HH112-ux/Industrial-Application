@@ -171,6 +171,8 @@ docker exec zhizao-mqtt mosquitto_pub -h localhost \
 | `REDIS_PASSWORD` | Redis 密码（compose 中开启 `requirepass`） | 空 | docker compose 必填 | 由部署环境注入 |
 | `CORS_ALLOWED_ORIGINS` | 允许的前端源，逗号分隔 | `http://localhost:5173,http://localhost:8081` | docker compose 必填 | `https://mes.example.com` |
 | `API_DOCS_ENABLED` | 是否开放 Swagger/OpenAPI | `false` | 否 | `true`（仅内部或 dev） |
+| `TRUSTED_PROXIES` | 可信反向代理固定 IP，逗号分隔；留空则不采信 `X-Forwarded-For` | 空 | 否 | `10.0.0.10,10.0.0.11` |
+| `SSO_COOKIE_SECURE` | SSO 浏览器标识 Cookie 是否带 `Secure` | `true` | 否 | HTTPS 部署保持 `true`，仅本机 http 调试可设 `false` |
 | `MQTT_ENABLED` | 是否启用 MQTT 网关 | `false` | 否 | `true` |
 | `MQTT_BROKER_URL` | Broker 地址 | `tcp://localhost:1883` | 否 | `tcp://mqtt:1883` |
 | `MQTT_USERNAME` / `MQTT_PASSWORD` | Broker 账号（compose 中关闭匿名，必填） | 空 | docker compose 必填 | 由部署环境注入 |
@@ -208,9 +210,9 @@ docker exec zhizao-mqtt mosquitto_pub -h localhost \
 
 ### docker compose 环境变量透传
 
-`docker-compose.yml` 的 `backend.environment` 只透传有限几类变量：`DB_URL`、`DB_USERNAME`、`DB_PASSWORD`、`JWT_SECRET`、`CORS_ALLOWED_ORIGINS`、`API_DOCS_ENABLED`、`APP_BOOTSTRAP_ADMIN_PASSWORD`、`APP_SEED_DEMO_ENABLED`、`REDIS_HOST`、`REDIS_PORT`、`REDIS_PASSWORD`、`MQTT_ENABLED`、`MQTT_BROKER_URL`、`MQTT_USERNAME`、`MQTT_PASSWORD` 与 `TZ`。`.env` 只参与 compose 的变量替换，**不会自动进入容器**。
+`docker-compose.yml` 的 `backend.environment` 只透传有限几类变量：`DB_URL`、`DB_USERNAME`、`DB_PASSWORD`、`JWT_SECRET`、`CORS_ALLOWED_ORIGINS`、`API_DOCS_ENABLED`、`TRUSTED_PROXIES`、`SSO_COOKIE_SECURE`、`APP_BOOTSTRAP_ADMIN_PASSWORD`、`APP_SEED_DEMO_ENABLED`、`REDIS_HOST`、`REDIS_PORT`、`REDIS_PASSWORD`、`MQTT_ENABLED`、`MQTT_BROKER_URL`、`MQTT_USERNAME`、`MQTT_PASSWORD` 与 `TZ`。`.env` 只参与 compose 的变量替换，**不会自动进入容器**。其余 `SSO_*` 变量同样不在透传清单内，开启 SSO 时需手工追加到 `backend.environment`。
 
-因此 `SSO_*`、`AI_*`、`DEVICE_ALARM_*` 即使写进 `.env`，容器内仍取 `application.yml` 的默认值（均为关闭）。需要启用时，手工把对应变量追加到 `docker-compose.yml` 的 `backend.environment`，示例：
+因此除 `SSO_COOKIE_SECURE` 外的 `SSO_*`（如 `SSO_ENABLED`、`SSO_WECOM_*`）以及 `AI_*`、`DEVICE_ALARM_*` 即使写进 `.env`，容器内仍取 `application.yml` 的默认值（均为关闭）。需要启用时，手工把对应变量追加到 `docker-compose.yml` 的 `backend.environment`，示例：
 
 ```yaml
   backend:

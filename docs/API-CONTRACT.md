@@ -443,7 +443,7 @@ POST /api/schedules/run
 | 端点 | 鉴权 | 关键约束 |
 |---|---|---|
 | `GET /api/auth/sso/config` | 公开 | 返回 `{enabled}`；`app.sso.enabled=false` 时仍返回 200，登录页据此隐藏入口 |
-| `GET /api/auth/sso/wecom/authorize` | 公开 | 302 到企微扫码页；`Set-Cookie: sso_browser=<随机值>; HttpOnly; SameSite=Lax; Path=/; Max-Age=1800`；服务端同时签发一次性 `state`（5 分钟）并绑定该 Cookie；开关关闭返回 503 |
+| `GET /api/auth/sso/wecom/authorize` | 公开 | 302 到企微扫码页；`Set-Cookie: sso_browser=<随机值>; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=1800`（`app.sso.cookie-secure=false` 时省略 `Secure`，仅用于本机 http 调试）；服务端同时签发一次性 `state`（5 分钟）并绑定该 Cookie；开关关闭返回 503 |
 | `POST /api/auth/sso/wecom/login` | 公开，但需一次性 `state` + `sso_browser` Cookie | 请求体 `{code, state}`；`state` 一次性消费、5 分钟过期、与 Cookie 绑定。伪造、复用、跨浏览器、缺失 `state` 或 Cookie 一律拒绝并返回可读提示，不会降级为跳过校验继续登录 |
 
 流程是前端拿 `code` 与 `state` 直接换本地 JWT，没有 `sso_ticket` 中间票据，也没有票据表；code 的一次性由企业微信保证。登录成功后仍签发本系统 JWT（`sub` / `role` / `tv`），后续鉴权与本地登录完全一致。首次登录 JIT 建号：`auth_source=SSO`、`role=WORKER`、`workshop_scope=NULL`、`must_change_password=0`。SSO 账号不能用本地密码登录，`POST /api/auth/login` 返回「该账号需使用企业微信扫码登录」；回调按 `sso:<ip>` 限流。

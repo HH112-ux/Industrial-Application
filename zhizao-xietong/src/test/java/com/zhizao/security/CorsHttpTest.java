@@ -1,5 +1,6 @@
 package com.zhizao.security;
 
+import com.zhizao.common.ClientIpResolver;
 import com.zhizao.common.LoginRateLimiter;
 import com.zhizao.controller.AuthController;
 import com.zhizao.dto.LoginResponse;
@@ -35,7 +36,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @WebMvcTest(controllers = AuthController.class)
 @ContextConfiguration(classes = CorsHttpTest.EmptyConfig.class)
-@Import({AuthController.class, SecurityConfig.class, JwtAuthenticationFilter.class})
+@Import({AuthController.class, SecurityConfig.class, JwtAuthenticationFilter.class, ClientIpResolver.class})
 @TestPropertySource(properties = "app.cors.allowed-origins=https://mes.example.com")
 class CorsHttpTest {
 

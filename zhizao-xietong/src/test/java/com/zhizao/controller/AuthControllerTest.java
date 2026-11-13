@@ -2,6 +2,7 @@ package com.zhizao.controller;
 
 import com.zhizao.common.BadRequestException;
 import com.zhizao.common.BusinessException;
+import com.zhizao.common.ClientIpResolver;
 import com.zhizao.common.ForbiddenException;
 import com.zhizao.common.LoginRateLimiter;
 import com.zhizao.common.Result;
@@ -15,9 +16,9 @@ import com.zhizao.service.AuthService;
 import com.zhizao.sso.SsoAuthService;
 import com.zhizao.sso.SsoStateStore;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.http.HttpHeaders;
@@ -69,10 +70,17 @@ class AuthControllerTest {
     @Mock
     private AuthAuditService authAuditService;
 
-    @InjectMocks
+    private final ClientIpResolver clientIpResolver = new ClientIpResolver("");
+
     private AuthController controller;
 
     private final MockHttpServletRequest request = new MockHttpServletRequest();
+
+    @BeforeEach
+    void setUp() {
+        controller = new AuthController(authService, ssoAuthService, loginRateLimiter,
+                authAuditService, clientIpResolver, true);
+    }
 
     @AfterEach
     void clearSecurityContext() {
@@ -176,7 +184,7 @@ class AuthControllerTest {
         AuthEventMapper failing = mock(AuthEventMapper.class);
         when(failing.insert(any(AuthEvent.class))).thenThrow(new IllegalStateException("db down"));
         AuthController controllerWithRealAudit = new AuthController(authService, ssoAuthService,
-                loginRateLimiter, new AuthAuditService(failing, transactionManager()));
+                loginRateLimiter, new AuthAuditService(failing, transactionManager()), clientIpResolver, true);
         when(authService.login(any())).thenReturn(loginResponse());
 
         Result<LoginResponse> result = controllerWithRealAudit.login(
@@ -194,7 +202,7 @@ class AuthControllerTest {
             return 1;
         });
         AuthController controllerWithRealAudit = new AuthController(authService, ssoAuthService,
-                loginRateLimiter, new AuthAuditService(capturing, transactionManager()));
+                loginRateLimiter, new AuthAuditService(capturing, transactionManager()), clientIpResolver, true);
         when(authService.login(any())).thenReturn(loginResponse());
         when(ssoAuthService.login(anyString(), anyString(), anyString(), anyString()))
                 .thenThrow(new BadRequestException("登录会话已失效，请重新扫码登录"));
@@ -224,7 +232,21 @@ class AuthControllerTest {
         String cookie = response.getHeader(HttpHeaders.SET_COOKIE);
         assertTrue(cookie.contains(SsoStateStore.BROWSER_COOKIE + "=browser-1"));
         assertTrue(cookie.contains("HttpOnly"));
+        assertTrue(cookie.contains("Secure"));
         assertTrue(cookie.contains("SameSite=Lax"));
+    }
+
+    @Test
+    void auditIpIgnoresForwardedHeaderFromUntrustedClient() {
+        MockHttpServletRequest spoofed = new MockHttpServletRequest();
+        spoofed.setRemoteAddr("10.0.0.7");
+        spoofed.addHeader("X-Forwarded-For", "203.0.113.9");
+        when(authService.login(any())).thenReturn(loginResponse());
+
+        controller.login(new LoginRequest("u1001", PASSWORD), spoofed);
+
+        verify(authAuditService).record(AuthAuditService.EVENT_LOGIN, "u1001", true,
+                AuthAuditService.SUCCESS, null, "10.0.0.7");
     }
 
     private static PlatformTransactionManager transactionManager() {
