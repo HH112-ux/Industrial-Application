@@ -288,12 +288,14 @@ npm run build
 
 ### Docker Compose
 
-`docker-compose.yml` 定义了 MySQL、Redis、Mosquitto、后端、前端五个服务（另有一次性 `mqtt-init` 用于生成口令文件）。宿主机端口：后端 `8080`、前端 `8081`、MQTT `1883` 对内网发布，可用环境变量覆盖（`BACKEND_PORT`、`FRONTEND_PORT`、`MQTT_PORT`）；MySQL `3306` 与 Redis `6379` **只绑 `127.0.0.1`** 供本机调试，不向内网发布，生产环境可删除这两条端口映射。
+`docker-compose.yml` 定义了 MySQL、Redis、Mosquitto、后端、前端五个服务（另有一次性 `mqtt-init` 用于生成口令文件与 ACL）。宿主机端口：后端 `8080`、前端 `8081`、MQTT TLS `8883` 对内网发布，可用环境变量覆盖（`BACKEND_PORT`、`FRONTEND_PORT`、`MQTT_TLS_PORT`）；MQTT 明文 `1883`、MySQL `3306` 与 Redis `6379` **只绑 `127.0.0.1`** 供本机调试，不向内网发布，生产环境可删除这几条端口映射。8883 默认绑定所有网卡，若宿主机存在公网地址，生产环境应把该条映射改成具体内网 IP（如 `- "192.168.1.10:8883:8883"`）。
 
 ```bash
 cp .env.example .env
 # 填写 MYSQL_ROOT_PASSWORD、REDIS_PASSWORD、MQTT_USERNAME、MQTT_PASSWORD、JWT_SECRET 与 CORS_ALLOWED_ORIGINS
 # CORS_ALLOWED_ORIGINS 必须包含浏览器实际访问前端的地址（协议+主机+端口），否则登录会被 403 拦截
+# 首次部署先生成 MQTT TLS 证书，缺失时 mqtt 会启动失败
+./scripts/gen-mqtt-certs.sh
 docker compose up -d --build
 ```
 
@@ -311,6 +313,26 @@ docker compose up -d --build
 ### 重启策略
 
 常驻服务（`mysql`、`redis`、`mqtt`、`backend`、`frontend`）统一使用 `restart: unless-stopped`：进程异常退出或宿主机重启后自动拉起，人工 `docker compose stop` 后不会被重新拉起。一次性任务 `mqtt-init` 不设重启策略，避免反复重建口令文件。
+
+### MQTT TLS 与 ACL
+
+设备入口是 TLS `8883`；明文 `1883` 只发布到 `127.0.0.1` 供本机调试，后端在容器网络内继续用 `tcp://mqtt:1883`，因此应用配置与信任库都不需要改。
+
+```bash
+# 首次部署或更换证书时执行：CA 写入 deploy/mqtt/ca/，服务端证书写入 deploy/mqtt/certs/（均已 gitignore）
+# 只把 certs/ 挂进 broker 容器，CA 私钥不进入容器
+./scripts/gen-mqtt-certs.sh
+# 设备通过 IP 或域名访问时，用 SAN 覆盖证书绑定名（默认 DNS:mqtt,DNS:localhost,IP:127.0.0.1）
+MQTT_CERT_SAN="DNS:mqtt,IP:192.168.1.10" ./scripts/gen-mqtt-certs.sh
+```
+
+证书缺失时 `mqtt` 会启动失败并持续重启，这是刻意的 fail-fast：补证书后再 `docker compose up -d`，不会静默降级回明文。
+
+`mqtt-init` 用 `MQTT_USERNAME` / `MQTT_PASSWORD` 生成口令文件，并按 `MQTT_ACL_TOPICS`（空格分隔，默认 `factory/devices/+/status`）生成 `acl_file`；未匹配的主题一律拒绝。读权限按消息逐条校验，因此即便订阅 `#`，也只能收到 ACL 允许的主题。修改 `MQTT_ACL_TOPICS` 或口令后，`mqtt-init` 只重建文件，broker 不会自动重载，需要执行 `docker compose up -d --force-recreate mqtt` 使其生效。
+
+**设备侧改造代价**：设备需支持 TLS（多数 4G DTU / 工业网关原生支持）、导入 `deploy/mqtt/ca/ca.crt`、把连接端口从 `1883` 改为 `8883`；账号口令不变，也不需要客户端证书。不支持 TLS 的老设备需要升级固件或加装网口/串口网关；由于明文端口不再对内网发布，改造完成前该设备无法接入（回退方式是临时把 compose 中 1883 的绑定改回 `0.0.0.0`，属应急手段，需同时接受明文风险）。
+
+**残留风险**：当前仍是“共享账号 + 主题级 ACL”，任一设备都能发布到其他设备编号的主题（如 `factory/devices/{其他编号}/status`）。彻底隔离需要一设备一账号，ACL 从设备清单批量生成成 `topic readwrite factory/devices/{deviceNo}/status`，这依赖设备台账与运维流程，留作后续改造。
 
 ### 备份与恢复（MySQL）
 
@@ -435,7 +457,7 @@ lsof -nP -iTCP:8080 -sTCP:LISTEN
 
 现象：日志反复出现 `MQTT 连接失败`。
 
-确认 Broker 已启动、1883 端口可达、`MQTT_BROKER_URL` 使用 `tcp://` 前缀；Broker 已关闭匿名接入，`MQTT_USERNAME` / `MQTT_PASSWORD` 必须与 compose 生成的口令文件一致，否则会返回 `Connection Refused: not authorised`。多实例部署时 `MQTT_CLIENT_ID` 必须各不相同，否则新连接会把旧连接的持久会话顶掉。
+确认 Broker 已启动、`MQTT_BROKER_URL` 使用 `tcp://` 前缀（后端在容器内走 `tcp://mqtt:1883`，宿主机明文端口只绑 `127.0.0.1`）；设备侧必须走 TLS `8883` 并信任 `deploy/mqtt/ca/ca.crt`，证书 SAN 要覆盖设备实际连接的主机名或 IP。Broker 已关闭匿名接入，`MQTT_USERNAME` / `MQTT_PASSWORD` 必须与 compose 生成的口令文件一致，否则会返回 `Connection Refused: not authorised`；发布/订阅到 `MQTT_ACL_TOPICS` 之外的主题会被拒绝。多实例部署时 `MQTT_CLIENT_ID` 必须各不相同，否则新连接会把旧连接的持久会话顶掉。
 
 **设备上报被拒绝**
 
@@ -485,7 +507,7 @@ mvn verify
 - 测试 385 个（6 个 Testcontainers 集成类）；集成用例覆盖状态机流转、真实并发冲突、工艺版本隔离、遥测入库、AI 只读会话、计划下达幂等与成品入库并发确认，由 `mvn verify` 强制执行，缺少 Docker 时构建失败；移动端构建未纳入 CI
 - 完整 Docker Compose 五服务栈未在本机实测（本机端口被本地 MySQL/Redis 占用）
 - `scripts/verify.sh` 已因报工口径变更失效：部分报工后的状态与累计数量断言与当前实现不一致，脚本需单独修复后才能作为部署验收依据
-- MQTT 仍为 1883 明文传输且使用共享账号、未配置 `acl_file`：设备侧凭据泄露后无法限制发布/订阅范围，后续应切换 8883 + TLS，并用 ACL 按设备限制主题
+- MQTT 已收敛为 TLS `8883` + `acl_file`：明文 `1883` 只绑 `127.0.0.1`；但仍为共享账号 + 主题级 ACL，任一设备可发布到其他设备编号的主题，按设备隔离需一设备一账号（见上文「MQTT TLS 与 ACL」）
 - AI 能力已落地（S8），默认关闭：`AI_ENABLED=false` 时三个 `/api/ai/**` 端点返回 HTTP 503 + 业务码 503，其余功能不受影响；开启后默认使用离线假模型，CI 不需要网络与密钥。AI 只调用只读工具、只返回建议文本，自然语言报工只产出待确认草稿；Text-to-SQL 仅 ADMIN 可用，只允许查询 5 个只读视图并强制行数上限。配置 `AI_DATASOURCE_URL` 后使用独立只读账号；未配置时回落主数据源，但查询强制只读会话并在启动时输出 WARN，不会假装已隔离。模型超时或返回非法内容时降级为「建议暂不可用」，不影响主链路
 
 ## 许可

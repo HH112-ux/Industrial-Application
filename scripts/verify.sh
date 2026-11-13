@@ -6,7 +6,7 @@
 #   ./scripts/verify.sh          # 起栈、跑链路、成功后清理
 #   ./scripts/verify.sh --keep   # 成功后保留现场，便于手工查看
 #
-# 默认使用 13306/16379/11883/18080/18081 作为宿主机端口，避免与本机 MySQL、
+# 默认使用 13306/16379/11883/18883/18080/18081 作为宿主机端口，避免与本机 MySQL、
 # Redis 等服务冲突；需要改端口时直接覆盖对应环境变量。
 #
 # 任一步骤失败：打印 docker compose 日志尾部，保留容器与数据卷，以非 0 退出。
@@ -20,6 +20,11 @@ PROJECT_NAME="${VERIFY_PROJECT:-zhizao-verify}"
 export MYSQL_PORT="${MYSQL_PORT:-13306}"
 export REDIS_PORT="${REDIS_PORT:-16379}"
 export MQTT_PORT="${MQTT_PORT:-11883}"
+# 设备入口是 TLS 8883，宿主机同样避开默认端口；缺证书时 mqtt 起不来
+export MQTT_TLS_PORT="${MQTT_TLS_PORT:-18883}"
+if [[ ! -f "$ROOT_DIR/deploy/mqtt/certs/server.crt" ]]; then
+  "$ROOT_DIR/scripts/gen-mqtt-certs.sh" >/dev/null || { echo "FAIL  生成 MQTT TLS 证书失败" >&2; exit 1; }
+fi
 export BACKEND_PORT="${BACKEND_PORT:-18080}"
 export FRONTEND_PORT="${FRONTEND_PORT:-18081}"
 # CORS 白名单必须是浏览器实际访问前端的地址，验证栈默认用 127.0.0.1:前端端口
