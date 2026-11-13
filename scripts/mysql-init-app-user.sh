@@ -48,6 +48,9 @@ PASSWORD_SQL="$(sql_escape "$APP_DB_PASSWORD")"
 # 口令只通过 MYSQL_PWD 传入，不出现在命令行与进程列表
 export MYSQL_PWD="$MYSQL_ROOT_PASSWORD"
 {
+  # 转义依赖反斜杠作为转义符；仅在本次初始化会话关闭 NO_BACKSLASH_ESCAPES，
+  # 避免该模式下含反斜杠的口令被写成双反斜杠，导致后端认证失败
+  printf "SET SESSION sql_mode = '';\n"
   printf "CREATE USER IF NOT EXISTS '%s'@'%%' IDENTIFIED BY '%s';\n" "$USER_SQL" "$PASSWORD_SQL"
   printf "ALTER USER '%s'@'%%' IDENTIFIED BY '%s';\n" "$USER_SQL" "$PASSWORD_SQL"
   # 先收回历史遗留的宽授权，再按最小权限重新授予，保证重复执行后权限一致
