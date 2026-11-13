@@ -171,14 +171,15 @@ docker exec zhizao-mqtt mosquitto_pub -h localhost \
 | `REDIS_PASSWORD` | Redis 密码（compose 中开启 `requirepass`） | 空 | docker compose 必填 | 由部署环境注入 |
 | `CORS_ALLOWED_ORIGINS` | 允许的前端源，逗号分隔 | `http://localhost:5173,http://localhost:8081` | docker compose 必填 | `https://mes.example.com` |
 | `API_DOCS_ENABLED` | 是否开放 Swagger/OpenAPI | `false` | 否 | `true`（仅内部或 dev） |
-| `TRUSTED_PROXIES` | 可信反向代理固定 IP，逗号分隔；留空则不采信 `X-Forwarded-For` | 空 | 否 | `10.0.0.10,10.0.0.11` |
+| `TRUSTED_PROXIES` | 可信反向代理固定 IP，逗号分隔；留空则不采信 `X-Forwarded-For`（启动日志 WARN 提示） | 空 | 否 | `10.0.0.10,10.0.0.11` |
 | `SSO_COOKIE_SECURE` | SSO 浏览器标识 Cookie 是否带 `Secure` | `true` | 否 | HTTPS 部署保持 `true`，仅本机 http 调试可设 `false` |
 | `MQTT_ENABLED` | 是否启用 MQTT 网关 | `false` | 否 | `true` |
 | `MQTT_BROKER_URL` | Broker 地址 | `tcp://localhost:1883` | 否 | `tcp://mqtt:1883` |
 | `MQTT_USERNAME` / `MQTT_PASSWORD` | Broker 账号（compose 中关闭匿名，必填） | 空 | docker compose 必填 | 由部署环境注入 |
-| `MQTT_TOPIC` | 设备上报主题 | `factory/devices/+/status` | 否 | 同上 |
-| `MQTT_CLIENT_ID` | 客户端标识 | `zhizao-backend` | 否 | 多实例必须各不相同 |
-| `MQTT_QOS` | 订阅与发布 QoS | `1` | 否 | `1` |
+| `MQTT_TOPIC` | 设备上报主题（compose 透传） | `factory/devices/+/status` | 否 | 同上 |
+| `MQTT_ACL_TOPICS` | Broker ACL 主题模式，空格分隔（compose 透传，须覆盖 `MQTT_TOPIC`） | `factory/devices/+/status` | 否 | `factory/devices/+/status factory/devices/+/telemetry` |
+| `MQTT_CLIENT_ID` | 客户端标识（compose 透传） | `zhizao-backend` | 否 | 多实例必须各不相同 |
+| `MQTT_QOS` | 订阅与发布 QoS（compose 透传） | `1` | 否 | `1` |
 | `APP_SEED_DEMO_ENABLED` | 空库启动时是否加载 `db/seed` 演示种子 | `false` | 否 | `true`（仅本地/演示） |
 | `DEVICE_ONLINE_THRESHOLD_SECONDS` | 超过该时长未上报视为离线 | `90` | 否 | `120` |
 | `DEVICE_SIMULATION_ENABLED` | 无上报时是否返回模拟遥测 | `false` | 否 | `false` |
@@ -210,7 +211,9 @@ docker exec zhizao-mqtt mosquitto_pub -h localhost \
 
 ### docker compose 环境变量透传
 
-`docker-compose.yml` 的 `backend.environment` 只透传有限几类变量：`DB_URL`、`DB_USERNAME`、`DB_PASSWORD`、`JWT_SECRET`、`CORS_ALLOWED_ORIGINS`、`API_DOCS_ENABLED`、`TRUSTED_PROXIES`、`SSO_COOKIE_SECURE`、`APP_BOOTSTRAP_ADMIN_PASSWORD`、`APP_SEED_DEMO_ENABLED`、`REDIS_HOST`、`REDIS_PORT`、`REDIS_PASSWORD`、`MQTT_ENABLED`、`MQTT_BROKER_URL`、`MQTT_USERNAME`、`MQTT_PASSWORD` 与 `TZ`。`.env` 只参与 compose 的变量替换，**不会自动进入容器**。其余 `SSO_*` 变量同样不在透传清单内，开启 SSO 时需手工追加到 `backend.environment`。
+`docker-compose.yml` 的 `backend.environment` 只透传有限几类变量：`DB_URL`、`DB_USERNAME`、`DB_PASSWORD`、`JWT_SECRET`、`CORS_ALLOWED_ORIGINS`、`API_DOCS_ENABLED`、`TRUSTED_PROXIES`、`SSO_COOKIE_SECURE`、`APP_BOOTSTRAP_ADMIN_PASSWORD`、`APP_SEED_DEMO_ENABLED`、`REDIS_HOST`、`REDIS_PORT`、`REDIS_PASSWORD`、`MQTT_ENABLED`、`MQTT_BROKER_URL`、`MQTT_USERNAME`、`MQTT_PASSWORD`、`MQTT_TOPIC`、`MQTT_QOS`、`MQTT_CLIENT_ID`、`MQTT_ACL_TOPICS` 与 `TZ`。`.env` 只参与 compose 的变量替换，**不会自动进入容器**。其余 `SSO_*` 变量同样不在透传清单内，开启 SSO 时需手工追加到 `backend.environment`。
+
+MQTT 订阅参数（`MQTT_TOPIC`、`MQTT_QOS`、`MQTT_CLIENT_ID`）与 `MQTT_ACL_TOPICS` 已显式透传：`mqtt-init` 用 `MQTT_ACL_TOPICS` 生成 Broker ACL，`backend` 用同一份值在启动时比对订阅主题。`MQTT_ACL_TOPICS` 必须覆盖 `MQTT_TOPIC`（`+` 匹配单层，`#` 匹配剩余层级）；两者分叉时 Broker 会拒绝订阅（SUBACK 0x80），`backend` 启动日志会输出可操作的 WARN，订阅失败日志也会提示检查 ACL，避免遥测静默断流。
 
 因此除 `SSO_COOKIE_SECURE` 外的 `SSO_*`（如 `SSO_ENABLED`、`SSO_WECOM_*`）以及 `AI_*`、`DEVICE_ALARM_*` 即使写进 `.env`，容器内仍取 `application.yml` 的默认值（均为关闭）。需要启用时，手工把对应变量追加到 `docker-compose.yml` 的 `backend.environment`，示例：
 
@@ -236,6 +239,16 @@ docker exec zhizao-mqtt mosquitto_pub -h localhost \
 ```
 
 真实凭据仍只放在部署环境的 `.env` 或密钥管理里，不要写进 `docker-compose.yml` 本身；仓库中的 compose 必填项逻辑（`MYSQL_ROOT_PASSWORD`、`REDIS_PASSWORD`、`MQTT_USERNAME`、`MQTT_PASSWORD`、`JWT_SECRET`、`CORS_ALLOWED_ORIGINS`）不因本说明改变。
+
+### 部署在反向代理之后（TRUSTED_PROXIES）
+
+`TRUSTED_PROXIES` 默认为空，表示不采信任何 `X-Forwarded-For`，审计来源 IP 取 TCP 对端地址，保持 fail-closed。若服务实际部署在 Nginx/SLB 之后而该值为空：
+
+- 应用启动日志会输出 WARN，提示配置最近一级代理 IP；
+- 运行期首次收到带 `X-Forwarded-For` 的请求时会再告警一次（该头仍被忽略，不会放行伪造地址）；
+- 审计记录中的客户端 IP 会恒为代理地址，审计追溯失效。
+
+此时请把离应用最近一级代理的固定 IP 填入 `TRUSTED_PROXIES`（多级代理逐级填写，逗号分隔）。该名单只接受 IPv4/IPv6 字面量，不要填写通配地址。
 
 ### 后端
 
@@ -473,7 +486,7 @@ REST 签名对象是原始请求体，必须与发送字节完全一致；MQTT �
 
 **设备显示离线但仍在运行**
 
-在线状态按 `last_seen_at` 与 `DEVICE_ONLINE_THRESHOLD_SECONDS` 计算。若设备上报间隔大于阈值，调大阈值；若设备根本没有上报，检查主题是否匹配 `MQTT_TOPIC`。
+在线状态按 `last_seen_at` 与 `DEVICE_ONLINE_THRESHOLD_SECONDS` 计算。若设备上报间隔大于阈值，调大阈值；若设备根本没有上报，检查主题是否匹配 `MQTT_TOPIC`，并确认 `MQTT_ACL_TOPICS` 覆盖该主题（分叉时启动日志会输出 WARN，订阅会收到 SUBACK 0x80）。
 
 **集成测试因缺少 Docker 失败**
 

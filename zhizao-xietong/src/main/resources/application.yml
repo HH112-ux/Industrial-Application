@@ -102,6 +102,8 @@ mqtt:
   topic: ${MQTT_TOPIC:factory/devices/+/status}
   client-id: ${MQTT_CLIENT_ID:zhizao-backend}
   qos: ${MQTT_QOS:1}
+  # 与 mqtt-init 生成的 ACL 同源（空白分隔的主题模式）；启动时用于比对订阅主题是否被覆盖
+  acl-topics: ${MQTT_ACL_TOPICS:}
 
 device:
   online-threshold-seconds: ${DEVICE_ONLINE_THRESHOLD_SECONDS:90}

@@ -1,11 +1,14 @@
 package com.zhizao.common;
 
 import jakarta.servlet.http.HttpServletRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.Arrays;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 /**
@@ -22,10 +25,13 @@ import java.util.stream.Collectors;
 @Component
 public class ClientIpResolver {
 
+    private static final Logger log = LoggerFactory.getLogger(ClientIpResolver.class);
+
     /** IPv6 文本地址最长长度（含 IPv4 映射形式）。 */
     private static final int MAX_IP_LENGTH = 45;
 
     private final Set<String> trustedProxies;
+    private final AtomicBoolean forwardedHeaderWarned = new AtomicBoolean();
 
     /**
      * 构造解析器。
@@ -37,6 +43,10 @@ public class ClientIpResolver {
                 .map(String::trim)
                 .filter(ip -> !ip.isEmpty())
                 .collect(Collectors.toUnmodifiableSet());
+        if (this.trustedProxies.isEmpty()) {
+            log.warn("TRUSTED_PROXIES 未配置：将忽略 X-Forwarded-For；若部署在 Nginx/SLB 之后，"
+                    + "审计来源 IP 会记录为代理地址，请按 README「部署在反向代理之后」配置最近一级代理 IP");
+        }
     }
 
     /**
@@ -54,7 +64,14 @@ public class ClientIpResolver {
             return null;
         }
         String remote = request.getRemoteAddr();
-        if (remote == null || trustedProxies.isEmpty() || !trustedProxies.contains(remote)) {
+        if (remote == null) {
+            return null;
+        }
+        if (trustedProxies.isEmpty()) {
+            warnIfForwardedHeaderIgnored(request);
+            return remote;
+        }
+        if (!trustedProxies.contains(remote)) {
             return remote;
         }
         String forwarded = request.getHeader("X-Forwarded-For");
@@ -72,6 +89,20 @@ public class ClientIpResolver {
             }
         }
         return remote;
+    }
+
+    /**
+     * 未配置可信代理却收到转发头时告警一次：这通常意味着服务已部署在代理之后，
+     * 而审计 IP 正在记录代理地址。仅告警，不改变 fail-closed 行为。
+     */
+    private void warnIfForwardedHeaderIgnored(HttpServletRequest request) {
+        if (request.getHeader("X-Forwarded-For") == null) {
+            return;
+        }
+        if (forwardedHeaderWarned.compareAndSet(false, true)) {
+            log.warn("收到 X-Forwarded-For 但 TRUSTED_PROXIES 未配置：该头已被忽略，审计 IP 取 TCP 对端地址；"
+                    + "若部署在 Nginx/SLB 之后，请配置最近一级代理 IP");
+        }
     }
 
     /** 只接受 IPv4/IPv6 字面量，避免转发头里的任意字符串进入审计。 */
