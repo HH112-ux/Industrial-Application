@@ -40,6 +40,9 @@ import java.time.Duration;
 @RequestMapping("/api/auth")
 public class AuthController {
 
+    /** 配置了可信代理、且未显式指定阈值时的 IP 维度默认值。 */
+    static final int DEFAULT_IP_MAX_ATTEMPTS = 30;
+
     private final AuthService authService;
     private final SsoAuthService ssoAuthService;
     private final LoginRateLimiter loginRateLimiter;
@@ -52,14 +55,41 @@ public class AuthController {
                           LoginRateLimiter loginRateLimiter, AuthAuditService authAuditService,
                           ClientIpResolver clientIpResolver,
                           @Value("${app.sso.cookie-secure:true}") boolean cookieSecure,
-                          @Value("${app.login.ip-max-attempts:30}") int ipMaxAttempts) {
+                          @Value("${app.login.ip-max-attempts:}") String ipMaxAttempts) {
         this.authService = authService;
         this.ssoAuthService = ssoAuthService;
         this.loginRateLimiter = loginRateLimiter;
         this.authAuditService = authAuditService;
         this.clientIpResolver = clientIpResolver;
         this.cookieSecure = cookieSecure;
-        this.ipMaxAttempts = ipMaxAttempts;
+        this.ipMaxAttempts = resolveIpMaxAttempts(ipMaxAttempts, clientIpResolver.hasTrustedProxies());
+    }
+
+    /**
+     * 解析 IP 维度阈值：留空时跟随可信代理配置自动决定，显式数字按其值启用。
+     *
+     * <p>未配置可信代理时，部署在反向代理后的请求会全部解析成代理地址，按 IP 限流会退化为
+     * 全站共享一个桶，因此默认关闭；直连部署可通过显式配置数字启用。</p>
+     *
+     * @param spec                     配置值，可为空
+     * @param trustedProxiesConfigured 是否配置了可信代理
+     * @return 大于 0 表示启用 IP 维度，等于 0 表示关闭
+     */
+    static int resolveIpMaxAttempts(String spec, boolean trustedProxiesConfigured) {
+        if (spec == null || spec.isBlank()) {
+            return trustedProxiesConfigured ? DEFAULT_IP_MAX_ATTEMPTS : 0;
+        }
+        int value;
+        try {
+            value = Integer.parseInt(spec.trim());
+        } catch (NumberFormatException e) {
+            throw new IllegalArgumentException(
+                    "app.login.ip-max-attempts 必须是非负整数或留空：" + spec, e);
+        }
+        if (value < 0) {
+            throw new IllegalArgumentException("app.login.ip-max-attempts 不能为负数：" + spec);
+        }
+        return value;
     }
 
     /** 本地登录：限流、口令错误、账号禁用与需扫码均落认证审计；审计不接收请求体。 */

@@ -59,7 +59,7 @@ import static org.mockito.Mockito.when;
 class AuthControllerTest {
 
     private static final String IP = "127.0.0.1";
-    private static final int IP_MAX_ATTEMPTS = 30;
+    private static final int IP_MAX_ATTEMPTS = AuthController.DEFAULT_IP_MAX_ATTEMPTS;
     private static final String PASSWORD = "PlainSecret!42";
     private static final String TICKET = "ticket-abc";
     private static final String STATE = "state-xyz";
@@ -73,7 +73,8 @@ class AuthControllerTest {
     @Mock
     private AuthAuditService authAuditService;
 
-    private final ClientIpResolver clientIpResolver = new ClientIpResolver("");
+    /** 带可信代理的解析器：留空阈值时 IP 维度自动启用，作为默认测试上下文。 */
+    private final ClientIpResolver clientIpResolver = new ClientIpResolver("10.0.0.10");
 
     private AuthController controller;
 
@@ -82,7 +83,7 @@ class AuthControllerTest {
     @BeforeEach
     void setUp() {
         controller = new AuthController(authService, ssoAuthService, loginRateLimiter,
-                authAuditService, clientIpResolver, true, IP_MAX_ATTEMPTS);
+                authAuditService, clientIpResolver, true, "");
     }
 
     @AfterEach
@@ -178,15 +179,58 @@ class AuthControllerTest {
     }
 
     @Test
-    void ipDimensionCanBeDisabled() {
+    void ipDimensionDisabledWhenTrustedProxiesMissing() {
+        AuthController directController = new AuthController(authService, ssoAuthService,
+                loginRateLimiter, authAuditService, new ClientIpResolver(""), true, "");
+        when(authService.login(any())).thenReturn(loginResponse());
+
+        directController.login(new LoginRequest("u1001", PASSWORD), request);
+
+        verify(loginRateLimiter).check("u1001");
+        verify(loginRateLimiter, never()).check(anyString(), anyInt());
+    }
+
+    @Test
+    void ipDimensionEnabledAutomaticallyWithTrustedProxies() {
+        when(authService.login(any())).thenReturn(loginResponse());
+
+        controller.login(new LoginRequest("u1001", PASSWORD), request);
+
+        verify(loginRateLimiter).check("login-ip:127.0.0.1", IP_MAX_ATTEMPTS);
+    }
+
+    @Test
+    void ipDimensionCanBeEnabledForDirectDeployment() {
+        AuthController directController = new AuthController(authService, ssoAuthService,
+                loginRateLimiter, authAuditService, new ClientIpResolver(""), true, "45");
+        when(authService.login(any())).thenReturn(loginResponse());
+
+        directController.login(new LoginRequest("u1001", PASSWORD), request);
+
+        verify(loginRateLimiter).check("login-ip:127.0.0.1", 45);
+    }
+
+    @Test
+    void ipDimensionCanBeDisabledExplicitly() {
         AuthController controllerWithoutIpLimit = new AuthController(authService, ssoAuthService,
-                loginRateLimiter, authAuditService, clientIpResolver, true, 0);
+                loginRateLimiter, authAuditService, clientIpResolver, true, "0");
         when(authService.login(any())).thenReturn(loginResponse());
 
         controllerWithoutIpLimit.login(new LoginRequest("u1001", PASSWORD), request);
 
         verify(loginRateLimiter).check("u1001");
         verify(loginRateLimiter, never()).check(anyString(), anyInt());
+    }
+
+    @Test
+    void ipMaxAttemptsRejectsInvalidValues() {
+        assertThrows(IllegalArgumentException.class,
+                () -> AuthController.resolveIpMaxAttempts("abc", true));
+        assertThrows(IllegalArgumentException.class,
+                () -> AuthController.resolveIpMaxAttempts("-1", true));
+        assertEquals(0, AuthController.resolveIpMaxAttempts("", false));
+        assertEquals(IP_MAX_ATTEMPTS, AuthController.resolveIpMaxAttempts(" ", true));
+        assertEquals(15, AuthController.resolveIpMaxAttempts("15", false));
     }
 
     @Test
@@ -232,7 +276,7 @@ class AuthControllerTest {
         when(failing.insert(any(AuthEvent.class))).thenThrow(new IllegalStateException("db down"));
         AuthController controllerWithRealAudit = new AuthController(authService, ssoAuthService,
                 loginRateLimiter, new AuthAuditService(failing, transactionManager()), clientIpResolver,
-                true, IP_MAX_ATTEMPTS);
+                true, "");
         when(authService.login(any())).thenReturn(loginResponse());
 
         Result<LoginResponse> result = controllerWithRealAudit.login(
@@ -251,7 +295,7 @@ class AuthControllerTest {
         });
         AuthController controllerWithRealAudit = new AuthController(authService, ssoAuthService,
                 loginRateLimiter, new AuthAuditService(capturing, transactionManager()), clientIpResolver,
-                true, IP_MAX_ATTEMPTS);
+                true, "");
         when(authService.login(any())).thenReturn(loginResponse());
         when(ssoAuthService.login(anyString(), anyString(), anyString(), anyString()))
                 .thenThrow(new BadRequestException("登录会话已失效，请重新扫码登录"));

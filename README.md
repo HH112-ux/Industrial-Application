@@ -45,7 +45,7 @@
 │   │   ├── application.yml          # 配置，全部支持环境变量覆盖
 │   │   ├── db/migration/            # Flyway 迁移 V1–V33（V27、V28 为空号）
 │   │   └── db/seed/                 # 演示种子数据，默认不加载
-│   └── src/test/java/               # 414 个单测 + 21 个 Testcontainers 集成用例
+│   └── src/test/java/               # 418 个单测 + 21 个 Testcontainers 集成用例
 ├── zhizao-xietong-web/              # Vue 3 管理端
 │   ├── src/views/                   # 15 个页面组件
 │   └── vite.config.ts               # 开发服务器 5173，代理 /api
@@ -179,7 +179,7 @@ docker exec zhizao-mqtt mosquitto_pub -h localhost \
 | `CORS_ALLOWED_ORIGINS` | 允许的前端源，逗号分隔 | `http://localhost:5173,http://localhost:8081` | docker compose 必填 | `https://mes.example.com` |
 | `API_DOCS_ENABLED` | 是否开放 Swagger/OpenAPI | `false` | 否 | `true`（仅内部或 dev） |
 | `TRUSTED_PROXIES` | 可信反向代理固定 IP，逗号分隔；留空则不采信 `X-Forwarded-For`（启动日志 WARN 提示） | 空 | 否 | `10.0.0.10,10.0.0.11` |
-| `LOGIN_IP_MAX_ATTEMPTS` | 登录 IP 维度限流阈值（次/分钟）；账号维度固定 10 次/分钟，设 `0` 关闭 IP 维度（compose 透传） | `30` | 否 | 换班集中登录的厂区可调高，并在反向代理后配置 `TRUSTED_PROXIES` |
+| `LOGIN_IP_MAX_ATTEMPTS` | IP 维度限流阈值（次/分钟）：留空时配置了 `TRUSTED_PROXIES` 才自动启用（默认 30），显式数字按其值，`0` 关闭 | 空 | 否 | 直连部署可填 `30` 显式启用 |
 | `SSO_COOKIE_SECURE` | SSO 浏览器标识 Cookie 是否带 `Secure` | `true` | 否 | HTTPS 部署保持 `true`，仅本机 http 调试可设 `false` |
 | `MQTT_ENABLED` | 是否启用 MQTT 网关 | `false` | 否 | `true` |
 | `MQTT_BROKER_URL` | Broker 地址 | `tcp://localhost:1883` | 否 | `tcp://mqtt:1883` |
@@ -258,7 +258,7 @@ MQTT 订阅参数（`MQTT_TOPIC`、`MQTT_QOS`、`MQTT_CLIENT_ID`）与 `MQTT_ACL
 
 此时请把离应用最近一级代理的固定 IP 填入 `TRUSTED_PROXIES`（多级代理逐级填写，逗号分隔）。该名单只接受 IPv4/IPv6 字面量，不要填写通配地址。
 
-登录限流同时看两个维度：账号维度按用户名计数（每分钟 10 次），阻止针对单账号的口令猜测；IP 维度按客户端 IP 计数（默认每分钟 30 次，可用 `LOGIN_IP_MAX_ATTEMPTS` 调整；设 `0` 关闭本地登录的 IP 维度，SSO 回调的 `sso:IP` 限流不受影响）。客户端 IP 同样来自上面的解析规则：`TRUSTED_PROXIES` 未配置或配置错误时，所有用户会共用代理地址的 IP 额度，一个来源的喷洒会连带同网段用户无法登录，因此反向代理部署必须同时核对这一项。默认 compose 部署在自带 nginx 之后，未配置 `TRUSTED_PROXIES` 时后端只能看到 nginx 容器地址，整栈共用一个 IP 桶，换班集中登录可能触发限流；此时应按上文配置 `TRUSTED_PROXIES`，或在确有需要时调高 `LOGIN_IP_MAX_ATTEMPTS`。
+登录限流同时看两个维度：账号维度按用户名计数（每分钟 10 次），阻止针对单账号的口令猜测；IP 维度按客户端 IP 计数，只有配置了可信代理后才启用（默认每分钟 30 次）。`LOGIN_IP_MAX_ATTEMPTS` 有三种状态：留空且未配置 `TRUSTED_PROXIES` 时 IP 维度关闭，只保留账号维度，行为与引入 IP 维度前一致；留空且配置了 `TRUSTED_PROXIES` 时自动启用、默认 30 次/分钟；显式填数字则按该值启用，填 `0` 显式关闭。直连、无反向代理的部署可以用显式数字开启 IP 维度，此时后端看到的就是真实来源地址。客户端 IP 来自上面的解析规则：`TRUSTED_PROXIES` 未配置或配置错误时，所有用户会共用代理地址，按 IP 计数会退化为全站一个桶，因此默认在这种情况下不启用 IP 维度；反向代理部署应配置 `TRUSTED_PROXIES` 让每个来源独立计数。SSO 回调的 `sso:IP` 限流不受该开关影响。
 
 ### 启用设备 HMAC 鉴权（分步）
 
@@ -572,7 +572,7 @@ mvn verify
 - 成品入库单由工单质检完工时生成，确认使用条件更新同时校验「待入库」与「数量不超过 min(计划数, 合格数) − 已入库」，0 行时区分已处理（409）与超额（409）两种提示；库存用 `ON DUPLICATE KEY UPDATE` 原子累加，不回填历史库存，已取消单据不会重新生成
 - 登录限流已抽成 `LoginRateLimiter` 端口，按账号与客户端 IP 两个维度分别计数，当前为单实例本地实现；多实例部署必须替换为共享存储实现（S6）
 - 已有 `/actuator/health`、`/actuator/info`、`/actuator/metrics` 与带 `traceId` 的标准输出日志；业务指标已覆盖设备在线、上报、报工、节拍与齐套率，但没有告警阈值与集中采集
-- 测试 414 个单测 + 21 个 Testcontainers 集成用例（6 个集成类）；集成用例覆盖状态机流转、真实并发冲突、工艺版本隔离、遥测入库、AI 只读会话、计划下达幂等与成品入库并发确认，由 `mvn verify` 强制执行，缺少 Docker 时构建失败；移动端构建未纳入 CI
+- 测试 418 个单测 + 21 个 Testcontainers 集成用例（6 个集成类）；集成用例覆盖状态机流转、真实并发冲突、工艺版本隔离、遥测入库、AI 只读会话、计划下达幂等与成品入库并发确认，由 `mvn verify` 强制执行，缺少 Docker 时构建失败；移动端构建未纳入 CI
 - 完整 Docker Compose 五服务栈未在本机实测（本机端口被本地 MySQL/Redis 占用）
 - `scripts/verify.sh` 已因报工口径变更失效：部分报工后的状态与累计数量断言与当前实现不一致，脚本需单独修复后才能作为部署验收依据
 - MQTT 已收敛为 TLS `8883` + `acl_file`：明文 `1883` 只绑 `127.0.0.1`；但仍为共享账号 + 主题级 ACL，任一设备可发布到其他设备编号的主题，按设备隔离需一设备一账号（见上文「MQTT TLS 与 ACL」）
