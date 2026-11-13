@@ -80,17 +80,24 @@
 
 ```bash
 cp .env.example .env
-# 本地启动：编辑 .env，至少填写 DB_PASSWORD 与 JWT_SECRET（JWT_SECRET 至少 32 字节）
-# docker compose：还必须填写 MYSQL_ROOT_PASSWORD、JWT_SECRET、CORS_ALLOWED_ORIGINS、REDIS_PASSWORD
+# 本地启动：编辑 .env，至少填写 DB_PASSWORD（应用账号口令）与 JWT_SECRET（至少 32 字节）
+# docker compose：还必须填写 MYSQL_ROOT_PASSWORD、CORS_ALLOWED_ORIGINS、REDIS_PASSWORD
 # 以及 MQTT_USERNAME / MQTT_PASSWORD，任一项缺失会直接启动失败
 ```
 
-### 2. 创建数据库
+### 2. 创建数据库与受限业务账号
+
+首次初始化用 MySQL `root` 建库、建号；应用运行期只使用受限账号 `zhizao_app`（口令为 `.env` 中的 `DB_PASSWORD`）。docker compose 路径由 `mysql-init` 自动完成，本地直接运行后端时手工执行：
 
 ```bash
-set -a && source .env && set +a
-mysql -h127.0.0.1 -u"$DB_USERNAME" -p"$DB_PASSWORD" \
+mysql -h127.0.0.1 -uroot -p \
   -e "CREATE DATABASE IF NOT EXISTS zhizao_xietong DEFAULT CHARSET utf8mb4;"
+# 将下面的 <DB_PASSWORD> 替换为 .env 中 DB_PASSWORD 的真实值
+mysql -h127.0.0.1 -uroot -p -e "
+  CREATE USER IF NOT EXISTS 'zhizao_app'@'%' IDENTIFIED BY '<DB_PASSWORD>';
+  ALTER USER 'zhizao_app'@'%' IDENTIFIED BY '<DB_PASSWORD>';
+  GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, DROP, INDEX, REFERENCES, CREATE VIEW
+    ON zhizao_xietong.* TO 'zhizao_app'@'%';"
 ```
 
 表结构由 Flyway 在后端启动时自动执行 `db/migration/V1`–`V33`，不需要手工建表。演示种子数据位于 `db/seed`，默认不加载，需要演示环境时显式设置 `APP_SEED_DEMO_ENABLED=true`（见「数据库迁移」）。
@@ -162,9 +169,9 @@ docker exec zhizao-mqtt mosquitto_pub -h localhost \
 | 变量 | 作用 | 默认值 | 必填 | 示例 |
 |---|---|---|---|---|
 | `DB_URL` | JDBC 连接串 | `jdbc:mysql://localhost:3306/zhizao_xietong...` | 否 | `jdbc:mysql://db:3306/zhizao_xietong` |
-| `DB_USERNAME` | 数据库账号 | `root` | 否 | `mes_app` |
-| `DB_PASSWORD` | 数据库密码 | 无 | 是 | 由部署环境注入 |
-| `MYSQL_ROOT_PASSWORD` | compose 中 MySQL root 口令 | 空 | docker compose 必填 | 由部署环境注入 |
+| `DB_USERNAME` | 应用数据库账号 | `zhizao_app` | 是（需先创建该账号） | `zhizao_app` |
+| `DB_PASSWORD` | 应用数据库账号口令 | 无 | 是（本地与 docker compose 均必填） | 由部署环境注入 |
+| `MYSQL_ROOT_PASSWORD` | MySQL root 口令，仅建号/授权与备份恢复使用 | 空 | docker compose 必填 | 由部署环境注入 |
 | `JWT_SECRET` | JWT 签名密钥 | 无 | 是 | 至少 32 字节的随机串 |
 | `JWT_EXPIRATION` | 令牌有效期（毫秒） | `86400000` | 否 | `3600000` |
 | `REDIS_HOST` / `REDIS_PORT` | Redis 地址 | `localhost` / `6379` | 否 | `redis` / `6379` |
@@ -235,7 +242,7 @@ docker exec zhizao-mqtt mosquitto_pub -h localhost \
       AI_PROVIDER: ${AI_PROVIDER:-fake}
 ```
 
-真实凭据仍只放在部署环境的 `.env` 或密钥管理里，不要写进 `docker-compose.yml` 本身；仓库中的 compose 必填项逻辑（`MYSQL_ROOT_PASSWORD`、`REDIS_PASSWORD`、`MQTT_USERNAME`、`MQTT_PASSWORD`、`JWT_SECRET`、`CORS_ALLOWED_ORIGINS`）不因本说明改变。
+真实凭据仍只放在部署环境的 `.env` 或密钥管理里，不要写进 `docker-compose.yml` 本身；仓库中的 compose 必填项逻辑（`DB_PASSWORD`、`MYSQL_ROOT_PASSWORD`、`REDIS_PASSWORD`、`MQTT_USERNAME`、`MQTT_PASSWORD`、`JWT_SECRET`、`CORS_ALLOWED_ORIGINS`）不因本说明改变。
 
 ### 启用设备 HMAC 鉴权（分步）
 
@@ -303,11 +310,11 @@ npm run build
 
 ### Docker Compose
 
-`docker-compose.yml` 定义了 MySQL、Redis、Mosquitto、后端、前端五个服务（另有一次性 `mqtt-init` 用于生成口令文件与 ACL）。宿主机端口：后端 `8080`、前端 `8081`、MQTT TLS `8883` 对内网发布，可用环境变量覆盖（`BACKEND_PORT`、`FRONTEND_PORT`、`MQTT_TLS_PORT`）；MQTT 明文 `1883`、MySQL `3306` 与 Redis `6379` **只绑 `127.0.0.1`** 供本机调试，不向内网发布，生产环境可删除这几条端口映射。8883 默认绑定所有网卡，若宿主机存在公网地址，生产环境应把该条映射改成具体内网 IP（如 `- "192.168.1.10:8883:8883"`）。
+`docker-compose.yml` 定义了 MySQL、Redis、Mosquitto、后端、前端五个常驻服务，以及一次性 `mqtt-init`（生成口令文件与 ACL）与 `mysql-init`（创建受限业务账号）。宿主机端口：后端 `8080`、前端 `8081`、MQTT TLS `8883` 对内网发布，可用环境变量覆盖（`BACKEND_PORT`、`FRONTEND_PORT`、`MQTT_TLS_PORT`）；MQTT 明文 `1883`、MySQL `3306` 与 Redis `6379` **只绑 `127.0.0.1`** 供本机调试，不向内网发布，生产环境可删除这几条端口映射。8883 默认绑定所有网卡，若宿主机存在公网地址，生产环境应把该条映射改成具体内网 IP（如 `- "192.168.1.10:8883:8883"`）。
 
 ```bash
 cp .env.example .env
-# 填写 MYSQL_ROOT_PASSWORD、REDIS_PASSWORD、MQTT_USERNAME、MQTT_PASSWORD、JWT_SECRET 与 CORS_ALLOWED_ORIGINS
+# 填写 DB_PASSWORD、MYSQL_ROOT_PASSWORD、REDIS_PASSWORD、MQTT_USERNAME、MQTT_PASSWORD、JWT_SECRET 与 CORS_ALLOWED_ORIGINS
 # CORS_ALLOWED_ORIGINS 必须包含浏览器实际访问前端的地址（协议+主机+端口），否则登录会被 403 拦截
 # 首次部署先生成 MQTT TLS 证书，缺失时 mqtt 会启动失败
 ./scripts/gen-mqtt-certs.sh
@@ -325,9 +332,37 @@ docker compose up -d --build
 
 > 注意：报工口径调整后，`scripts/verify.sh` 中「部分报工后状态不变」「累计数量」等断言已与当前实现不一致，脚本当前不可直接作为验收依据，需要单独修复；修复前请以接口与单元测试结果为准。
 
+### 数据库账号与权限边界
+
+- 应用使用 `DB_USERNAME` / `DB_PASSWORD` 对应的受限账号（默认 `zhizao_app`），仅拥有 `zhizao_xietong.*` 的 `SELECT, INSERT, UPDATE, DELETE` 与 Flyway 迁移所需的 `CREATE, ALTER, DROP, INDEX, REFERENCES, CREATE VIEW`。
+- 不授予 `GRANT OPTION`、`FILE`、`PROCESS`、`SUPER` 等实例级权限，也不授予其他库权限；即使凭据泄露或出现注入，影响面也限制在业务库。
+- `root` 只保留给三处：`mysql-init` 建号/授权、mysql 健康检查、`scripts/db-backup.sh` 与 `scripts/db-restore.sh`。备份/恢复行为与升级前一致。
+- `mysql-init` 每次 `docker compose up` 都会执行且幂等：账号不存在则创建；已存在则把口令重置为当前 `DB_PASSWORD`，先收回历史宽授权再按最小权限重授。轮换应用口令只需改 `.env` 后重建容器。
+
+**存量部署（已有 `mysql-data` 数据卷）切换到受限账号：**
+
+```bash
+# 1. 先备份（仍用 root，行为不变）
+./scripts/db-backup.sh
+# 2. 在 .env 中确认 DB_USERNAME=zhizao_app、DB_PASSWORD=<应用新口令>，且不要与 MYSQL_ROOT_PASSWORD 相同
+#    旧版 .env 若仍是 DB_USERNAME=root，必须先改掉：mysql-init 会拒绝以 root 建号，避免改写 root 授权
+# 3. 建号并授权；重复执行安全
+docker compose up -d mysql
+docker compose up -d mysql-init
+# 4. 用新账号重建后端，Flyway 校验与后续迁移均以该账号执行
+docker compose up -d --force-recreate backend
+# 5. 核对授权边界与后端启动日志
+docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroot -N -e "SHOW GRANTS FOR '\''zhizao_app'\''@'\''%'\'';"'
+docker compose logs --tail=100 backend | grep -iE 'Started|Migrating|Successfully applied'
+```
+
+回退：把 `.env` 的 `DB_USERNAME` / `DB_PASSWORD` 改回 `root` / `MYSQL_ROOT_PASSWORD`，再 `docker compose up -d --force-recreate backend`；已创建的应用账号与 `mysql-init` 可保留，不影响 root 连接。
+
+> `mysql-init` 使用 `MYSQL_ROOT_PASSWORD` 连接 MySQL，所以 root 口令仍需保留在 `.env`；它不会进入后端容器。应用口令与 root 口令必须不同。
+
 ### 重启策略
 
-常驻服务（`mysql`、`redis`、`mqtt`、`backend`、`frontend`）统一使用 `restart: unless-stopped`：进程异常退出或宿主机重启后自动拉起，人工 `docker compose stop` 后不会被重新拉起。一次性任务 `mqtt-init` 不设重启策略，避免反复重建口令文件。
+常驻服务（`mysql`、`redis`、`mqtt`、`backend`、`frontend`）统一使用 `restart: unless-stopped`：进程异常退出或宿主机重启后自动拉起，人工 `docker compose stop` 后不会被重新拉起。一次性任务 `mqtt-init`、`mysql-init` 不设重启策略，避免反复重建口令文件与重复授权。
 
 ### MQTT TLS 与 ACL
 
