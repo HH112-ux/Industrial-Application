@@ -4,6 +4,9 @@ x-logging: &default-logging
     max-size: "10m"
     max-file: "5"
 
+# 常驻服务统一重启策略：进程异常退出或宿主机重启后自动拉起，人工 stop 后不再拉起
+x-restart: &default-restart unless-stopped
+
 services:
   mysql:
     image: mysql:8.0
@@ -23,6 +26,7 @@ services:
     # 默认只绑回环地址供本机调试；生产环境可整条删除，容器网络内仍可互访
     ports:
       - "127.0.0.1:${MYSQL_PORT:-3306}:3306"
+    restart: *default-restart
     logging: *default-logging
 
   redis:
@@ -42,6 +46,7 @@ services:
     # 默认只绑回环地址供本机调试；生产环境可整条删除，容器网络内仍可互访
     ports:
       - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    restart: *default-restart
     logging: *default-logging
 
   # 一次性任务：用必填环境变量生成 Mosquitto 口令文件，明文不落仓库
@@ -67,6 +72,7 @@ services:
     depends_on:
       mqtt-init:
         condition: service_completed_successfully
+    restart: *default-restart
     logging: *default-logging
 
   backend:
@@ -96,6 +102,7 @@ services:
         condition: service_started
     ports:
       - "${BACKEND_PORT:-8080}:8080"
+    restart: *default-restart
     logging: *default-logging
 
   frontend:
@@ -104,6 +111,7 @@ services:
       - backend
     ports:
       - "${FRONTEND_PORT:-8081}:80"
+    restart: *default-restart
     logging: *default-logging
 
 volumes:

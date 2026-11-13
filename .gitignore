@@ -22,6 +22,9 @@ logs/
 # Redis dump
 dump.rdb
 
+# MySQL 备份产物（含业务数据，不入库）
+backups/
+
 # Cloud sync temp files
 *.baiduyun.uploading.cfg
 
