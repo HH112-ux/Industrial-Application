@@ -24,6 +24,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -68,6 +70,8 @@ public class MqttDeviceGateway implements MqttCallbackExtended {
     private String clientId;
     @Value("${mqtt.qos:1}")
     private int qos;
+    @Value("${mqtt.acl-topics:}")
+    private String aclTopics;
 
     private volatile MqttClient client;
     private volatile boolean running = true;
@@ -93,7 +97,76 @@ public class MqttDeviceGateway implements MqttCallbackExtended {
     @EventListener(ApplicationReadyEvent.class)
     public void start() {
         running = true;
+        logStartupConfig();
         scheduler.execute(this::connect);
+    }
+
+    /**
+     * 启动期输出生效的订阅参数，并比对订阅主题是否被 Broker ACL 覆盖。
+     *
+     * <p>仅告警不阻断启动：未传入 {@code MQTT_ACL_TOPICS}（非 compose 部署）时跳过比对。
+     * 主题与 ACL 分叉时 Broker 会在 SUBACK 中拒绝订阅，遥测随后静默断流，
+     * 因此必须在启动日志中给出可发现的信号。</p>
+     */
+    void logStartupConfig() {
+        List<String> acls = parseAclTopics(aclTopics);
+        log.info("MQTT 网关配置：broker={}，topic={}，qos={}，clientId={}，aclTopics={}",
+                brokerUrl, topic, qos, clientId, acls);
+        if (acls.isEmpty()) {
+            log.info("未传入 MQTT_ACL_TOPICS，跳过订阅主题与 ACL 的一致性检查");
+            return;
+        }
+        if (acls.stream().anyMatch(acl -> aclCovers(acl, topic))) {
+            return;
+        }
+        log.warn("MQTT 订阅主题 {} 不在 MQTT_ACL_TOPICS {} 覆盖范围内：Broker 会拒绝订阅（SUBACK 0x80），"
+                + "遥测将无数据入库；请让 ACL 主题覆盖订阅主题（+ 匹配单层，# 匹配剩余层级）", topic, acls);
+    }
+
+    /**
+     * 按空白拆分 ACL 主题列表并忽略空项，与 mqtt-init 的 shell 拆分保持一致。
+     *
+     * <p>不要额外接受逗号：mqtt-init 只按空白拆分，后端若更宽松会把含逗号的非法 ACL
+     * 误判为多个已覆盖的主题，掩盖配置错误。</p>
+     *
+     * @param raw 原始配置值，可为空
+     * @return 主题模式列表，未配置时返回空列表
+     */
+    static List<String> parseAclTopics(String raw) {
+        List<String> result = new ArrayList<>();
+        if (raw == null || raw.isBlank()) {
+            return result;
+        }
+        for (String part : raw.trim().split("\\s+")) {
+            if (!part.isBlank()) {
+                result.add(part);
+            }
+        }
+        return result;
+    }
+
+    /**
+     * 判断一条 ACL 主题模式是否覆盖订阅主题。
+     *
+     * @param aclTopic ACL 模式，支持 {@code +} 单层通配与末尾 {@code #} 多层通配
+     * @param topic    实际订阅主题
+     * @return 覆盖返回 true
+     */
+    static boolean aclCovers(String aclTopic, String topic) {
+        String[] acl = aclTopic.split("/", -1);
+        String[] target = topic.split("/", -1);
+        for (int i = 0; i < acl.length; i++) {
+            if ("#".equals(acl[i])) {
+                return i == acl.length - 1;
+            }
+            if (i >= target.length) {
+                return false;
+            }
+            if (!"+".equals(acl[i]) && !acl[i].equals(target[i])) {
+                return false;
+            }
+        }
+        return acl.length == target.length;
     }
 
     /**
@@ -199,7 +272,7 @@ public class MqttDeviceGateway implements MqttCallbackExtended {
             log.info("MQTT 已订阅 {}（QoS {}）", topic, qos);
             return true;
         } catch (Exception e) {
-            log.warn("MQTT 订阅失败：{}", e.getMessage());
+            log.warn("MQTT 订阅失败：{}（请检查 MQTT_ACL_TOPICS 是否覆盖订阅主题 {}）", e.getMessage(), topic);
             scheduleReconnect();
             return false;
         }

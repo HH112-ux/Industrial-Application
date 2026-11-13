@@ -1,6 +1,9 @@
 package com.zhizao.common;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.mock.web.MockHttpServletRequest;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -11,6 +14,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
  *
  * @author Caspian
  */
+@ExtendWith(OutputCaptureExtension.class)
 class ClientIpResolverTest {
 
     private static MockHttpServletRequest request(String remoteAddr, String forwardedFor) {
@@ -27,6 +31,18 @@ class ClientIpResolverTest {
         ClientIpResolver resolver = new ClientIpResolver("");
 
         assertEquals("10.0.0.7", resolver.resolve(request("10.0.0.7", "203.0.113.9")));
+    }
+
+    @Test
+    void warnsOnceWhenForwardedHeaderIgnoredWithoutTrustedProxy(CapturedOutput output) {
+        ClientIpResolver resolver = new ClientIpResolver("");
+
+        assertEquals("10.0.0.7", resolver.resolve(request("10.0.0.7", "203.0.113.9")));
+        assertEquals("10.0.0.7", resolver.resolve(request("10.0.0.7", "203.0.113.10")));
+
+        String warning = "收到 X-Forwarded-For 但 TRUSTED_PROXIES 未配置";
+        assertEquals(1, output.getOut().split(warning, -1).length - 1,
+                "代理后未配置可信代理时应告警一次，且不改变 fail-closed 解析结果");
     }
 
     @Test
