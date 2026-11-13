@@ -514,4 +514,4 @@ mvn verify
 
 ## 许可
 
-内部工程代码，未授权不得外传。
+本项目采用 [MIT License](LICENSE)，版权人 Caspian，年份 2026。
