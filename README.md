@@ -319,12 +319,16 @@ docker compose up -d --build
 BACKUP_DIR=/srv/backup BACKUP_RETENTION_DAYS=30 ./scripts/db-backup.sh
 
 # 恢复：会覆盖同名表，属破坏性操作，不带 --yes 直接拒绝
-./scripts/db-restore.sh backups/zhizao_xietong-20261113-030000.sql.gz --yes
+# 先停应用写入，恢复完成后再启动
+docker compose stop backend
+./scripts/db-restore.sh backups/zhizao_xietong-20261113-033000.sql.gz --yes
+docker compose start backend
 ```
 
 - 备份使用 `--single-transaction` 取一致性快照，包含表结构、数据、存储过程、触发器与事件，产物为 `.sql.gz` 加同名 `.sha256`。
 - 写正式文件名前先做 gzip 完整性校验与 `CREATE TABLE` 存在性检查，导出失败不会留下半截文件。
 - 恢复前校验 gzip 与 SHA-256；校验不通过不恢复，并自动对当前库再备份一次（可用 `RESTORE_PRE_BACKUP_DIR` 指定目录），误用旧备份时仍可回退。
+- 恢复前会从备份识别目标库并与 `DB_NAME`（默认 `zhizao_xietong`）比对，跨库恢复需显式设置 `RESTORE_ALLOW_OTHER_DB=1`，避免拿其他库的备份静默覆盖当前库。
 - 两个脚本都通过 `docker compose exec` 在容器内执行，口令取自 compose 注入的 `MYSQL_ROOT_PASSWORD` 并写入 `MYSQL_PWD`，不出现在命令行与进程列表里。
 
 备份需要每天定时执行并异地留存，建议在独立环境用同一备份文件做恢复演练，核对表数量与 `flyway_schema_history` 行数：

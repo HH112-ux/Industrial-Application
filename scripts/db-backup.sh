@@ -9,6 +9,8 @@
 # 依赖 compose 中正在运行的 mysql 服务（docker compose up -d mysql）。
 # 口令不经过命令行参数，容器内读取 MYSQL_ROOT_PASSWORD 写入 MYSQL_PWD，避免出现在 ps 与日志里。
 set -euo pipefail
+# 备份文件含业务数据：默认只允许当前用户读写，不依赖目录权限兜底
+umask 077
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT_DIR"
@@ -41,13 +43,18 @@ echo "备份 ${DB_NAME} -> ${TARGET}"
   'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" exec mysqldump -uroot --single-transaction --quick --routines --triggers --events --set-gtid-purged=OFF --databases "$1"' \
   -- "$DB_NAME" | gzip -c > "$PARTIAL"
 
-# 先校验压缩完整性再落正式文件名，避免半截文件被当成可用备份
+# 先校验压缩完整性再落正式文件名，避免半截文件被当成可用备份。
+# 用 awk 统计全文：grep -q 会在命中后提前退出，使 gzip 收到 SIGPIPE（141），
+# 在 pipefail 下会被误判为管道失败，大库备份将被错误拒绝。
 gzip -t "$PARTIAL"
-if ! gzip -dc "$PARTIAL" | grep -q '^CREATE DATABASE'; then
+COUNTS="$(gzip -dc "$PARTIAL" | awk '/^CREATE DATABASE/{d++} /^CREATE TABLE/{t++} END{printf "%d %d\n", d+0, t+0}')"
+DB_CREATES="${COUNTS%% *}"
+TABLE_CREATES="${COUNTS##* }"
+if [[ "${DB_CREATES:-0}" -eq 0 ]]; then
   echo "备份内容中没有 CREATE DATABASE，疑似导出失败：${PARTIAL}" >&2
   exit 1
 fi
-if ! gzip -dc "$PARTIAL" | grep -q '^CREATE TABLE'; then
+if [[ "${TABLE_CREATES:-0}" -eq 0 ]]; then
   echo "警告：库内没有表（空库备份），文件仍保留：${TARGET}"
 fi
 mv "$PARTIAL" "$TARGET"
