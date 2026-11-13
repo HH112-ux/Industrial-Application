@@ -131,10 +131,38 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
+                    <!-- 集成测试改由 failsafe 在 verify 阶段执行。留在 surefire 里时，
+                         无 Docker 的机器只会把它们标记为 skipped 并以 BUILD SUCCESS 结束，
+                         容易被误读为全部通过。 -->
+                    <excludes>
+                        <exclude>**/*IntegrationTest.java</exclude>
+                    </excludes>
                     <systemPropertyVariables>
                         <api.version>1.40</api.version>
                     </systemPropertyVariables>
                 </configuration>
+            </plugin>
+            <!-- 集成测试要求 Docker 真实可用：缺少 Docker 时直接构建失败，
+                 不再静默跳过。显式跳过请使用 `mvn verify -DskipITs`。 -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <configuration>
+                    <includes>
+                        <include>**/*IntegrationTest.java</include>
+                    </includes>
+                    <systemPropertyVariables>
+                        <api.version>1.40</api.version>
+                    </systemPropertyVariables>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

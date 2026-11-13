@@ -182,8 +182,8 @@
 ## 7. 质量承诺
 
 - **提交门禁**：本地 `commit-msg` 钩子按 Conventional Commits 校验；CI 对推送范围再校验一次。
-- **构建门禁**：后端 `mvn test` 必须通过；管理端 `npm ci && npm run build` 必须通过。
-- **测试策略**：以 Mockito 单元测试为主，覆盖状态机、齐套口径、编号生成、认证、设备签名与幂等；另有一层薄集成测试，用 Testcontainers 起 MySQL 验证 Flyway 迁移、状态机合法/非法流转与真实并发开工。单元测试负责分支覆盖，集成测试只守住最容易回归的两条路径，不铺全量数据库用例；Docker 不可用时集成测试整类跳过，不阻塞构建。
+- **构建门禁**：后端 `mvn verify` 必须通过（含 Testcontainers 集成测试，缺少 Docker 直接失败）；管理端 `npm ci && npm run build` 必须通过。
+- **测试策略**：以 Mockito 单元测试为主，覆盖状态机、齐套口径、编号生成、认证、设备签名与幂等；另有一层薄集成测试，用 Testcontainers 起 MySQL 验证 Flyway 迁移、状态机合法/非法流转与真实并发开工。单元测试负责分支覆盖，集成测试只守住最容易回归的两条路径，不铺全量数据库用例；集成测试由 `mvn verify` 强制执行，缺少 Docker 时构建直接失败，不再静默跳过。
 - **可观测性**：提供 `/actuator/health`、`/actuator/info`、`/actuator/metrics` 与带 `traceId` 的请求日志；业务指标包括设备在线、遥测上报、报工、工单节拍与齐套率。空分母指标返回 `NaN` 表示未定义，不用 0 或 100% 掩盖缺数据。告警阈值不在本阶段范围。
 - **不变量**：工单状态语义、齐套口径、编号规则、鉴权与审计、AI 旁路约束写在 [ENGINEERING-DESIGN.md](ENGINEERING-DESIGN.md) 第 7 节，重构过程中不得静默改变。
 

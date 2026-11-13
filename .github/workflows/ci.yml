@@ -98,7 +98,30 @@ jobs:
           java-version: '17'
           cache: maven
       - name: Run tests
-        run: mvn -B -ntp test
+        # verify 同时执行 failsafe 集成测试；缺少 Docker 时构建直接失败，不会静默跳过。
+        # 超时兜底：Docker 守护进程异常时避免 job 长时间挂起。
+        timeout-minutes: 20
+        run: mvn -B -ntp verify
+      # 防止后续重新引入 disabledWithoutDocker 之类的静默跳过：任一集成类未执行或被跳过都判失败。
+      # 期望类数从源码动态计算，跳过数读 XML 的 skipped 属性，避免硬编码与文本格式耦合。
+      - name: Verify integration tests ran
+        run: |
+          expected=$(find src/test/java -name '*IntegrationTest.java' | wc -l | tr -d ' ')
+          reports=(target/failsafe-reports/TEST-*.xml)
+          if [ ! -e "${reports[0]}" ]; then
+            echo "::error::No failsafe integration test reports found"
+            exit 1
+          fi
+          if [ "${#reports[@]}" -ne "$expected" ]; then
+            echo "::error::Expected $expected integration test reports, found ${#reports[@]}"
+            exit 1
+          fi
+          for report in "${reports[@]}"; do
+            if ! grep -q 'skipped="0"' "$report"; then
+              echo "::error::Integration test was skipped: $(basename "$report")"
+              exit 1
+            fi
+          done
 
   frontend:
     name: Frontend build

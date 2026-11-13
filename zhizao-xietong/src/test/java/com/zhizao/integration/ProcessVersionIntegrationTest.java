@@ -27,7 +27,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
         "DB_PASSWORD=test",
         "app.bootstrap.admin-password=integration-test-admin-pass"
 })
-@Testcontainers(disabledWithoutDocker = true)
+@Testcontainers
 class ProcessVersionIntegrationTest {
 
     @Container
