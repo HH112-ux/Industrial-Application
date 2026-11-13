@@ -32,7 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
         // 本用例依赖演示设备编号；演示种子默认关闭，测试内显式开启
         "app.seed.demo-enabled=true"
 })
-@Testcontainers(disabledWithoutDocker = true)
+@Testcontainers
 class TelemetryIngestIntegrationTest {
 
     @Container
