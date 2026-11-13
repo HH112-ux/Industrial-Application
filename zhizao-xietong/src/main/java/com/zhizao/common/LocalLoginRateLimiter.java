@@ -9,7 +9,7 @@ import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.function.LongSupplier;
 
 /**
- * 单实例本地登录限流：按用户名维护进程内滑动窗口。
+ * 单实例本地登录限流：按键维护进程内滑动窗口。
  *
  * <p><strong>仅适用于单实例部署。</strong>多实例部署必须替换为共享存储实现（如 Redis），
  * 否则每个实例各自计数，整体阈值被放大；本实现不感知其他实例的失败次数。</p>
@@ -50,6 +50,11 @@ public class LocalLoginRateLimiter implements LoginRateLimiter {
 
     @Override
     public void check(String key) {
+        check(key, MAX_ATTEMPTS);
+    }
+
+    @Override
+    public void check(String key, int maxAttempts) {
         String k = key == null || key.isBlank() ? "anonymous" : key;
         long now = clock.getAsLong();
         sweepIfDue(now);
@@ -59,7 +64,7 @@ public class LocalLoginRateLimiter implements LoginRateLimiter {
             while (!times.isEmpty() && now - times.peekFirst() > WINDOW_MS) {
                 times.pollFirst();
             }
-            if (times.size() >= MAX_ATTEMPTS) {
+            if (times.size() >= maxAttempts) {
                 throw new BusinessException("登录尝试过于频繁，请稍后再试");
             }
             times.addLast(now);

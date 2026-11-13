@@ -118,7 +118,7 @@ graph TB
 | 排产 | 有限贪心（S5） | `service/ScheduleService.java` | 按交期与优先级排队，在运行中设备上寻找时间窗；落不下返回业务码，结果落库可追溯，不做 APS |
 | 编号生成 | 真实 | `service/CodeGenerator.java:26-34` | 数据库行锁按月自增，跨重启不重复 |
 | 权限 | 真实，三级角色 + 车间数据域 | `security/SecurityConfig.java`、`security/DataScope.java` | JWT + `ADMIN`/`USER`/`WORKER`；过滤器逐请求查库校验 `enabled` 与 `token_version`，禁用或改密后下一次请求 401；非管理员按 `workshop_scope` 过滤设备、计划与工单。工单开工/报工允许三种角色，质检仅 `ADMIN`/`USER`，计划派工与其他管理动作仅 `ADMIN` |
-| 登录限流 | 端口 + 单实例本地实现 | `common/LoginRateLimiter.java`、`common/LocalLoginRateLimiter.java` | 限流逻辑在端口后；本地 `ConcurrentHashMap` 滑动窗口，多实例部署必须替换为共享存储实现 |
+| 登录限流 | 端口 + 单实例本地实现 | `common/LoginRateLimiter.java`、`common/LocalLoginRateLimiter.java` | 限流逻辑在端口后；本地 `ConcurrentHashMap` 滑动窗口，按用户名与客户端 IP 两个维度分别计数，多实例部署必须替换为共享存储实现 |
 | 审计 | 真实，可查询 | `aspect/AuditAspect.java`、`controller/AuditLogController.java` | 只审计非认证的写操作，参数截断 1000 字符；S6 增加按操作人/路径/日期查询与索引 |
 | 多租户 | 无 | `db/migration/V1__init.sql` | 全库无 `tenant_id`；工单、设备与计划的 `workshop` 作为单车间数据域，不做多租户 |
 | 管理端 | 真实调用后端 | `zhizao-xietong-web/src/views/Dashboard.vue` | KPI 与图表走真实分页接口，不是静态假数据 |

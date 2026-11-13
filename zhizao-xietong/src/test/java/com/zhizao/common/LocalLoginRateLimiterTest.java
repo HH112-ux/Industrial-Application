@@ -23,6 +23,17 @@ class LocalLoginRateLimiterTest {
     }
 
     @Test
+    void honorsCustomThresholdForSameKey() {
+        AtomicLong now = new AtomicLong(1_000_000L);
+        LocalLoginRateLimiter limiter = new LocalLoginRateLimiter(now::get);
+
+        for (int i = 0; i < 30; i++) {
+            assertDoesNotThrow(() -> limiter.check("login-ip:127.0.0.1", 30));
+        }
+        assertThrows(BusinessException.class, () -> limiter.check("login-ip:127.0.0.1", 30));
+    }
+
+    @Test
     void allowsAttemptsAgainAfterWindowSlides() {
         AtomicLong now = new AtomicLong(1_000_000L);
         LocalLoginRateLimiter limiter = new LocalLoginRateLimiter(now::get);

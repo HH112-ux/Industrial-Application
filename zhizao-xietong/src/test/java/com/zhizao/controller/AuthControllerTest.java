@@ -41,6 +41,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -105,7 +106,8 @@ class AuthControllerTest {
         assertThrows(ForbiddenException.class,
                 () -> controller.login(new LoginRequest("u1001", PASSWORD), request));
 
-        verify(loginRateLimiter, times(3)).check("u1001|127.0.0.1");
+        verify(loginRateLimiter, times(3)).check("u1001");
+        verify(loginRateLimiter, times(3)).check("login-ip:127.0.0.1", AuthController.IP_MAX_ATTEMPTS);
         verify(authAuditService).record(AuthAuditService.EVENT_LOGIN, "u1001", false,
                 AuthAuditService.BAD_CREDENTIALS, "用户名或密码错误", IP);
         verify(authAuditService).record(AuthAuditService.EVENT_LOGIN, "u1001", false,
@@ -133,7 +135,7 @@ class AuthControllerTest {
     @Test
     void loginStopsBeforeServiceWhenRateLimited() {
         doThrow(new BusinessException("登录尝试过于频繁，请稍后再试")).when(loginRateLimiter)
-                .check("u1001|127.0.0.1");
+                .check("u1001");
 
         assertThrows(BusinessException.class,
                 () -> controller.login(new LoginRequest("u1001", PASSWORD), request));
@@ -144,16 +146,33 @@ class AuthControllerTest {
     }
 
     @Test
-    void loginRateLimitKeyIncludesClientIp() {
+    void loginStopsWhenIpDimensionRateLimited() {
+        doNothing().when(loginRateLimiter).check("u1001");
+        doThrow(new BusinessException("登录尝试过于频繁，请稍后再试")).when(loginRateLimiter)
+                .check("login-ip:127.0.0.1", AuthController.IP_MAX_ATTEMPTS);
+
+        assertThrows(BusinessException.class,
+                () -> controller.login(new LoginRequest("u1001", PASSWORD), request));
+
+        verify(authService, never()).login(any());
+        verify(authAuditService).record(AuthAuditService.EVENT_LOGIN, "u1001", false,
+                AuthAuditService.RATE_LIMITED, "登录尝试过于频繁，请稍后再试", IP);
+    }
+
+    @Test
+    void loginRateLimitsAccountAndIpSeparately() {
         MockHttpServletRequest otherClient = new MockHttpServletRequest();
         otherClient.setRemoteAddr("10.0.0.5");
         when(authService.login(any())).thenReturn(loginResponse());
 
         controller.login(new LoginRequest("u1001", PASSWORD), request);
         controller.login(new LoginRequest("u1001", PASSWORD), otherClient);
+        controller.login(new LoginRequest("u1002", PASSWORD), request);
 
-        verify(loginRateLimiter).check("u1001|127.0.0.1");
-        verify(loginRateLimiter).check("u1001|10.0.0.5");
+        verify(loginRateLimiter, times(2)).check("u1001");
+        verify(loginRateLimiter).check("u1002");
+        verify(loginRateLimiter, times(2)).check("login-ip:127.0.0.1", AuthController.IP_MAX_ATTEMPTS);
+        verify(loginRateLimiter).check("login-ip:10.0.0.5", AuthController.IP_MAX_ATTEMPTS);
     }
 
     @Test

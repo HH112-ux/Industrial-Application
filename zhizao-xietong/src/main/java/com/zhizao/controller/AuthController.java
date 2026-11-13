@@ -40,6 +40,9 @@ import java.time.Duration;
 @RequestMapping("/api/auth")
 public class AuthController {
 
+    /** IP 维度每分钟允许的尝试次数：比账号维度宽松，只拦截同一来源换用户名喷洒。 */
+    static final int IP_MAX_ATTEMPTS = 30;
+
     private final AuthService authService;
     private final SsoAuthService ssoAuthService;
     private final LoginRateLimiter loginRateLimiter;
@@ -63,9 +66,9 @@ public class AuthController {
     @PostMapping("/login")
     public Result<LoginResponse> login(@RequestBody LoginRequest request, HttpServletRequest servletRequest) {
         String ip = clientIp(servletRequest);
-        String rateLimitKey = request.username() + "|" + (ip == null ? "unknown" : ip);
         try {
-            loginRateLimiter.check(rateLimitKey);
+            loginRateLimiter.check(request.username());
+            loginRateLimiter.check(ipRateLimitKey(ip), IP_MAX_ATTEMPTS);
         } catch (BusinessException e) {
             authAuditService.record(AuthAuditService.EVENT_LOGIN, request.username(), false,
                     AuthAuditService.RATE_LIMITED, e.getMessage(), ip);
@@ -180,5 +183,10 @@ public class AuthController {
     /** 取客户端 IP：仅在请求来自可信代理时才采信 X-Forwarded-For，其余直接用 TCP 对端地址。 */
     private String clientIp(HttpServletRequest request) {
         return clientIpResolver.resolve(request);
+    }
+
+    /** IP 维度限流键：独立命名空间，避免与账号维度的用户名键相互覆盖。 */
+    static String ipRateLimitKey(String ip) {
+        return "login-ip:" + (ip == null ? "unknown" : ip);
     }
 }
