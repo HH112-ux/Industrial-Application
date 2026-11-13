@@ -356,7 +356,8 @@ docker compose exec -T mysql sh -c 'MYSQL_PWD="$MYSQL_ROOT_PASSWORD" mysql -uroo
 docker compose logs --tail=100 backend | grep -iE 'Started|Migrating|Successfully applied'
 ```
 
-回退：把 `.env` 的 `DB_USERNAME` / `DB_PASSWORD` 改回 `root` / `MYSQL_ROOT_PASSWORD`，再 `docker compose up -d --force-recreate backend`；已创建的应用账号与 `mysql-init` 可保留，不影响 root 连接。
+回退：恢复升级前的 `docker-compose.yml`（或 `git revert` 本次提交）后 `docker compose up -d --build` 即可回到 root 连接；只想临时排障时可跳过依赖单独起后端：
+`docker compose run --rm --no-deps -e DB_USERNAME=root -e DB_PASSWORD="$MYSQL_ROOT_PASSWORD" backend`。不要直接把 `.env` 的 `DB_USERNAME` 改回 `root`：`mysql-init` 会拒绝执行，后端也会因 `depends_on` 条件不满足而不启动。
 
 > `mysql-init` 使用 `MYSQL_ROOT_PASSWORD` 连接 MySQL，所以 root 口令仍需保留在 `.env`；它不会进入后端容器。应用口令与 root 口令必须不同。
 
