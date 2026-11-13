@@ -219,7 +219,7 @@ docker exec zhizao-mqtt mosquitto_pub -h localhost \
 
 ### docker compose 环境变量透传
 
-`docker-compose.yml` 的 `backend.environment` 只透传有限几类变量：`DB_URL`、`DB_USERNAME`、`DB_PASSWORD`、`JWT_SECRET`、`CORS_ALLOWED_ORIGINS`、`API_DOCS_ENABLED`、`TRUSTED_PROXIES`、`SSO_COOKIE_SECURE`、`APP_BOOTSTRAP_ADMIN_PASSWORD`、`APP_SEED_DEMO_ENABLED`、`REDIS_HOST`、`REDIS_PORT`、`REDIS_PASSWORD`、`MQTT_ENABLED`、`MQTT_BROKER_URL`、`MQTT_USERNAME`、`MQTT_PASSWORD`、`MQTT_TOPIC`、`MQTT_QOS`、`MQTT_CLIENT_ID`、`MQTT_ACL_TOPICS`、`DEVICE_AUTH_ENABLED`、`DEVICE_CREDENTIAL_KEY` 与 `TZ`。`.env` 只参与 compose 的变量替换，**不会自动进入容器**。其余 `SSO_*` 变量同样不在透传清单内，开启 SSO 时需手工追加到 `backend.environment`。
+`docker-compose.yml` 的 `backend.environment` 只透传有限几类变量：`DB_URL`、`DB_USERNAME`、`DB_PASSWORD`、`JWT_SECRET`、`CORS_ALLOWED_ORIGINS`、`API_DOCS_ENABLED`、`TRUSTED_PROXIES`、`LOGIN_IP_MAX_ATTEMPTS`、`SSO_COOKIE_SECURE`、`APP_BOOTSTRAP_ADMIN_PASSWORD`、`APP_SEED_DEMO_ENABLED`、`REDIS_HOST`、`REDIS_PORT`、`REDIS_PASSWORD`、`MQTT_ENABLED`、`MQTT_BROKER_URL`、`MQTT_USERNAME`、`MQTT_PASSWORD`、`MQTT_TOPIC`、`MQTT_QOS`、`MQTT_CLIENT_ID`、`MQTT_ACL_TOPICS`、`DEVICE_AUTH_ENABLED`、`DEVICE_CREDENTIAL_KEY` 与 `TZ`。`.env` 只参与 compose 的变量替换，**不会自动进入容器**。其余 `SSO_*` 变量同样不在透传清单内，开启 SSO 时需手工追加到 `backend.environment`。
 
 MQTT 订阅参数（`MQTT_TOPIC`、`MQTT_QOS`、`MQTT_CLIENT_ID`）与 `MQTT_ACL_TOPICS` 已显式透传：`mqtt-init` 用 `MQTT_ACL_TOPICS` 生成 Broker ACL，`backend` 用同一份值在启动时比对订阅主题。`MQTT_ACL_TOPICS` 必须覆盖 `MQTT_TOPIC`（`+` 匹配单层，`#` 匹配剩余层级）；两者分叉时 Broker 会拒绝订阅（SUBACK 0x80），`backend` 启动日志会输出可操作的 WARN，订阅失败日志也会提示检查 ACL，避免遥测静默断流。
 
@@ -258,7 +258,7 @@ MQTT 订阅参数（`MQTT_TOPIC`、`MQTT_QOS`、`MQTT_CLIENT_ID`）与 `MQTT_ACL
 
 此时请把离应用最近一级代理的固定 IP 填入 `TRUSTED_PROXIES`（多级代理逐级填写，逗号分隔）。该名单只接受 IPv4/IPv6 字面量，不要填写通配地址。
 
-登录限流同时看两个维度：账号维度按用户名计数（每分钟 10 次），阻止针对单账号的口令猜测；IP 维度按客户端 IP 计数（默认每分钟 30 次，可用 `LOGIN_IP_MAX_ATTEMPTS` 调整，设 `0` 关闭）。客户端 IP 同样来自上面的解析规则：`TRUSTED_PROXIES` 未配置或配置错误时，所有用户会共用代理地址的 IP 额度，一个来源的喷洒会连带同网段用户无法登录，因此反向代理部署必须同时核对这一项。默认 compose 部署在自带 nginx 之后，未配置 `TRUSTED_PROXIES` 时后端只能看到 nginx 容器地址，整栈共用一个 IP 桶，换班集中登录可能触发限流；此时应按上文配置 `TRUSTED_PROXIES`，或在确有需要时调高 `LOGIN_IP_MAX_ATTEMPTS`。
+登录限流同时看两个维度：账号维度按用户名计数（每分钟 10 次），阻止针对单账号的口令猜测；IP 维度按客户端 IP 计数（默认每分钟 30 次，可用 `LOGIN_IP_MAX_ATTEMPTS` 调整；设 `0` 关闭本地登录的 IP 维度，SSO 回调的 `sso:IP` 限流不受影响）。客户端 IP 同样来自上面的解析规则：`TRUSTED_PROXIES` 未配置或配置错误时，所有用户会共用代理地址的 IP 额度，一个来源的喷洒会连带同网段用户无法登录，因此反向代理部署必须同时核对这一项。默认 compose 部署在自带 nginx 之后，未配置 `TRUSTED_PROXIES` 时后端只能看到 nginx 容器地址，整栈共用一个 IP 桶，换班集中登录可能触发限流；此时应按上文配置 `TRUSTED_PROXIES`，或在确有需要时调高 `LOGIN_IP_MAX_ATTEMPTS`。
 
 ### 启用设备 HMAC 鉴权（分步）
 
