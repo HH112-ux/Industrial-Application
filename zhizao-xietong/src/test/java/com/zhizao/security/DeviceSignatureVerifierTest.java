@@ -136,4 +136,21 @@ class DeviceSignatureVerifierTest {
         assertEquals("EQ-1|RUNNING|45.2|1500|8.5|1700000000000|n-1",
                 DeviceSignatureVerifier.canonicalReport(report));
     }
+
+    @Test
+    void logValueReplacesControlCharacters() {
+        assertEquals("DK-x?fake?line", DeviceSignatureVerifier.sanitizeForLog("DK-x\nfake\rline"));
+    }
+
+    @Test
+    void logValueIsTruncated() {
+        String sanitized = DeviceSignatureVerifier.sanitizeForLog("a".repeat(500));
+
+        assertEquals(64, sanitized.length());
+    }
+
+    @Test
+    void logValueHandlesNull() {
+        assertEquals("", DeviceSignatureVerifier.sanitizeForLog(null));
+    }
 }

@@ -35,6 +35,9 @@ public class DeviceSignatureVerifier {
     private static final Logger log = LoggerFactory.getLogger(DeviceSignatureVerifier.class);
     private static final String HMAC_ALGORITHM = "HmacSHA256";
 
+    /** 日志中外部可控字段的最大长度，避免超长 keyId 刷日志。 */
+    private static final int MAX_LOG_VALUE_LENGTH = 64;
+
     private final DeviceCredentialMapper credentialMapper;
     private final DeviceSecretCipher secretCipher;
 
@@ -180,7 +183,7 @@ public class DeviceSignatureVerifier {
         try {
             return secretCipher.decrypt(credential.getSecretCiphertext());
         } catch (IllegalStateException e) {
-            log.error("设备凭证解密失败，keyId={}", credential.getKeyId(), e);
+            log.error("设备凭证解密失败，keyId={}", sanitizeForLog(credential.getKeyId()), e);
             throw new DeviceAuthException(401, "设备凭证不可用");
         }
     }
@@ -194,8 +197,29 @@ public class DeviceSignatureVerifier {
      * @return 带状态码的设备鉴权异常
      */
     private DeviceAuthException reject(int status, String reason, String keyId) {
-        log.warn("设备鉴权拒绝：status={}，keyId={}，原因={}", status, keyId, reason);
+        log.warn("设备鉴权拒绝：status={}，keyId={}，原因={}", status, sanitizeForLog(keyId), reason);
         return new DeviceAuthException(status, reason);
+    }
+
+    /**
+     * 清洗外部可控的 keyId 后再写日志：控制字符替换为 `?`，超长部分截断。
+     *
+     * <p>keyId 可来自请求头或 MQTT 报文，原样落日志可被换行符伪造日志行，
+     * 也可被超长内容放大日志体积。</p>
+     *
+     * @param value 外部输入，可为空
+     * @return 可直接写入日志的字符串
+     */
+    static String sanitizeForLog(String value) {
+        if (value == null) {
+            return "";
+        }
+        StringBuilder sanitized = new StringBuilder(Math.min(value.length(), MAX_LOG_VALUE_LENGTH));
+        for (int i = 0; i < value.length() && sanitized.length() < MAX_LOG_VALUE_LENGTH; i++) {
+            char c = value.charAt(i);
+            sanitized.append(Character.isISOControl(c) ? '?' : c);
+        }
+        return sanitized.toString();
     }
 
     private void touch(DeviceCredential credential) {
