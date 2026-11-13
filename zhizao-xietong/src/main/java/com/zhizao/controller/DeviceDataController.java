@@ -83,14 +83,15 @@ public class DeviceDataController {
 
     /**
      * 设备状态回传。鉴权开启时校验 `X-Device-Key` 与 `X-Device-Signature`，
-     * 签名对象为原始请求体；`X-Idempotency-Key` 用于设备重发去重。
+     * 签名对象为原始请求体，并按报文 `deviceNo` 校验凭证与设备的绑定关系；
+     * `X-Idempotency-Key` 用于设备重发去重。
      *
      * @param rawBody        原始请求体，签名校验必须基于未解析的字节内容
      * @param deviceKey      设备凭证标识，鉴权开启时必填
      * @param signature      十六进制 HMAC-SHA256 签名，鉴权开启时必填
      * @param idempotencyKey 设备侧唯一键，可为空
      * @return 成功返回空响应体；重复上报同样返回成功且不重复写入
-     * @throws com.zhizao.common.DeviceAuthException 签名错误返回 401，设备停用返回 403
+     * @throws com.zhizao.common.DeviceAuthException 签名错误返回 401，设备停用或凭证与设备编号不匹配返回 403
      * @throws BusinessException                    请求体格式错误时抛出
      */
     @PostMapping("/integration/device-status")
@@ -98,13 +99,14 @@ public class DeviceDataController {
                                    @RequestHeader(value = "X-Device-Key", required = false) String deviceKey,
                                    @RequestHeader(value = "X-Device-Signature", required = false) String signature,
                                    @RequestHeader(value = "X-Idempotency-Key", required = false) String idempotencyKey) {
-        signatureVerifier.verifyRawPayload(deviceKey, signature, rawBody);
         DeviceGatewayReport report;
         try {
             report = objectMapper.readValue(rawBody, DeviceGatewayReport.class);
         } catch (Exception e) {
             throw new BusinessException("请求体格式错误");
         }
+        // 验签对象始终是原始请求体；先解析只是为了取得 deviceNo 做凭证绑定校验
+        signatureVerifier.verifyRawPayload(deviceKey, signature, rawBody, report.deviceNo());
         deviceDataService.handleGatewayReport(report, idempotencyKey, "HTTP");
         return Result.ok();
     }

@@ -272,8 +272,10 @@ MQTT 订阅参数（`MQTT_TOPIC`、`MQTT_QOS`、`MQTT_CLIENT_ID`）与 `MQTT_ACL
 2. 保持 `DEVICE_AUTH_ENABLED=false` 启动后端。compose 已透传这两个变量，只需改 `.env`，不需要改 `docker-compose.yml`。
 3. 用管理员账号逐台签发凭证：`POST /api/devices/{id}/credential`，明文密钥只在响应中出现一次，写入设备侧安全存储。设备需支持 REST 的 `X-Device-Key` + `X-Device-Signature`，或 MQTT 消息体中的 `keyId` / `timestamp` / `nonce` / `signature`。
 4. 逐台观察后端日志，确认设备已切换为签名上报（成功为 `MQTT 收到设备上报`）；此时鉴权尚未生效，未改造设备仍可上报。
-5. 全部设备改造完成后，把 `DEVICE_AUTH_ENABLED` 改为 `true` 并重启 backend。重启后未带凭据、签名错误、MQTT 时间戳越界或凭证已吊销的上报会被拒绝：REST 返回 401/403，MQTT 丢弃并记录 WARN。开启鉴权但未配置 `DEVICE_CREDENTIAL_KEY` 时后端启动直接失败，不会带病运行。
+5. 全部设备改造完成后，把 `DEVICE_AUTH_ENABLED` 改为 `true` 并重启 backend。重启后未带凭据、签名错误、MQTT 时间戳越界、凭证已吊销、**凭证与报文设备编号不一致**的上报会被拒绝：REST 返回 401/403，MQTT 丢弃并记录 WARN。开启鉴权但未配置 `DEVICE_CREDENTIAL_KEY` 时后端启动直接失败，不会带病运行。
 6. 回退：把 `DEVICE_AUTH_ENABLED` 改回 `false` 重启即可恢复原行为；已签发凭证保留，不需要重新签发。注意轮换主密钥必须先为所有设备重签凭证，否则既有密文无法解密。
+
+凭证与设备是绑定的：契约中的 `eq_device_credential.device_id` 在签发时就指向唯一设备，校验时按该设备台账中的 `device_no` 与报文 `deviceNo` 比对，不一致即 403。因此**存量凭证不需要重新签发或补映射**——签发接口本来就是按设备主键发凭证（`POST /api/devices/{id}/credential`），历史数据已带 `device_id`。设备编号在台账中被修改后，绑定关系按新编号自动生效；设备被删除（软删 `deleted=1`）后其凭证立即被拒绝。
 
 存量设备兼容性：鉴权开启后没有「未升级设备白名单」，只要还有设备未改造，它的上报就会被整体拒绝，因此不要提前打开。过渡期只能保持关闭，或接受未改造设备停止上报；设备改造完成后统一开启才能获得防伪造能力。
 
@@ -535,9 +537,9 @@ lsof -nP -iTCP:8080 -sTCP:LISTEN
 开启 `DEVICE_AUTH_ENABLED=true` 后：
 
 - `401`：缺少 `keyId`、`keyId` 不存在、签名不匹配或 MQTT 时间戳超出窗口
-- `403`：凭证已吊销
+- `403`：凭证已吊销、凭证绑定的设备已删除，或凭证与报文设备编号不匹配（用 A 设备凭证签 B 设备报文）
 - 未配置 `DEVICE_CREDENTIAL_KEY`：开启鉴权时后端启动直接失败；未开启鉴权时凭证签发接口返回业务错误
-- 拒绝痕迹：backend 日志中的 `设备鉴权拒绝` WARN 行，包含状态码、`keyId` 与原因；MQTT 侧另有 `MQTT 设备鉴权失败` 行，包含主题与报文。可用 `docker compose logs backend | grep 设备鉴权拒绝` 查看
+- 拒绝痕迹：backend 日志中的 `设备鉴权拒绝` WARN 行，包含状态码、`keyId` 与原因；跨设备上报额外记录 `绑定设备=` 与 `上报设备=` 两个编号，便于取证。MQTT 侧另有 `MQTT 设备鉴权失败` 行，包含主题与报文。可用 `docker compose logs backend | grep 设备鉴权拒绝` 查看
 
 REST 签名对象是原始请求体，必须与发送字节完全一致；MQTT 签名对象是接口契约中定义的规范化字段串。
 
